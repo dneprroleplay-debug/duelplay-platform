@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-
+import { createMatch } from "@/lib/api/matches";
 export default function CreateMatch() {
   const [currency, setCurrency] = useState("UAH");
-  const [mode, setMode] = useState("1v1");
+  const mode = "1v1";
   const [bet, setBet] = useState("50");
   const [customBet, setCustomBet] = useState("");
   const [map, setMap] = useState("Mirage");
@@ -21,6 +21,15 @@ export default function CreateMatch() {
     currentBet > 0
       ? (currentBet * 2 * 0.93).toFixed(0)
       : "0";
+
+const handleCreateMatch = async () => {
+await createMatch({
+  mode: "SOLO_1V1",
+  mapName: map,
+  betAmount: currentBet,
+  commission: currentBet * 0.07,
+});
+};
 
   const formatMoney = (value: number) =>
     value.toLocaleString("en-US");
@@ -42,21 +51,17 @@ export default function CreateMatch() {
           <label className="mb-2 block text-zinc-300">
             Ставка
           </label>
-<div className="mb-5">
-  <label className="mb-2 block text-zinc-300">
-    Режим
-  </label>
 
-  <select
-    value={mode}
-    onChange={(e) => setMode(e.target.value)}
-    className="w-full rounded-xl border border-zinc-700 bg-black p-4"
-  >
-    <option value="1v1">1 vs 1</option>
-    <option value="2v2">2 vs 2</option>
-    <option value="5v5">5 vs 5</option>
-  </select>
-</div>
+          <div className="mb-5">
+            <label className="mb-2 block text-zinc-300">
+              Режим
+            </label>
+
+            <div className="w-full rounded-xl border border-zinc-700 bg-black p-4 text-white">
+              1 vs 1
+            </div>
+          </div>
+
           <select
             value={bet}
             onChange={(e) => setBet(e.target.value)}
@@ -199,16 +204,17 @@ export default function CreateMatch() {
           </div>
         )}
 
-        <button
-          disabled={!isCustomBetValid}
-          className={`w-full rounded-xl py-4 text-lg font-bold transition ${
-            isCustomBetValid
-              ? "bg-cyan-500 text-black hover:bg-cyan-400"
-              : "cursor-not-allowed bg-zinc-700 text-zinc-400"
-          }`}
-        >
-          Создать матч
-        </button>
+<button
+  onClick={handleCreateMatch}
+  disabled={!isCustomBetValid}
+  className={`w-full rounded-xl py-4 text-lg font-bold transition ${
+    isCustomBetValid
+      ? "bg-cyan-500 text-black hover:bg-cyan-400"
+      : "cursor-not-allowed bg-zinc-700 text-zinc-400"
+  }`}
+>
+  Создать матч
+</button>
 
       </div>
     </section>
