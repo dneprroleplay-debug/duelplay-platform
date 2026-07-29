@@ -7,10 +7,11 @@ export async function POST(req: Request) {
 
     const match = await prisma.match.create({
       data: {
-        creatorId: body.creatorId,
+        playerOneId: body.creatorId,
+        gameId: body.gameId,
         mode: body.mode,
-        map: body.map,
-        bet: body.bet,
+        mapName: body.map,
+        betAmount: body.bet,
       },
     });
 
