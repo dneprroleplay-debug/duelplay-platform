@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { isServerManagerRequest } from "@/app/api/server-manager/auth";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -11,7 +12,7 @@ async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.Match
     if (!wallet) continue;
     const before = Number(wallet.balance), after = Number((before + amount).toFixed(4));
     await tx.wallet.update({ where: { id: wallet.id }, data: { balance: after, lockedBalance: { decrement: amount } } });
-    await tx.transaction.create({ data: { walletId: wallet.id, type: "REFUND", status: "COMPLETED", amount, balanceBefore: before, balanceAfter: after, referenceId: match.id, description: "Возврат ставки: сервер матча не запустился" } });
+    await tx.transaction.create({ data: { walletId: wallet.id, type: "REFUND", status: "COMPLETED", amount, balanceBefore: before, balanceAfter: after, referenceId: match.id, description: "Р’РѕР·РІСЂР°С‚ СЃС‚Р°РІРєРё: СЃРµСЂРІРµСЂ РјР°С‚С‡Р° РЅРµ Р·Р°РїСѓСЃС‚РёР»СЃСЏ" } });
   }
   await tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), serverConfig: { ...asRecord(match.serverConfig), state: "FAILED", connectUrl: "" } } });
 }
@@ -74,3 +75,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Server state update failed" }, { status: 500 });
   }
 }
+
+
