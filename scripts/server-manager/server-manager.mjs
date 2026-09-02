@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+﻿import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,6 +26,7 @@ if (!existsSync(CS2_SCRIPT)) throw new Error(`CS2 script not found: ${CS2_SCRIPT
 let current = null;
 let lastGsiAt = 0;
 let resultSent = false;
+let lastRoundWinnerTeam = null;
 const observedTeams = new Map();
 
 async function api(path, init = {}) {
@@ -118,6 +119,11 @@ function observeServerLine(text) {
   }
 
   const clinch = text.match(/SFUI_Notice_(CTs|Ts)_Clinched_Match/i);
+  const roundWin = text.match(/Team\s+"(CT|TERRORIST)"\s+triggered\s+"SFUI_Notice_(?:CTs|Terrorists)_Win"/i);
+  if (roundWin) {
+    lastRoundWinnerTeam = roundWin[1].toUpperCase() === 'TERRORIST' ? 'T' : 'CT';
+  }
+
   const gameOver = text.match(/Game Over:.*?score\s+(\d+)[:](\d+)/i);
   const notice = text.match(/Team\s+"(CT|TERRORIST)"\s+triggered\s+"SFUI_Notice_(?:CTs|Terrorists)_Clinched_Match"/i);
   if (!clinch && !gameOver && !notice) return;
@@ -160,6 +166,7 @@ async function claimAndStart(match) {
   };
   resultSent = false;
   observedTeams.clear();
+  lastRoundWinnerTeam = null;
   lastGsiAt = 0;
   lastLogFile = '';
   lastLogSize = 0;
@@ -328,3 +335,4 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
