@@ -184,7 +184,7 @@ export async function PATCH(request:NextRequest){
             await tx.gameServer.update({
               where:{id:match.gameServer.id},
               data:{
-                status:"READY",
+                status:"OFFLINE",
                 matchId:null,
                 processId:null,
                 startedAt:null,
