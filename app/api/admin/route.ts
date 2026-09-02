@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, adminLevel, audit } from "@/lib/admin";
 import { THEMES, themeById } from "@/lib/themes";
@@ -159,16 +160,48 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="cancelMatch"){
-      const id=String(body.matchId); const match=await prisma.match.findUnique({where:{id},include:{gameServer:true}});
-      if(!match)return NextResponse.json({error:"Матч не найден"},{status:404});
-      if(match.gameServer)return NextResponse.json({error:"Сервер уже запускается для этой дуэли"},{status:409});
-      if(!["WAITING_FOR_PLAYERS","READY"].includes(match.status) && !(match.status==="LIVE" && !(match.serverConfig as any)?.connectUrl))return NextResponse.json({error:"Матч уже запущен или завершён"},{status:409});
-      const amount=Number(match.betAmount);
-      await prisma.$transaction(async tx=>{for(const uid of [match.playerOneId,match.playerTwoId].filter(Boolean) as string[]){const w=await tx.wallet.findUnique({where:{userId:uid}});if(w){const before=Number(w.balance),after=Number((before+amount).toFixed(4));await tx.wallet.update({where:{id:w.id},data:{balance:after,lockedBalance:{decrement:amount}}});await tx.transaction.create({data:{walletId:w.id,type:"REFUND",status:"COMPLETED",amount,balanceBefore:before,balanceAfter:after,referenceId:id,description:"Возврат ставки администратором"}})}}await tx.match.update({where:{id},data:{status:"CANCELLED",endedAt:new Date()}})});
-      await audit(me.id,"CANCEL_MATCH","MATCH",id);return NextResponse.json({ok:true});
-    }
+        const id=String(body.matchId);
+        const match=await prisma.match.findUnique({where:{id},include:{gameServer:true}});
+        if(!match)return NextResponse.json({error:"Матч не найден"},{status:404});
+        if(["CANCELLED","FINISHED","COMPLETED"].includes(match.status))return NextResponse.json({error:"Матч уже завершён"},{status:409});
 
-    return NextResponse.json({error:"Неизвестное действие"},{status:400});
+        const amount=Number(match.betAmount);
+        await prisma.$transaction(async tx=>{
+          for(const uid of [match.playerOneId,match.playerTwoId].filter(Boolean) as string[]){
+            const w=await tx.wallet.findUnique({where:{userId:uid}});
+            if(w){
+              const before=Number(w.balance);
+              const after=Number((before+amount).toFixed(4));
+              await tx.wallet.update({where:{id:w.id},data:{balance:after,lockedBalance:{decrement:amount}}});
+              await tx.transaction.create({data:{
+                walletId:w.id,type:"REFUND",status:"COMPLETED",amount,
+                balanceBefore:before,balanceAfter:after,referenceId:id,
+                description:"Возврат ставки администратором"
+              }});
+            }
+          }
+          if(match.gameServer){
+            await tx.gameServer.update({
+              where:{id:match.gameServer.id},
+              data:{
+                status:"READY",
+                matchId:null,
+                processId:null,
+                startedAt:null,
+                stoppedAt:new Date(),
+                lastHeartbeat:null
+              }
+            });
+          }
+          await tx.match.update({
+            where:{id},
+            data:{status:"CANCELLED",endedAt:new Date(),serverConfig:Prisma.JsonNull}
+          });
+        });
+        await audit(me.id,"CANCEL_MATCH","MATCH",id);
+        return NextResponse.json({ok:true});
+      }
+return NextResponse.json({error:"Неизвестное действие"},{status:400});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
     if(e instanceof Error&&e.message==="WALLET")return NextResponse.json({error:"Кошелёк не найден"},{status:404});
