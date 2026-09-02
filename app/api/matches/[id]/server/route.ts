@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const host = String(body.host ?? match.gameServer.host);
         await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId: Number.isInteger(body.processId) ? Number(body.processId) : null, startedAt: new Date(), lastHeartbeat: new Date() } });
         const cfg = asRecord(match.serverConfig);
-        return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt: new Date(), serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://connect/${host}:${port}` } } });
+        return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt: new Date(), serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://run/730//+connect ${host}:${port}` } } });
       });
       return NextResponse.json({ ok: true, match });
     }
@@ -75,5 +75,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Server state update failed" }, { status: 500 });
   }
 }
+
 
 
