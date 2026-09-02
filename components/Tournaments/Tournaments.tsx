@@ -1,0 +1,3 @@
+"use client";
+import { useLanguage } from "../Common/LanguageContext";
+export default function Tournaments(){const{t}=useLanguage();return <section id="tournaments" className="mx-auto max-w-7xl px-4 py-20 sm:px-6"><div className="panel rounded-3xl p-8 sm:p-10"><span className="pill">{t.tournamentsTitle}</span><div className="mt-4 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><h2 className="text-4xl font-black">{t.tournamentsTitle}</h2><p className="mt-3 max-w-xl text-zinc-500">{t.tournamentsText}</p></div><span className="status waiting">{t.comingSoon}</span></div></div></section>}

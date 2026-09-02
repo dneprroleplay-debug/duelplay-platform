@@ -1,0 +1,2 @@
+import { NextResponse } from "next/server"; import { prisma } from "@/lib/prisma"; import { getCurrentUser } from "@/lib/current-user";
+export async function GET(){const user=await getCurrentUser();if(!user)return NextResponse.json({error:"Не авторизован"},{status:401});const transactions=await prisma.transaction.findMany({where:{wallet:{userId:user.id}},orderBy:{createdAt:"desc"},take:30,select:{id:true,type:true,amount:true,description:true,status:true,createdAt:true}});return NextResponse.json({transactions:transactions.map(t=>({...t,amount:t.amount.toString()}))})}
