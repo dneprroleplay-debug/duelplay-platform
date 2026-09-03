@@ -24,9 +24,35 @@ export default function Header(){
  useEffect(()=>{const close=(e:MouseEvent)=>{const target=e.target as Node;if(langRef.current?.contains(target)||noticeRef.current?.contains(target)||profileRef.current?.contains(target))return;setLangOpen(false);setNoticeOpen(false);setProfileOpen(false)};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)}};document.addEventListener("click",close);window.addEventListener("keydown",key);return()=>{document.removeEventListener("click",close);window.removeEventListener("keydown",key)}},[]);
  async function markNotice(id:string){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});setNotices(v=>v.map(n=>n.id===id?{...n,status:"READ"}:n));setUnread(v=>Math.max(0,v-1));setNoticeOpen(false)}
  async function markAll(){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({all:true})});setNotices(v=>v.map(n=>({...n,status:"READ"})));setUnread(0);setNoticeOpen(false)}
- const noticeTitle=(n:Notice)=>{const kind=(n as any).payload?.kind;if(kind==="SUPPORT_CLOSED")return language==="RU"?"Обращение закрыто":language==="UA"?"Звернення закрито":language==="PL"?"Zgłoszenie zamknięte":"Ticket closed";if(kind==="SUPPORT_REPLY")return language==="RU"?"Ответ поддержки":language==="UA"?"Відповідь підтримки":language==="PL"?"Odpowiedź wsparcia":"Support reply";return n.title};
- const noticeBody=(n:Notice)=>{const kind=(n as any).payload?.kind;if(kind==="SUPPORT_CLOSED"){const subject=(n as any).payload?.subject||"";return language==="RU"?`Обращение «${subject}» закрыто поддержкой.`:language==="UA"?`Звернення «${subject}» закрито підтримкою.`:language==="PL"?`Zgłoszenie „${subject}” zostało zamknięte przez wsparcie.`:`Ticket “${subject}” was closed by support.`}return n.body};
- const ui={
+  const noticePayload=(n:Notice)=>((n as any).payload||{}) as Record<string,any>;
+ const noticeTitle=(n:Notice)=>{
+  const p=noticePayload(n);
+  const kind=p.kind;
+  if(p.localTest===true){
+   return Number(p.payout||0)>0
+    ? language==="RU"?"Победа в тестовой дуэли":language==="UA"?"Перемога в тестовій дуелі":language==="PL"?"Wygrana w testowym pojedynku":"Test duel won"
+    : language==="RU"?"Тестовый матч завершён":language==="UA"?"Тестовий матч завершено":language==="PL"?"Testowy mecz zakończony":"Test match completed";
+  }
+  if(kind==="SUPPORT_CLOSED")return language==="RU"?"Обращение закрыто":language==="UA"?"Звернення закрито":language==="PL"?"Zgłoszenie zamknięte":"Ticket closed";
+  if(kind==="SUPPORT_REPLY")return language==="RU"?"Ответ поддержки":language==="UA"?"Відповідь підтримки":language==="PL"?"Odpowiedź wsparcia":"Support reply";
+  return n.title;
+ };
+ const noticeBody=(n:Notice)=>{
+  const p=noticePayload(n);
+  const kind=p.kind;
+  if(p.localTest===true){
+   if(Number(p.payout||0)>0){
+    const amount=Number(p.payout).toFixed(2);
+    return language==="RU"?`Тестовый матч завершён. Начислено ${amount}.`:language==="UA"?`Тестовий матч завершено. Зараховано ${amount}.`:language==="PL"?`Testowy mecz zakończony. Dodano ${amount}.`:`Test match completed. ${amount} credited.`;
+   }
+   return language==="RU"?"Победитель выбран в локальном тестовом режиме.":language==="UA"?"Переможця обрано в локальному тестовому режимі.":language==="PL"?"Zwycięzca został wybrany w trybie lokalnego testu.":"Winner selected in local test mode.";
+  }
+  if(kind==="SUPPORT_CLOSED"){
+   const subject=p.subject||"";
+   return language==="RU"?`Обращение «${subject}» закрыто поддержкой.`:language==="UA"?`Звернення «${subject}» закрито підтримкою.`:language==="PL"?`Zgłoszenie „${subject}” zostało zamknięte przez wsparcie.`:`Ticket “${subject}” was closed by support.`;
+  }
+  return n.body;
+ }; const ui={
   RU:{notifications:"Уведомления",readAll:"Прочитать всё",empty:"Пока нет уведомлений",profile:"Профиль",wallet:"Кошелёк",inventory:"Инвентарь",appearance:"Оформление",admin:"Панель администратора",logout:t.logout},
   UA:{notifications:"Сповіщення",readAll:"Прочитати все",empty:"Поки немає сповіщень",profile:"Профіль",wallet:"Гаманець",inventory:"Інвентар",appearance:"Оформлення",admin:"Панель адміністратора",logout:t.logout},
   EN:{notifications:"Notifications",readAll:"Mark all as read",empty:"No notifications yet",profile:"Profile",wallet:"Wallet",inventory:"Inventory",appearance:"Appearance",admin:"Admin panel",logout:t.logout},
@@ -53,7 +79,7 @@ export default function Header(){
      </>:<Link href="/login" className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold hover:border-[var(--theme-accent)]/30 hover:text-[var(--theme-accent)]">{t.loginSteam}</Link>}
     </div>
    </div>
-   {menuOpen&&<div className="border-t border-white/10 bg-[#050507] px-4 py-3 md:hidden"><nav className="flex flex-col gap-1">{links}</nav>{user&&<div className="mt-2 grid grid-cols-3 gap-2 border-t border-white/5 pt-3"><Link href="/create" className="rounded-xl bg-[var(--theme-accent)] px-3 py-2 text-center text-sm font-black text-black">Создать</Link><Link href="/wallet" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.wallet}</Link><Link href="/inventory" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.inventory}</Link></div>}</div>}
+   {menuOpen&&<div className="border-t border-white/10 bg-[#050507] px-4 py-3 md:hidden"><nav className="flex flex-col gap-1">{links}</nav>{user&&<div className="mt-2 grid grid-cols-3 gap-2 border-t border-white/5 pt-3"><Link href="/create" className="rounded-xl bg-[var(--theme-accent)] px-3 py-2 text-center text-sm font-black text-black">{t.createMatch}</Link><Link href="/wallet" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.wallet}</Link><Link href="/inventory" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.inventory}</Link></div>}</div>}
   </header>
  </>;
 }
