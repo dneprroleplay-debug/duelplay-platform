@@ -29,6 +29,7 @@ let lastGsiAt = 0;
 let resultSent = false;
 let serverReadyAt = 0;
 let connectedSteamIds = [];
+let lastHeartbeatSentAt = 0;
 let lastRoundWinnerTeam = null;
 const observedTeams = new Map();
 
@@ -175,6 +176,7 @@ async function claimAndStart(match) {
   lastLogSize = 0;
   serverReadyAt = 0;
   connectedSteamIds = [];
+  lastHeartbeatSentAt = 0;
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
@@ -232,6 +234,7 @@ async function claimAndStart(match) {
       });
       serverReadyAt = Date.now();
       connectedSteamIds = [];
+      lastHeartbeatSentAt = 0;
       console.log(`[DuelPlay] server ready: steam://connect/${HOST}:${PORT}`);
     } catch (error) {
       console.error('[DuelPlay] server failed to become ready', error);
@@ -335,7 +338,7 @@ async function loop() {
       if (queue.pending) await claimAndStart(queue.pending);
     } else {
       scanLatestServerLog();
-      if (Date.now() - lastGsiAt > HEARTBEAT_MS) {
+      if (Date.now() - lastHeartbeatSentAt >= HEARTBEAT_MS) {
         try {
           await api(`/api/matches/${current.id}/server`, {
             method: 'POST',
@@ -345,6 +348,12 @@ async function loop() {
               connectedSteamIds
             })
           });
+
+          lastHeartbeatSentAt = Date.now();
+
+          console.log(
+            `[DuelPlay] heartbeat: ${connectedSteamIds.length}/2 players connected`
+          );
         } catch (error) {
           console.error('[DuelPlay] heartbeat failed', error);
         }
