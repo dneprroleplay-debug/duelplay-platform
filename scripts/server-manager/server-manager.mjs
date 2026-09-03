@@ -29,6 +29,7 @@ let lastGsiAt = 0;
 let resultSent = false;
 let serverReadyAt = 0;
 let connectedSteamIds = [];
+let connectionPhaseCompleted = false;
 let lastHeartbeatSentAt = 0;
 let lastRoundWinnerTeam = null;
 const observedTeams = new Map();
@@ -110,6 +111,17 @@ function steam64FromSteam3(value) {
   const match = String(value).match(/\[U:1:(\d+)\]/);
   if (!match) return null;
   return String(76561197960265728n + BigInt(match[1]));
+}\n\nfunction normalizeSteamId(value) {
+  const raw = String(value ?? '').trim();
+
+  if (!raw) return null;
+
+  if (/^\d{17}$/.test(raw)) return raw;
+
+  const steam3 = steam64FromSteam3(raw);
+  if (steam3) return steam3;
+
+  return raw;
 }
 
 function observeServerLine(text) {
@@ -176,6 +188,7 @@ async function claimAndStart(match) {
   lastLogSize = 0;
   serverReadyAt = 0;
   connectedSteamIds = [];
+  connectionPhaseCompleted = false;
   lastHeartbeatSentAt = 0;
 
   child.stdout.on('data', (chunk) => {
@@ -234,6 +247,7 @@ async function claimAndStart(match) {
       });
       serverReadyAt = Date.now();
       connectedSteamIds = [];
+      connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
       console.log(`[DuelPlay] server ready: steam://connect/${HOST}:${PORT}`);
     } catch (error) {
@@ -269,43 +283,96 @@ async function reportWinner(winnerSteamId, reason) {
 function detectWinner(body) {
   if (!current) return;
 
-  const participants = [
-    current.playerOneSteamId,
-    current.playerTwoSteamId
-  ].filter(Boolean);
+  const participants = new Set(
+    [
+      current.playerOneSteamId,
+      current.playerTwoSteamId
+    ]
+      .map(normalizeSteamId)
+      .filter(Boolean)
+  );
+
+  const found = new Set();
 
   const allplayers = body?.allplayers;
 
-  if (allplayers && typeof allplayers === 'object' && !Array.isArray(allplayers)) {
-    connectedSteamIds = Object.keys(allplayers)
-      .filter((steamId) => participants.includes(String(steamId)))
-      .map(String);
+  if (
+    allplayers &&
+    typeof allplayers === 'object' &&
+    !Array.isArray(allplayers)
+  ) {
+    for (const [steamId, player] of Object.entries(allplayers)) {
+      const keyId = normalizeSteamId(steamId);
+
+      const playerId = normalizeSteamId(
+        player?.steamid ??
+        player?.steam_id ??
+        player?.id
+      );
+
+      if (keyId && participants.has(keyId)) {
+        found.add(keyId);
+      }
+
+      if (playerId && participants.has(playerId)) {
+        found.add(playerId);
+      }
+    }
   }
+
+  const currentPlayerId = normalizeSteamId(
+    body?.player?.steamid ??
+    body?.player?.steam_id ??
+    body?.player_id?.steamid
+  );
+
+  if (
+    currentPlayerId &&
+    participants.has(currentPlayerId)
+  ) {
+    found.add(currentPlayerId);
+
+    const team = String(body?.player?.team || '');
+
+    if (team === 'CT' || team === 'T') {
+      observedTeams.set(currentPlayerId, team);
+    }
+  }
+
+  connectedSteamIds = [...found];
+
+  if (connectedSteamIds.length >= 2) {
+    connectionPhaseCompleted = true;
+  }
+
+  console.log(
+    `[DuelPlay] GSI players ${connectedSteamIds.length}/2: ${connectedSteamIds.join(', ') || 'none'}`
+  );
 
   if (resultSent) return;
 
-  const player = body?.player;
-  const playerSteamId = String(player?.steamid || body?.player_id?.steamid || '');
-  const playerTeam = String(player?.team || '');
-  if (playerSteamId && [current.playerOneSteamId, current.playerTwoSteamId].includes(playerSteamId) && (playerTeam === 'CT' || playerTeam === 'T')) {
-    observedTeams.set(playerSteamId, playerTeam);
-  }
-
   const map = body?.map;
   const phase = String(map?.phase || '').toLowerCase();
+
   if (!['gameover', 'over'].includes(phase)) return;
+
   const ct = Number(map?.team_ct?.score ?? -1);
   const tt = Number(map?.team_t?.score ?? -1);
-  if (ct < 0 || tt < 0 || ct === tt) return;
-  const winnerTeam = ct > tt ? 'CT' : 'T';
-  const winner = observedTeams.get(current.playerOneSteamId) === winnerTeam
-    ? current.playerOneSteamId
-    : observedTeams.get(current.playerTwoSteamId) === winnerTeam
-      ? current.playerTwoSteamId
-      : null;
-  if (winner) void reportWinner(winner, `map.gameover score CT=${ct} T=${tt}`);
-}
 
+  if (ct < 0 || tt < 0 || ct === tt) return;
+
+  const winnerTeam = ct > tt ? 'CT' : 'T';
+
+  const winner = [...observedTeams.entries()]
+    .find(([, team]) => team === winnerTeam)?.[0] || null;
+
+  if (winner) {
+    void reportWinner(
+      winner,
+      `GSI gameover score CT=${ct} T=${tt}`
+    );
+  }
+}
 createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -345,7 +412,8 @@ async function loop() {
             body: JSON.stringify({
               action: 'heartbeat',
               serverId: current.serverId,
-              connectedSteamIds
+              connectedSteamIds,
+              connectionPhaseCompleted
             })
           });
 
@@ -360,6 +428,7 @@ async function loop() {
       }
       if (
         serverReadyAt &&
+        !connectionPhaseCompleted &&
         Date.now() - serverReadyAt >= CONNECT_TIMEOUT_MS &&
         connectedSteamIds.length < 2
       ) {

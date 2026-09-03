@@ -8,7 +8,7 @@ import { useAuth } from "@/components/Common/AuthContext";
 import { languages } from "@/lib/language";
 const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"/images/maps/dust2.jpg",Ancient:"/images/maps/ancient.jpg",Train:"/images/maps/train.jpg",Overpass:"/images/maps/overpass.jpg",Inferno:"/images/maps/inferno.jpg",Nuke:"/images/maps/nuke.jpg",Anubis:"/images/maps/anubis.jpg"};
 type Player={id?:string;nickname:string;avatarUrl:string|null;steamAvatarUrl?:string|null};
-type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[]}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null};
+type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[];connectionPhaseCompleted?:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null};
 const MATCH_UI:any={
  RU:{matchTitle:"Матч",created:"Создан",player2:"Игрок 2",server:"Сервер",game:"Игра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Ожидание игрока",waitingText:"Ожидаем второго игрока. После его подключения и подтверждения ставки дуэль перейдёт к запуску сервера CS2.",ready:"Матч готов",serverStarting:"Сервер DuelPlay запускается автоматически. Как только он будет готов, появится кнопка подключения.",bothReady:"Оба игрока готовы. Нажмите Start, чтобы запустить сервер.",inProgress:"Матч в процессе",serverAuto:"Результат определяет сервер CS2 автоматически.",connect:"Подключиться к серверу",reconnect:"Переподключиться к серверу",connecting:"Подключение…",timeout:"Автоматическая отмена через",confirmed:"Результат подтверждён сервером",winner:"Победитель",payout:"Выплата",cancelled:"Матч отменён",refund:"Ставки возвращены согласно правилам DuelPlay.",start:"START",bank:"БАНК",commission:"КОМИССИЯ",winnerGets:"ПОБЕДИТЕЛЬ ПОЛУЧИТ",cancelMatch:"Отмена матча",confirmation:"Подтверждение",cancelQuestion:"Отменить дуэль?",cancelText:"Ставка будет возвращена тебе, а если второй игрок уже присоединился — и ему. Отмена необратима.",keep:"Оставить матч",yesCancel:"Да, отменить",cancelling:"Отмена…",creator:"Создатель дуэли",readyConnect:"Готов подключиться",waitingStatus:"ОЖИДАНИЕ",waitingPlayer:"Ожидание игрока...",readyStatus:"ГОТОВ",localTest:"ЛОКАЛЬНЫЙ ТЕСТ",localTestText:"Сервер смоделирован локально. Можно выбрать победителя для проверки выплаты.",testWin:"Победа",testFinish:"Завершить тест"},
  UA:{matchTitle:"Матч",created:"Створено",player2:"Гравець 2",server:"Сервер",game:"Гра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Очікування гравця",waitingText:"Очікуємо другого гравця. Після його підключення та підтвердження ставки дуель перейде до запуску сервера CS2.",ready:"Матч готовий",serverStarting:"Сервер DuelPlay запускається автоматично. Щойно він буде готовий, з’явиться кнопка підключення.",bothReady:"Обидва гравці готові. Натисніть Start, щоб запустити сервер.",inProgress:"Матч триває",serverAuto:"Результат автоматично визначає сервер CS2.",connect:"Підключитися до сервера",reconnect:"Перепідключитися до сервера",connecting:"Підключення…",timeout:"Автоматичне скасування через",confirmed:"Результат підтверджено сервером",winner:"Переможець",payout:"Виплата",cancelled:"Матч скасовано",refund:"Ставки повернено згідно з правилами DuelPlay.",start:"START",bank:"БАНК",commission:"КОМІСІЯ",winnerGets:"ПЕРЕМОЖЕЦЬ ОТРИМАЄ",cancelMatch:"Скасування матчу",confirmation:"Підтвердження",cancelQuestion:"Скасувати дуель?",cancelText:"Ставку буде повернено тобі, а якщо другий гравець уже приєднався — і йому. Скасування незворотне.",keep:"Залишити матч",yesCancel:"Так, скасувати",cancelling:"Скасування…",creator:"Творець дуелі",readyConnect:"Готовий підключитися",waitingStatus:"ОЧІКУВАННЯ",waitingPlayer:"Очікування гравця...",readyStatus:"ГОТОВИЙ",localTest:"ЛОКАЛЬНИЙ ТЕСТ",localTestText:"Сервер змодельовано локально. Можна обрати переможця для перевірки виплати.",testWin:"Перемога",testFinish:"Завершити тест"},
@@ -16,7 +16,15 @@ const MATCH_UI:any={
  PL:{matchTitle:"Mecz",created:"Utworzono",player2:"Gracz 2",server:"Serwer",game:"Gra",result:"Wynik",map:"Mapa",bet:"Stawka",waiting:"Oczekiwanie na gracza",waitingText:"Czekamy na drugiego gracza. Po jego dołączeniu i potwierdzeniu stawki pojedynek przejdzie do uruchomienia serwera CS2.",ready:"Mecz gotowy",serverStarting:"Serwer DuelPlay uruchamia się automatycznie. Gdy będzie gotowy, pojawi się przycisk połączenia.",bothReady:"Obaj gracze są gotowi. Naciśnij Start, aby uruchomić serwer.",inProgress:"Mecz trwa",serverAuto:"Serwer CS2 automatycznie określa wynik.",connect:"Połącz z serwerem",reconnect:"Połącz ponownie z serwerem",connecting:"Łączenie…",timeout:"Automatyczne anulowanie za",confirmed:"Wynik potwierdzony przez serwer",winner:"Zwycięzca",payout:"Wypłata",cancelled:"Mecz anulowany",refund:"Stawki zwrócono zgodnie z zasadami DuelPlay.",start:"START",bank:"PULA",commission:"PROWIZJA",winnerGets:"ZWYCIĘZCA OTRZYMA",cancelMatch:"Anulowanie meczu",confirmation:"Potwierdzenie",cancelQuestion:"Anulować pojedynek?",cancelText:"Twoja stawka zostanie zwrócona, a jeśli drugi gracz już dołączył — również jego. Anulowania nie można cofnąć.",keep:"Zostaw mecz",yesCancel:"Tak, anuluj",cancelling:"Anulowanie…",creator:"Twórca pojedynku",readyConnect:"Gotowy do połączenia",waitingStatus:"OCZEKIWANIE",waitingPlayer:"Oczekiwanie na gracza...",readyStatus:"GOTOWY",localTest:"TEST LOKALNY",localTestText:"Serwer jest symulowany lokalnie. Wybierz zwycięzcę, aby sprawdzić wypłatę.",testWin:"Wygrana",testFinish:"Zakończ test"}
 };
 export default function MatchPage({params}:{params:Promise<{id:string}>}){
- const{language,t}=useLanguage();const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[secondsLeft,setSecondsLeft]=useState<number|null>(null);
+ const{language,t}=useLanguage();
+ const connectUi=
+   language==="EN"
+     ? {title:"TIME TO CONNECT",text:"Connect to the CS2 server",connected:"Connected"}
+     : language==="PL"
+       ? {title:"CZAS NA PO??CZENIE",text:"Po??cz si? z serwerem CS2",connected:"Po??czono"}
+       : language==="UA"
+         ? {title:"??? ?? ???????????",text:"???????????? ?? ??????? CS2",connected:"??????????"}
+         : {title:"????? ?? ???????????",text:"???????????? ? ??????? CS2",connected:"??????????"};const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[secondsLeft,setSecondsLeft]=useState<number|null>(null);
  useEffect(()=>{params.then(p=>{setId(p.id);try{setConnectClicked(localStorage.getItem(`duelplay-connect-${p.id}`)==="1")}catch{}})},[params]);
  async function load(){if(!id)return;try{const [mr,ur]=await Promise.all([fetch(`/api/matches/${id}`,{cache:"no-store"}),fetch("/api/auth/me",{cache:"no-store"})]);const md=await mr.json(),ud=await ur.json();if(!mr.ok)throw 0;setM(md.match??md);setUser(ud.user??null)}catch{setMsg(t.matchLoadError)}}
  useEffect(()=>{load()},[id]);useEffect(()=>{if(!id)return;const timer=setInterval(load,3000);return()=>clearInterval(timer)},[id]);
@@ -52,8 +60,10 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
 
  if(m.status==="LIVE"){
    const connected=m.serverConfig?.connectedSteamIds??[];
+   const connectionPhaseCompleted=
+     m.serverConfig?.connectionPhaseCompleted===true;
 
-   if(connected.length>=2){
+   if(connectionPhaseCompleted||connected.length>=2){
      setSecondsLeft(null);
      return;
    }
@@ -90,6 +100,7 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  m?.startedAt,
  m?.serverConfig?.managerRequested,
  m?.serverConfig?.connectedSteamIds,
+ m?.serverConfig?.connectionPhaseCompleted,
  id
 ]);
 

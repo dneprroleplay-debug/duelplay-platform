@@ -41,9 +41,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (action === "heartbeat") {
       const connectedSteamIds = Array.isArray(body.connectedSteamIds)
         ? body.connectedSteamIds
-            .map((value: unknown) => String(value))
+            .map((value: unknown) => String(value).trim())
             .filter(Boolean)
         : [];
+
+      const connectionPhaseCompleted =
+        body.connectionPhaseCompleted === true;
 
       await prisma.$transaction(async tx => {
         await tx.gameServer.updateMany({
@@ -73,6 +76,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             serverConfig: {
               ...cfg,
               connectedSteamIds,
+              connectionPhaseCompleted:
+                connectionPhaseCompleted ||
+                connectedSteamIds.length >= 2 ||
+                cfg.connectionPhaseCompleted === true,
             },
           },
         });
