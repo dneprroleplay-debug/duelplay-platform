@@ -148,20 +148,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
   <span className="status live">LIVE</span>
 </div>
 
-{secondsLeft!==null&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4">
-  <div className="flex flex-wrap items-center justify-between gap-4">
-    <div>
-      <div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">????? ?? ???????????</div>
-      <div className="mt-1 text-sm font-bold text-amber-300">???????????? ? ??????? CS2</div>
-    </div>
-    <div className="text-right">
-      <div className="font-mono text-3xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div>
-      <div className="mt-1 text-[11px] text-zinc-500">
-        ?????????? {(m.serverConfig?.connectedSteamIds??[]).length} ?? 2
-      </div>
-    </div>
-  </div>
-</div>}
+{secondsLeft!==null&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4"><div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">ВРЕМЯ НА ПОДКЛЮЧЕНИЕ</div><div className="mt-1 text-sm font-bold text-amber-300">Подключитесь к серверу CS2</div></div><div className="text-right"><div className="font-mono text-3xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div><div className="mt-1 text-[11px] text-zinc-500">Подключено {(m.serverConfig?.connectedSteamIds??[]).length} из 2</div></div></div></div>}
 
 {m.serverConfig?.localTest&&m.playerTwo&&<div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[.04] p-4">
   <div className="text-xs font-black tracking-wider text-amber-300">{u.localTest}</div>
