@@ -39,7 +39,45 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     if (action === "heartbeat") {
-      await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { lastHeartbeat: new Date(), status: "READY" } });
+      const connectedSteamIds = Array.isArray(body.connectedSteamIds)
+        ? body.connectedSteamIds
+            .map((value: unknown) => String(value))
+            .filter(Boolean)
+        : [];
+
+      await prisma.$transaction(async tx => {
+        await tx.gameServer.updateMany({
+          where: { id: serverId, matchId: id },
+          data: {
+            lastHeartbeat: new Date(),
+            status: "READY",
+          },
+        });
+
+        const match = await tx.match.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            status: true,
+            serverConfig: true,
+          },
+        });
+
+        if (!match || match.status !== "LIVE") return;
+
+        const cfg = asRecord(match.serverConfig);
+
+        await tx.match.update({
+          where: { id },
+          data: {
+            serverConfig: {
+              ...cfg,
+              connectedSteamIds,
+            },
+          },
+        });
+      });
+
       return NextResponse.json({ ok: true });
     }
 

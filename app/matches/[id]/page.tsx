@@ -8,7 +8,7 @@ import { useAuth } from "@/components/Common/AuthContext";
 import { languages } from "@/lib/language";
 const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"/images/maps/dust2.jpg",Ancient:"/images/maps/ancient.jpg",Train:"/images/maps/train.jpg",Overpass:"/images/maps/overpass.jpg",Inferno:"/images/maps/inferno.jpg",Nuke:"/images/maps/nuke.jpg",Anubis:"/images/maps/anubis.jpg"};
 type Player={id?:string;nickname:string;avatarUrl:string|null;steamAvatarUrl?:string|null};
-type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null};
+type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[]}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null};
 const MATCH_UI:any={
  RU:{matchTitle:"Матч",created:"Создан",player2:"Игрок 2",server:"Сервер",game:"Игра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Ожидание игрока",waitingText:"Ожидаем второго игрока. После его подключения и подтверждения ставки дуэль перейдёт к запуску сервера CS2.",ready:"Матч готов",serverStarting:"Сервер DuelPlay запускается автоматически. Как только он будет готов, появится кнопка подключения.",bothReady:"Оба игрока готовы. Нажмите Start, чтобы запустить сервер.",inProgress:"Матч в процессе",serverAuto:"Результат определяет сервер CS2 автоматически.",connect:"Подключиться к серверу",reconnect:"Переподключиться к серверу",connecting:"Подключение…",timeout:"Автоматическая отмена через",confirmed:"Результат подтверждён сервером",winner:"Победитель",payout:"Выплата",cancelled:"Матч отменён",refund:"Ставки возвращены согласно правилам DuelPlay.",start:"START",bank:"БАНК",commission:"КОМИССИЯ",winnerGets:"ПОБЕДИТЕЛЬ ПОЛУЧИТ",cancelMatch:"Отмена матча",confirmation:"Подтверждение",cancelQuestion:"Отменить дуэль?",cancelText:"Ставка будет возвращена тебе, а если второй игрок уже присоединился — и ему. Отмена необратима.",keep:"Оставить матч",yesCancel:"Да, отменить",cancelling:"Отмена…",creator:"Создатель дуэли",readyConnect:"Готов подключиться",waitingStatus:"ОЖИДАНИЕ",waitingPlayer:"Ожидание игрока...",readyStatus:"ГОТОВ",localTest:"ЛОКАЛЬНЫЙ ТЕСТ",localTestText:"Сервер смоделирован локально. Можно выбрать победителя для проверки выплаты.",testWin:"Победа",testFinish:"Завершить тест"},
  UA:{matchTitle:"Матч",created:"Створено",player2:"Гравець 2",server:"Сервер",game:"Гра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Очікування гравця",waitingText:"Очікуємо другого гравця. Після його підключення та підтвердження ставки дуель перейде до запуску сервера CS2.",ready:"Матч готовий",serverStarting:"Сервер DuelPlay запускається автоматично. Щойно він буде готовий, з’явиться кнопка підключення.",bothReady:"Обидва гравці готові. Натисніть Start, щоб запустити сервер.",inProgress:"Матч триває",serverAuto:"Результат автоматично визначає сервер CS2.",connect:"Підключитися до сервера",reconnect:"Перепідключитися до сервера",connecting:"Підключення…",timeout:"Автоматичне скасування через",confirmed:"Результат підтверджено сервером",winner:"Переможець",payout:"Виплата",cancelled:"Матч скасовано",refund:"Ставки повернено згідно з правилами DuelPlay.",start:"START",bank:"БАНК",commission:"КОМІСІЯ",winnerGets:"ПЕРЕМОЖЕЦЬ ОТРИМАЄ",cancelMatch:"Скасування матчу",confirmation:"Підтвердження",cancelQuestion:"Скасувати дуель?",cancelText:"Ставку буде повернено тобі, а якщо другий гравець уже приєднався — і йому. Скасування незворотне.",keep:"Залишити матч",yesCancel:"Так, скасувати",cancelling:"Скасування…",creator:"Творець дуелі",readyConnect:"Готовий підключитися",waitingStatus:"ОЧІКУВАННЯ",waitingPlayer:"Очікування гравця...",readyStatus:"ГОТОВИЙ",localTest:"ЛОКАЛЬНИЙ ТЕСТ",localTestText:"Сервер змодельовано локально. Можна обрати переможця для перевірки виплати.",testWin:"Перемога",testFinish:"Завершити тест"},
@@ -23,36 +23,75 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  useEffect(()=>{
  if(!m)return;
 
- if(m.status!=="READY"){
-   setSecondsLeft(null);
-   return;
+ if(m.status==="READY"){
+   const base=m.updatedAt;
+   if(!base){
+     setSecondsLeft(null);
+     return;
+   }
+
+   const managerRequested=m.serverConfig?.managerRequested===true;
+   const timeoutMs=managerRequested?5*60*1000:10*60*1000;
+
+   const update=()=>{
+     const left=Math.max(
+       0,
+       Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
+     );
+
+     setSecondsLeft(left);
+
+     if(left<=0)load();
+   };
+
+   update();
+
+   const timer=setInterval(update,1000);
+   return()=>clearInterval(timer);
  }
 
- const base=m.updatedAt;
- if(!base){
-   setSecondsLeft(null);
-   return;
+ if(m.status==="LIVE"){
+   const connected=m.serverConfig?.connectedSteamIds??[];
+
+   if(connected.length>=2){
+     setSecondsLeft(null);
+     return;
+   }
+
+   const base=m.startedAt;
+   if(!base){
+     setSecondsLeft(null);
+     return;
+   }
+
+   const timeoutMs=5*60*1000;
+
+   const update=()=>{
+     const left=Math.max(
+       0,
+       Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
+     );
+
+     setSecondsLeft(left);
+
+     if(left<=0)load();
+   };
+
+   update();
+
+   const timer=setInterval(update,1000);
+   return()=>clearInterval(timer);
  }
 
- const managerRequested=m.serverConfig?.managerRequested===true;
- const timeoutMs=managerRequested?5*60*1000:10*60*1000;
-
- const update=()=>{
-   const left=Math.max(
-     0,
-     Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
-   );
-
-   setSecondsLeft(left);
-
-   if(left<=0)load();
- };
-
- update();
-
- const timer=setInterval(update,1000);
- return()=>clearInterval(timer);
-},[m?.status,m?.updatedAt,m?.serverConfig?.managerRequested,id]);
+ setSecondsLeft(null);
+},[
+ m?.status,
+ m?.updatedAt,
+ m?.startedAt,
+ m?.serverConfig?.managerRequested,
+ m?.serverConfig?.connectedSteamIds,
+ id
+]);
 
 function formatCountdown(total:number){
  const min=Math.floor(total/60).toString().padStart(2,"0");

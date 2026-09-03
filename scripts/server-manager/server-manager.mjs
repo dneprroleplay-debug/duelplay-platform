@@ -20,12 +20,15 @@ const MANAGER_PORT = Number(process.env.DUELPLAY_MANAGER_PORT || 3010);
 const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
 const HEARTBEAT_MS = 10000;
+const CONNECT_TIMEOUT_MS = Number(process.env.CS2_CONNECT_TIMEOUT_MS || 5 * 60 * 1000);
 
 if (!existsSync(CS2_SCRIPT)) throw new Error(`CS2 script not found: ${CS2_SCRIPT}`);
 
 let current = null;
 let lastGsiAt = 0;
 let resultSent = false;
+let serverReadyAt = 0;
+let connectedSteamIds = [];
 let lastRoundWinnerTeam = null;
 const observedTeams = new Map();
 
@@ -170,6 +173,8 @@ async function claimAndStart(match) {
   lastGsiAt = 0;
   lastLogFile = '';
   lastLogSize = 0;
+  serverReadyAt = 0;
+  connectedSteamIds = [];
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
@@ -225,6 +230,8 @@ async function claimAndStart(match) {
         method: 'POST',
         body: JSON.stringify({ action: 'ready', serverId: current.serverId, host: HOST, port: PORT, processId: current.process.pid })
       });
+      serverReadyAt = Date.now();
+      connectedSteamIds = [];
       console.log(`[DuelPlay] server ready: steam://connect/${HOST}:${PORT}`);
     } catch (error) {
       console.error('[DuelPlay] server failed to become ready', error);
@@ -257,7 +264,23 @@ async function reportWinner(winnerSteamId, reason) {
 }
 
 function detectWinner(body) {
-  if (!current || resultSent) return;
+  if (!current) return;
+
+  const participants = [
+    current.playerOneSteamId,
+    current.playerTwoSteamId
+  ].filter(Boolean);
+
+  const allplayers = body?.allplayers;
+
+  if (allplayers && typeof allplayers === 'object' && !Array.isArray(allplayers)) {
+    connectedSteamIds = Object.keys(allplayers)
+      .filter((steamId) => participants.includes(String(steamId)))
+      .map(String);
+  }
+
+  if (resultSent) return;
+
   const player = body?.player;
   const playerSteamId = String(player?.steamid || body?.player_id?.steamid || '');
   const playerTeam = String(player?.team || '');
@@ -313,8 +336,45 @@ async function loop() {
     } else {
       scanLatestServerLog();
       if (Date.now() - lastGsiAt > HEARTBEAT_MS) {
-        try { await api(`/api/matches/${current.id}/server`, { method: 'POST', body: JSON.stringify({ action: 'heartbeat', serverId: current.serverId }) }); } catch (error) { console.error('[DuelPlay] heartbeat failed', error); }
+        try {
+          await api(`/api/matches/${current.id}/server`, {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'heartbeat',
+              serverId: current.serverId,
+              connectedSteamIds
+            })
+          });
+        } catch (error) {
+          console.error('[DuelPlay] heartbeat failed', error);
+        }
       }
+      if (
+        serverReadyAt &&
+        Date.now() - serverReadyAt >= CONNECT_TIMEOUT_MS &&
+        connectedSteamIds.length < 2
+      ) {
+        const participants = [
+          current.playerOneSteamId,
+          current.playerTwoSteamId
+        ].filter(Boolean);
+
+        const connected = connectedSteamIds.filter((steamId) =>
+          participants.includes(steamId)
+        );
+
+        if (connected.length === 1) {
+          console.log(`[DuelPlay] connection timeout: ${connected[0]} connected, awarding technical win`);
+          await reportWinner(
+            connected[0],
+            'connection timeout: opponent did not connect'
+          );
+        } else {
+          console.log('[DuelPlay] connection timeout: nobody connected, cancelling match');
+          command('quit');
+        }
+      }
+
       try {
         const state = await api(`/api/matches/${current.id}`);
         if (['FINISHED', 'CANCELLED'].includes(state.match?.status)) command('quit');
