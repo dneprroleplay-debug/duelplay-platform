@@ -116,21 +116,66 @@ function steam64FromSteam3(value) {
 
   if (!raw) return null;
 
-  if (/^\d{17}$/.test(raw)) return raw;
+  // Steam64
+  if (/^\d{17}$/.test(raw)) {
+    return raw;
+  }
 
+  // Steam3: [U:1:46347130]
   const steam3 = steam64FromSteam3(raw);
-  if (steam3) return steam3;
+  if (steam3) {
+    return steam3;
+  }
+
+  // Short Steam account ID: 46347130
+  if (/^\d+$/.test(raw)) {
+    try {
+      return String(76561197960265728n + BigInt(raw));
+    } catch {}
+  }
 
   return raw;
+}
+
+function canonicalPlayerSteamId(value) {
+  if (!current) return null;
+
+  const normalized = normalizeSteamId(value);
+  if (!normalized) return null;
+
+  const p1 = normalizeSteamId(current.playerOneSteamId);
+  const p2 = normalizeSteamId(current.playerTwoSteamId);
+
+  if (normalized === p1) return current.playerOneSteamId;
+  if (normalized === p2) return current.playerTwoSteamId;
+
+  return null;
 }
 
 function observeServerLine(text) {
   if (!current || resultSent) return;
   const teamLine = text.match(/<\d+><(\[U:1:\d+\])><(CT|TERRORIST)>/i);
   if (teamLine) {
-    const steam64 = steam64FromSteam3(teamLine[1]);
-    if (steam64 && [current.playerOneSteamId, current.playerTwoSteamId].includes(steam64)) {
-      observedTeams.set(steam64, teamLine[2].toUpperCase() === 'TERRORIST' ? 'T' : 'CT');
+    const steam64 = normalizeSteamId(teamLine[1]);
+    const playerSteamId = canonicalPlayerSteamId(steam64);
+
+    if (playerSteamId) {
+      if (!connectedSteamIds.includes(playerSteamId)) {
+        connectedSteamIds.push(playerSteamId);
+      }
+
+      observedTeams.set(
+        playerSteamId,
+        teamLine[2].toUpperCase() === 'TERRORIST' ? 'T' : 'CT'
+      );
+
+      if (connectedSteamIds.length >= 2) {
+        connectionPhaseCompleted = true;
+      }
+
+      console.log(
+        `[DuelPlay] server log player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
+      );
     }
   }
 
@@ -262,14 +307,23 @@ async function claimAndStart(match) {
 
 async function reportWinner(winnerSteamId, reason) {
   if (!current || resultSent) return;
-  if (![current.playerOneSteamId, current.playerTwoSteamId].includes(winnerSteamId)) return;
+
+  const canonical =
+    canonicalPlayerSteamId(winnerSteamId) ||
+    ([
+      current.playerOneSteamId,
+      current.playerTwoSteamId
+    ].includes(winnerSteamId) ? winnerSteamId : null);
+
+  if (!canonical) return;
+
   resultSent = true;
   console.log(`[DuelPlay] winner ${winnerSteamId} (${reason})`);
   try {
     const response = await fetch(`${API}/api/matches/${current.id}/result`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-cs2-result-secret': SECRET },
-      body: JSON.stringify({ winnerSteamId, source: 'CS2_GSI', reason })
+      body: JSON.stringify({ winnerSteamId: canonical, source: 'CS2_GSI', reason })
     });
     if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
     const matchId = current.id;
@@ -283,16 +337,15 @@ async function reportWinner(winnerSteamId, reason) {
 function detectWinner(body) {
   if (!current) return;
 
-  const participants = new Set(
-    [
-      current.playerOneSteamId,
-      current.playerTwoSteamId
-    ]
-      .map(normalizeSteamId)
-      .filter(Boolean)
-  );
-
   const found = new Set();
+
+  const remember = (value) => {
+    const playerSteamId = canonicalPlayerSteamId(value);
+
+    if (playerSteamId) {
+      found.add(playerSteamId);
+    }
+  };
 
   const allplayers = body?.allplayers;
 
@@ -302,52 +355,53 @@ function detectWinner(body) {
     !Array.isArray(allplayers)
   ) {
     for (const [steamId, player] of Object.entries(allplayers)) {
-      const keyId = normalizeSteamId(steamId);
+      remember(steamId);
 
-      const playerId = normalizeSteamId(
+      remember(
         player?.steamid ??
         player?.steam_id ??
         player?.id
       );
-
-      if (keyId && participants.has(keyId)) {
-        found.add(keyId);
-      }
-
-      if (playerId && participants.has(playerId)) {
-        found.add(playerId);
-      }
     }
   }
 
-  const currentPlayerId = normalizeSteamId(
+  remember(
     body?.player?.steamid ??
     body?.player?.steam_id ??
     body?.player_id?.steamid
   );
 
-  if (
-    currentPlayerId &&
-    participants.has(currentPlayerId)
-  ) {
-    found.add(currentPlayerId);
-
-    const team = String(body?.player?.team || '');
-
-    if (team === 'CT' || team === 'T') {
-      observedTeams.set(currentPlayerId, team);
+  // ?????????? GSI ? ????????? ???.
+  for (const playerSteamId of found) {
+    if (!connectedSteamIds.includes(playerSteamId)) {
+      connectedSteamIds.push(playerSteamId);
     }
   }
-
-  connectedSteamIds = [...found];
 
   if (connectedSteamIds.length >= 2) {
     connectionPhaseCompleted = true;
   }
 
-  console.log(
-    `[DuelPlay] GSI players ${connectedSteamIds.length}/2: ${connectedSteamIds.join(', ') || 'none'}`
+  if (connectedSteamIds.length > 0) {
+    console.log(
+      `[DuelPlay] GSI players ${connectedSteamIds.length}/2: ${connectedSteamIds.join(', ')}`
+    );
+  }
+
+  // ?????????? ??????? ??????.
+  const playerSteamId = canonicalPlayerSteamId(
+    body?.player?.steamid ??
+    body?.player?.steam_id ??
+    body?.player_id?.steamid
   );
+
+  if (playerSteamId) {
+    const team = String(body?.player?.team || '');
+
+    if (team === 'CT' || team === 'T') {
+      observedTeams.set(playerSteamId, team);
+    }
+  }
 
   if (resultSent) return;
 
@@ -448,7 +502,20 @@ async function loop() {
             'connection timeout: opponent did not connect'
           );
         } else {
-          console.log('[DuelPlay] connection timeout: nobody connected, cancelling match');
+          console.log('[DuelPlay] connection timeout: nobody connected, refunding stakes');
+
+          try {
+            await api(`/api/matches/${current.id}/server`, {
+              method: 'POST',
+              body: JSON.stringify({
+                action: 'failed',
+                serverId: current.serverId
+              })
+            });
+          } catch (error) {
+            console.error('[DuelPlay] timeout refund failed', error);
+          }
+
           command('quit');
         }
       }
