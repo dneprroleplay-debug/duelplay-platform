@@ -7,11 +7,7 @@ type LanguageContextType = { language: Language; setLanguage: (lang: Language) =
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>("RU");
-  useEffect(() => {
-    const saved = window.localStorage.getItem("duelplay-language") as Language | null;
-    if (saved && saved in languages) setLanguageState(saved);
-  }, []);
+  const [language, setLanguageState] = useState<Language>(() => { if (typeof window === "undefined") return "RU"; const saved = window.localStorage.getItem("duelplay-language") as Language | null; return saved && saved in languages ? saved : "RU"; });
   useEffect(() => {
     window.localStorage.setItem("duelplay-language", language);
     document.documentElement.lang = language === "RU" ? "ru" : language === "UA" ? "uk" : language === "PL" ? "pl" : "en";
