@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
         include: { playerOne: { select: { steamId: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, isTestAccount: true } }, gameServer: true },
       });
       if (!match) throw new Error("NOT_FOUND");
-      if (match.status !== "READY" || !match.playerTwoId) throw new Error("NOT_READY");
+      if (match.status !== "READY" || !match.playerTwoId || !match.playerTwo) throw new Error("NOT_READY");
       const cfg = match.serverConfig && typeof match.serverConfig === "object" && !Array.isArray(match.serverConfig) ? match.serverConfig as Record<string, unknown> : {};
       if (cfg.managerRequested !== true) throw new Error("NOT_REQUESTED");
       const bothTestAccounts = match.playerOne.isTestAccount === true && match.playerTwo?.isTestAccount === true;
@@ -48,3 +48,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not claim server" }, { status: 500 });
   }
 }
+
