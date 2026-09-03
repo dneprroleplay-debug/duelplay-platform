@@ -1,4 +1,4 @@
-﻿import { createServer } from 'node:http';
+import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,7 +20,7 @@ const MANAGER_PORT = Number(process.env.DUELPLAY_MANAGER_PORT || 3010);
 const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
 const HEARTBEAT_MS = 10000;
-const CONNECT_TIMEOUT_MS = Number(process.env.CS2_CONNECT_TIMEOUT_MS || 5 * 60 * 1000);
+const CONNECT_TIMEOUT_MS = Number(process.env.CS2_CONNECT_TIMEOUT_MS || 10 * 60 * 1000);
 
 if (!existsSync(CS2_SCRIPT)) throw new Error(`CS2 script not found: ${CS2_SCRIPT}`);
 
