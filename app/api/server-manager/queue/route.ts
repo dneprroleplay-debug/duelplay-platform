@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isServerManagerRequest } from "../auth";
 
-const WAITING_TIMEOUT_MS = 10 * 60 * 1000;
-const READY_TIMEOUT_MS = 5 * 60 * 1000;
+const READY_CONNECT_TIMEOUT_MS = 10 * 60 * 1000;
+const SERVER_START_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   if (!isServerManagerRequest(request)) {
@@ -16,15 +16,9 @@ export async function GET(request: NextRequest) {
     where: {
       OR: [
         {
-          status: "WAITING_FOR_PLAYERS",
-          createdAt: {
-            lt: new Date(now - WAITING_TIMEOUT_MS),
-          },
-        },
-        {
           status: "READY",
           updatedAt: {
-            lt: new Date(now - READY_TIMEOUT_MS),
+            lt: new Date(now - SERVER_START_TIMEOUT_MS),
           },
           gameServer: null,
         },
@@ -52,16 +46,25 @@ export async function GET(request: NextRequest) {
 
         if (!current) return;
 
-        const isWaitingExpired =
-          current.status === "WAITING_FOR_PLAYERS" &&
-          Date.now() - current.createdAt.getTime() >= WAITING_TIMEOUT_MS;
+        const currentConfig =
+          current.serverConfig &&
+          typeof current.serverConfig === "object" &&
+          !Array.isArray(current.serverConfig)
+            ? (current.serverConfig as Record<string, unknown>)
+            : {};
+
+        const managerRequested = currentConfig.managerRequested === true;
+
+        const readyTimeoutMs = managerRequested
+          ? SERVER_START_TIMEOUT_MS
+          : READY_CONNECT_TIMEOUT_MS;
 
         const isReadyExpired =
           current.status === "READY" &&
           !current.gameServer &&
-          Date.now() - current.updatedAt.getTime() >= READY_TIMEOUT_MS;
+          Date.now() - current.updatedAt.getTime() >= readyTimeoutMs;
 
-        if (!isWaitingExpired && !isReadyExpired) return;
+        if (!isReadyExpired) return;
 
         const amount = Number(current.betAmount);
 
@@ -99,8 +102,8 @@ export async function GET(request: NextRequest) {
               balanceBefore: before,
               balanceAfter: after,
               referenceId: current.id,
-              description: isWaitingExpired
-                ? "Возврат ставки: соперник не присоединился вовремя"
+              description: managerRequested
+                ? "Возврат ставки: сервер не был запущен вовремя"
                 : "Возврат ставки: матч не был запущен вовремя",
             },
           });

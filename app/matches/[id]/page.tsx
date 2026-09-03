@@ -22,19 +22,37 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  useEffect(()=>{load()},[id]);useEffect(()=>{if(!id)return;const timer=setInterval(load,3000);return()=>clearInterval(timer)},[id]);
  useEffect(()=>{
  if(!m)return;
- if(!["WAITING_FOR_PLAYERS","READY"].includes(m.status)){setSecondsLeft(null);return}
- const base=m.status==="WAITING_FOR_PLAYERS"?m.createdAt:m.updatedAt;
- if(!base){setSecondsLeft(null);return}
- const timeoutMs=m.status==="WAITING_FOR_PLAYERS"?10*60*1000:5*60*1000;
+
+ if(m.status!=="READY"){
+   setSecondsLeft(null);
+   return;
+ }
+
+ const base=m.updatedAt;
+ if(!base){
+   setSecondsLeft(null);
+   return;
+ }
+
+ const managerRequested=m.serverConfig?.managerRequested===true;
+ const timeoutMs=managerRequested?5*60*1000:10*60*1000;
+
  const update=()=>{
-   const left=Math.max(0,Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000));
+   const left=Math.max(
+     0,
+     Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
+   );
+
    setSecondsLeft(left);
+
    if(left<=0)load();
  };
+
  update();
+
  const timer=setInterval(update,1000);
  return()=>clearInterval(timer);
-},[m?.status,m?.createdAt,m?.updatedAt,id]);
+},[m?.status,m?.updatedAt,m?.serverConfig?.managerRequested,id]);
 
 function formatCountdown(total:number){
  const min=Math.floor(total/60).toString().padStart(2,"0");
