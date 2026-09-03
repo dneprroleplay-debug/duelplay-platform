@@ -64,7 +64,7 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
      return;
    }
 
-   const timeoutMs=5*60*1000;
+   const timeoutMs=10*60*1000;
 
    const update=()=>{
      const left=Math.max(
@@ -139,7 +139,44 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
       </div>}
     </>}
     {m.status==="READY"&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="text-sm font-black text-amber-300">{u.ready}</div><div className="mt-1 text-sm text-zinc-500">{m.serverConfig?.managerRequested?u.serverStarting:u.bothReady}</div></div>{secondsLeft!==null&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><div className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div></div>}</div></div>}
-    {m.status==="LIVE"&&<div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/[.05] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-black text-emerald-300"><span className="site-live-dot"/> {u.inProgress}</div><p className="mt-1 text-sm text-zinc-500">{m.serverConfig?.localTest?u.localTestText:u.serverAuto}</p></div><span className="status live">LIVE</span></div>{m.serverConfig?.localTest&&m.playerTwo&&<div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[.04] p-4"><div className="text-xs font-black tracking-wider text-amber-300">{u.localTest}</div><div className="mt-3 flex flex-wrap gap-3"><button disabled={busy} onClick={()=>localFinish(m.playerOneId)} className="rounded-xl bg-[var(--theme-accent)] px-4 py-3 text-sm font-black text-black disabled:opacity-50">{u.testWin}: {m.playerOne.nickname}</button><button disabled={busy} onClick={()=>m.playerTwo&&localFinish(m.playerTwo.id||"")} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-black disabled:opacity-50">{u.testWin}: {m.playerTwo.nickname}</button></div></div>}{m.serverConfig?.connectUrl&&<div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={openServer} disabled={!m.serverConfig.connectUrl||busy} className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-400/[.03] px-5 py-3 text-sm font-black text-emerald-300 transition hover:bg-emerald-400/10 disabled:opacity-60">{busy?u.connecting:(connectClicked?u.reconnect:u.connect)}</button></div>}</div>}
+    {m.status==="LIVE"&&<div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/[.05] p-5">
+<div className="flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <div className="flex items-center gap-2 text-sm font-black text-emerald-300"><span className="site-live-dot"/> {u.inProgress}</div>
+    <p className="mt-1 text-sm text-zinc-500">{m.serverConfig?.localTest?u.localTestText:u.serverAuto}</p>
+  </div>
+  <span className="status live">LIVE</span>
+</div>
+
+{secondsLeft!==null&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4">
+  <div className="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">????? ?? ???????????</div>
+      <div className="mt-1 text-sm font-bold text-amber-300">???????????? ? ??????? CS2</div>
+    </div>
+    <div className="text-right">
+      <div className="font-mono text-3xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div>
+      <div className="mt-1 text-[11px] text-zinc-500">
+        ?????????? {(m.serverConfig?.connectedSteamIds??[]).length} ?? 2
+      </div>
+    </div>
+  </div>
+</div>}
+
+{m.serverConfig?.localTest&&m.playerTwo&&<div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[.04] p-4">
+  <div className="text-xs font-black tracking-wider text-amber-300">{u.localTest}</div>
+  <div className="mt-3 flex flex-wrap gap-3">
+    <button disabled={busy} onClick={()=>localFinish(m.playerOneId)} className="rounded-xl bg-[var(--theme-accent)] px-4 py-3 text-sm font-black text-black disabled:opacity-50">{u.testWin}: {m.playerOne.nickname}</button>
+    <button disabled={busy} onClick={()=>m.playerTwo&&localFinish(m.playerTwo.id||"")} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-black disabled:opacity-50">{u.testWin}: {m.playerTwo.nickname}</button>
+  </div>
+</div>}
+
+{m.serverConfig?.connectUrl&&<div className="mt-5 flex flex-wrap gap-3">
+  <button type="button" onClick={openServer} disabled={!m.serverConfig.connectUrl||busy} className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-400/[.03] px-5 py-3 text-sm font-black text-emerald-300 transition hover:bg-emerald-400/10 disabled:opacity-60">
+    {busy?u.connecting:(connectClicked?u.reconnect:u.connect)}
+  </button>
+</div>}
+</div>}
     {m.status==="FINISHED"&&<Notice title={u.confirmed}>{u.winner}: <b>{m.winner?.nickname||"—"}</b> · {u.payout} <b>${payout.toFixed(2)}</b></Notice>}
     {m.status==="CANCELLED"&&<Notice title={u.cancelled}>{u.refund}</Notice>}
     {msg&&<div aria-live="polite" className="mt-4 rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-[var(--theme-accent)]">{msg}</div>}
