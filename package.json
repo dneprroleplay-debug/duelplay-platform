@@ -11,7 +11,8 @@
     "prisma:push": "prisma db push",
     "prisma:seed": "prisma db seed",
     "server-manager": "node scripts/server-manager/server-manager.mjs",
-    "admin:reset-test": "node scripts/reset-test-users.mjs"
+    "admin:reset-test": "node scripts/reset-test-users.mjs",
+    "test:setup": "node scripts/setup-test-accounts.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

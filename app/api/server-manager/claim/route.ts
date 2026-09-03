@@ -15,13 +15,14 @@ export async function POST(request: NextRequest) {
     const result = await prisma.$transaction(async (tx) => {
       const match = await tx.match.findUnique({
         where: { id: matchId },
-        include: { playerOne: { select: { steamId: true } }, playerTwo: { select: { steamId: true } }, gameServer: true },
+        include: { playerOne: { select: { steamId: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, isTestAccount: true } }, gameServer: true },
       });
       if (!match) throw new Error("NOT_FOUND");
       if (match.status !== "READY" || !match.playerTwoId) throw new Error("NOT_READY");
       const cfg = match.serverConfig && typeof match.serverConfig === "object" && !Array.isArray(match.serverConfig) ? match.serverConfig as Record<string, unknown> : {};
       if (cfg.managerRequested !== true) throw new Error("NOT_REQUESTED");
-      if (!match.playerOne.steamId || !match.playerTwo?.steamId) throw new Error("STEAM_REQUIRED");
+      const bothTestAccounts = match.playerOne.isTestAccount === true && match.playerTwo?.isTestAccount === true;
+      if ((!match.playerOne.steamId || !match.playerTwo?.steamId) && !bothTestAccounts) throw new Error("STEAM_REQUIRED");
       if (match.gameServer) throw new Error("ALREADY_CLAIMED");
 
       const existing = await tx.gameServer.findUnique({ where: { name: serverName } });

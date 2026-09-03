@@ -187,6 +187,7 @@ model User {
   steamAvatarUrl       String?
   role                 UserRole          @default(USER)
   status               UserStatus        @default(ACTIVE)
+  isTestAccount        Boolean            @default(false)
   twoFactorEnabled     Boolean           @default(false)
   twoFactorSecret      String?
   level                Int               @default(1)

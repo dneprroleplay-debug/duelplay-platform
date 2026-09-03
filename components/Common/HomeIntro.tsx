@@ -10,6 +10,7 @@ export default function HomeIntro({trigger}:{trigger:boolean}){
 
   useEffect(()=>{
     if(!trigger)return;
+    // The intro is intentionally mounted on the first render of the home page, including a direct URL load.
     let cancelled=false;
     let sloganTimer:number|undefined;
     let doneTimer:number|undefined;

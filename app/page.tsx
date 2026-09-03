@@ -14,9 +14,9 @@ import HomeIntro from "../components/Common/HomeIntro";
 function HomeContent(){
   const {t}=useLanguage();
   const searchParams=useSearchParams();
-  const [introKey,setIntroKey]=useState(0);
+  const [introKey,setIntroKey]=useState(1);
   const playedIntro=useRef<string|null>(null);
-  const [loading,setLoading]=useState(true);
+  const [loading,setLoading]=useState(false);
   const [refreshKey,setRefreshKey]=useState(0);
   const [count,setCount]=useState(0);
   const [openMatches,setOpenMatches]=useState<any[]>([]);

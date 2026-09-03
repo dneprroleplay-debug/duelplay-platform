@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getMatches } from "@/lib/api/matches";
 import { useLanguage } from "../Common/LanguageContext";
 
@@ -34,8 +34,10 @@ export default function Live({refreshKey=0,mode="all",showFilters=false}:{refres
 function Filter({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`cursor-pointer rounded-xl px-3 py-2 text-xs font-bold transition ${active?"bg-pink-400 text-black":"bg-white/[.035] text-zinc-400 hover:bg-white/[.07] hover:text-white"}`}>{children}</button>}
 
 function MatchCard({match,onJoin,activeMode}:{match:Match;onJoin:()=>void;activeMode:boolean}){
-  const{t}=useLanguage();const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const amount=Number(match.betAmount);const full=Boolean(match.playerTwo);const pot=amount*(full?2:1);const image=MAP_IMAGES[match.mapName||""]||MAP_IMAGES.Mirage;
-  async function join(){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${match.id}/join`,{method:"POST"});const d=await r.json();if(!r.ok)throw new Error(d.error);setMsg(t.bothReady);onJoin()}catch(e){setMsg(e instanceof Error?e.message:"Не удалось присоединиться")}finally{setBusy(false)}}
+  const{t}=useLanguage();const[busy,setBusy]=useState(false);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const amount=Number(match.betAmount);const full=Boolean(match.playerTwo);const pot=amount*(full?2:1);const image=MAP_IMAGES[match.mapName||""]||MAP_IMAGES.Mirage;
+  function showMessage(text:string){if(msgTimer.current)window.clearTimeout(msgTimer.current);setMsg(text);msgTimer.current=window.setTimeout(()=>setMsg(""),5000)}
+  useEffect(()=>()=>{if(msgTimer.current)window.clearTimeout(msgTimer.current)},[]);
+  async function join(){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${match.id}/join`,{method:"POST"});const d=await r.json();if(!r.ok){const code=String(d.errorCode||"").toUpperCase();const messages:Record<string,string>={AUTH_REQUIRED:t.loginRequired,OWN_MATCH:t.ownMatch,MATCH_FULL:t.full,INSUFFICIENT_BALANCE:t.walletRequired,JOIN_ERROR:t.joinError};throw new Error(messages[code]||t.joinError)}showMessage(t.bothReady);onJoin()}catch(e){showMessage(e instanceof Error?e.message:t.joinError)}finally{setBusy(false)}}
   return <article className="panel group overflow-hidden rounded-2xl border-white/[.07] transition duration-200 hover:-translate-y-1 hover:border-pink-400/30 hover:shadow-[0_18px_60px_rgba(0,0,0,.28)]">
     <Link href={`/matches/${match.id}`} className="block cursor-pointer">
       <div className="relative aspect-[16/9] overflow-hidden bg-zinc-950"><Image src={image} alt={match.mapName||"CS2 map"} fill sizes="(max-width: 768px) 100vw,(max-width:1280px) 50vw,33vw" className="object-cover object-center transition duration-500 group-hover:scale-[1.035]"/><div className="absolute inset-0 bg-gradient-to-t from-[#080a0e] via-black/10 to-transparent"/>

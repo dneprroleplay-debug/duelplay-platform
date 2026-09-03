@@ -6,14 +6,34 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
   const { id } = await params;
-  const match = await prisma.match.findUnique({ where: { id }, include: { gameServer: true, playerOne: { select: { steamId: true } }, playerTwo: { select: { steamId: true } } } });
+  const match = await prisma.match.findUnique({ where: { id }, include: { gameServer: true, playerOne: { select: { steamId: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, isTestAccount: true } } } });
   if (!match) return NextResponse.json({ error: "Матч не найден" }, { status: 404 });
   if (![match.playerOneId, match.playerTwoId].includes(user.id)) return NextResponse.json({ error: "Вы не участник матча" }, { status: 403 });
   if (!match.playerTwoId || match.status !== "READY") return NextResponse.json({ error: "Матч не готов к старту" }, { status: 409 });
-  if (!match.playerOne.steamId || !match.playerTwo?.steamId) return NextResponse.json({ error: "Оба игрока должны привязать Steam" }, { status: 409 });
+  const bothTestAccounts = match.playerOne.isTestAccount === true && match.playerTwo?.isTestAccount === true;
+  if ((!match.playerOne.steamId || !match.playerTwo?.steamId) && !bothTestAccounts) return NextResponse.json({ error: "Оба игрока должны привязать Steam", errorCode: "STEAM_REQUIRED" }, { status: 409 });
   if (match.gameServer) return NextResponse.json({ error: "Сервер для этой дуэли уже готовится" }, { status: 409 });
 
   const current = match.serverConfig && typeof match.serverConfig === "object" && !Array.isArray(match.serverConfig) ? match.serverConfig as Record<string, unknown> : {};
+  const localTestMode = process.env.NODE_ENV !== "production" && bothTestAccounts && process.env.DUELPLAY_LOCAL_TEST_MODE !== "false";
+  if (localTestMode) {
+    const updated = await prisma.match.update({
+      where: { id },
+      data: {
+        status: "LIVE",
+        startedAt: new Date(),
+        serverConfig: {
+          ...current,
+          state: "READY",
+          localTest: true,
+          managerRequested: false,
+          connectUrl: null,
+          requestedAt: new Date().toISOString(),
+        },
+      },
+    });
+    return NextResponse.json({ ...updated, localTest: true });
+  }
   const updated = await prisma.match.update({
     where: { id },
     data: {
