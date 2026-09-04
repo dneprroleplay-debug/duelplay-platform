@@ -21,6 +21,7 @@ const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
 const HEARTBEAT_MS = 10000;
 const CONNECT_TIMEOUT_MS = Number(process.env.CS2_CONNECT_TIMEOUT_MS || 10 * 60 * 1000);
+const SERVER_START_TIMEOUT_MS = Number(process.env.CS2_START_TIMEOUT_MS || 90 * 1000);
 
 if (!existsSync(CS2_SCRIPT)) throw new Error(`CS2 script not found: ${CS2_SCRIPT}`);
 
@@ -31,6 +32,8 @@ let serverReadyAt = 0;
 let connectedSteamIds = [];
 let connectionPhaseCompleted = false;
 let lastHeartbeatSentAt = 0;
+let lastLogFile = "";
+let lastLogSize = 0;
 let lastRoundWinnerTeam = null;
 const observedTeams = new Map();
 
@@ -160,7 +163,7 @@ function observeServerLine(text) {
   // CS2 logs an authenticated Steam Net connection before warmup ends.
   // Use this for immediate 1/2 detection instead of waiting for a team line.
   const steamNetLine = text.match(
-    /Accepting Steam Net connection.*?steamid:(\\d{17})/i
+    /Accepting Steam Net connection.*?steamid:(\d{17})/i
   );
 
   if (steamNetLine) {
@@ -250,7 +253,8 @@ async function claimAndStart(match) {
     playerTwoSteamId: match.playerTwo.steamId,
     mapName: match.mapName || 'Dust2',
     process: child,
-    startedAt: Date.now()
+    startedAt: Date.now(),
+    startRequestedAt: Date.now()
   };
   resultSent = false;
   observedTeams.clear();
@@ -486,6 +490,34 @@ async function loop() {
       if (queue.pending) await claimAndStart(queue.pending);
     } else {
       scanLatestServerLog();
+
+      if (
+        !serverReadyAt &&
+        current.startRequestedAt &&
+        Date.now() - current.startRequestedAt >= SERVER_START_TIMEOUT_MS
+      ) {
+        const failedMatchId = current.id;
+        const failedServerId = current.serverId;
+
+        console.log(
+          `[DuelPlay] server startup timeout for ${failedMatchId}, cancelling match`
+        );
+
+        try {
+          await api(`/api/matches/${failedMatchId}/server`, {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'failed',
+              serverId: failedServerId
+            })
+          });
+        } catch (error) {
+          console.error('[DuelPlay] startup timeout cancellation failed', error);
+        }
+
+        command('quit');
+      }
+
       if (Date.now() - lastHeartbeatSentAt >= HEARTBEAT_MS) {
         try {
           await api(`/api/matches/${current.id}/server`, {

@@ -25,30 +25,8 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  if(!m)return;
 
  if(m.status==="READY"){
-   const base=m.updatedAt;
-   if(!base){
-     setSecondsLeft(null);
-     return;
-   }
-
-   const managerRequested=m.serverConfig?.managerRequested===true;
-   const timeoutMs=managerRequested?5*60*1000:10*60*1000;
-
-   const update=()=>{
-     const left=Math.max(
-       0,
-       Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
-     );
-
-     setSecondsLeft(left);
-
-     if(left<=0)load();
-   };
-
-   update();
-
-   const timer=setInterval(update,1000);
-   return()=>clearInterval(timer);
+   setSecondsLeft(null);
+   return;
  }
 
  if(m.status==="LIVE"){
