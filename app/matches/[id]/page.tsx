@@ -17,14 +17,7 @@ const MATCH_UI:any={
 };
 export default function MatchPage({params}:{params:Promise<{id:string}>}){
  const{language,t}=useLanguage();
- const connectUi=
-   language==="EN"
-     ? {title:"TIME TO CONNECT",text:"Connect to the CS2 server",connected:"Connected"}
-     : language==="PL"
-       ? {title:"CZAS NA PO??CZENIE",text:"Po??cz si? z serwerem CS2",connected:"Po??czono"}
-       : language==="UA"
-         ? {title:"??? ?? ???????????",text:"???????????? ?? ??????? CS2",connected:"??????????"}
-         : {title:"????? ?? ???????????",text:"???????????? ? ??????? CS2",connected:"??????????"};const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[secondsLeft,setSecondsLeft]=useState<number|null>(null);
+ const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[secondsLeft,setSecondsLeft]=useState<number|null>(null);
  useEffect(()=>{params.then(p=>{setId(p.id);try{setConnectClicked(localStorage.getItem(`duelplay-connect-${p.id}`)==="1")}catch{}})},[params]);
  async function load(){if(!id)return;try{const [mr,ur]=await Promise.all([fetch(`/api/matches/${id}`,{cache:"no-store"}),fetch("/api/auth/me",{cache:"no-store"})]);const md=await mr.json(),ud=await ur.json();if(!mr.ok)throw 0;setM(md.match??md);setUser(ud.user??null)}catch{setMsg(t.matchLoadError)}}
  useEffect(()=>{load()},[id]);useEffect(()=>{if(!id)return;const timer=setInterval(load,3000);return()=>clearInterval(timer)},[id]);
@@ -163,23 +156,17 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
   <div className="flex flex-wrap items-center justify-between gap-4">
     <div>
       <div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">
-        {String(language).toUpperCase()==="EN"
+        {u.timeout==="Automatic cancellation in"
           ? "TIME TO CONNECT"
-          : String(language).toUpperCase()==="UA"
-            ? "??? ?? ???????????"
-            : String(language).toUpperCase()==="PL"
-              ? "CZAS NA POLACZENIE"
+          : u.timeout==="Automatique annulation dans"
+            ? "TEMPS DE CONNEXION"
+            : u.timeout==="Automatyczne anulowanie za"
+              ? "CZAS NA PO??CZENIE"
               : "????? ?? ???????????"}
       </div>
 
       <div className="mt-1 text-sm font-bold text-amber-300">
-        {String(language).toUpperCase()==="EN"
-          ? "Connect to the CS2 server"
-          : String(language).toUpperCase()==="UA"
-            ? "???????????? ?? ??????? CS2"
-            : String(language).toUpperCase()==="PL"
-              ? "Polacz sie z serwerem CS2"
-              : "???????????? ? ??????? CS2"}
+        {u.connect}
       </div>
     </div>
 
@@ -189,13 +176,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
       </div>
 
       <div className="mt-1 text-[11px] text-zinc-500">
-        {String(language).toUpperCase()==="EN"
-          ? "Connected"
-          : String(language).toUpperCase()==="UA"
-            ? "??????????"
-            : String(language).toUpperCase()==="PL"
-              ? "Polaczono"
-              : "??????????"} {(m.serverConfig?.connectedSteamIds??[]).length} / 2
+        {u.connectedLabel || "Connected"} {(m.serverConfig?.connectedSteamIds??[]).length} / 2
       </div>
     </div>
   </div>
