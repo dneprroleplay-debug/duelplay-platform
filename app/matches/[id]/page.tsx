@@ -156,17 +156,23 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
   <div className="flex flex-wrap items-center justify-between gap-4">
     <div>
       <div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">
-        {u.timeout==="Automatic cancellation in"
+        {language==="EN"
           ? "TIME TO CONNECT"
-          : u.timeout==="Automatique annulation dans"
-            ? "TEMPS DE CONNEXION"
-            : u.timeout==="Automatyczne anulowanie za"
-              ? "CZAS NA PO??CZENIE"
+          : language==="PL"
+            ? "CZAS NA POLACZENIE"
+            : language==="UA"
+              ? "??? ?? ???????????"
               : "????? ?? ???????????"}
       </div>
 
       <div className="mt-1 text-sm font-bold text-amber-300">
-        {u.connect}
+        {language==="EN"
+          ? "Connect to the CS2 server"
+          : language==="PL"
+            ? "Polacz sie z serwerem CS2"
+            : language==="UA"
+              ? "???????????? ?? ??????? CS2"
+              : "???????????? ? ??????? CS2"}
       </div>
     </div>
 
@@ -176,7 +182,13 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
       </div>
 
       <div className="mt-1 text-[11px] text-zinc-500">
-        {u.connectedLabel || "Connected"} {(m.serverConfig?.connectedSteamIds??[]).length} / 2
+        {language==="EN"
+          ? "Connected"
+          : language==="PL"
+            ? "Polaczono"
+            : language==="UA"
+              ? "??????????"
+              : "??????????"} {(m.serverConfig?.connectedSteamIds??[]).length} / 2
       </div>
     </div>
   </div>
