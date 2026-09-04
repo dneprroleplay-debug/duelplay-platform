@@ -159,7 +159,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
         {language==="EN"
           ? "TIME TO CONNECT"
           : language==="PL"
-            ? "CZAS NA POLACZENIE"
+            ? "CZAS NA PO??CZENIE"
             : language==="UA"
               ? "\u0427\u0410\u0421 \u041d\u0410 \u041f\u0406\u0414\u041a\u041b\u042e\u0427\u0415\u041d\u041d\u042f"
               : "\u0412\u0420\u0415\u041c\u042f \u041d\u0410 \u041f\u041e\u0414\u041a\u041b\u042e\u0427\u0415\u041d\u0418\u0415"}
@@ -169,7 +169,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
         {language==="EN"
           ? "Connect to the CS2 server"
           : language==="PL"
-            ? "Polacz sie z serwerem CS2"
+            ? "Po??cz si? z serwerem CS2"
             : language==="UA"
               ? "\u041f\u0456\u0434\u043a\u043b\u044e\u0447\u0456\u0442\u044c\u0441\u044f \u0434\u043e \u0441\u0435\u0440\u0432\u0435\u0440а CS2"
               : "\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435\u0441\u044c \u043a \u0441\u0435\u0440\u0432\u0435\u0440\u0443 CS2"}
@@ -185,7 +185,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
         {language==="EN"
           ? "Connected"
           : language==="PL"
-            ? "Polaczono"
+            ? "Po??czono"
             : language==="UA"
               ? "\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u043e"
               : "\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u043e"} {(m.serverConfig?.connectedSteamIds??[]).length} / 2
