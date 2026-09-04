@@ -80,7 +80,10 @@ export default function Header(){
       ACHIEVEMENT_UNLOCKED:"Osi?gni?cie odblokowane",
       SECURITY_ALERT:"Alert bezpiecze?stwa"
     }
-  }; };
+  };
+
+  return titles[language]?.[n.type] || n.title;
+  };
  const noticeBody=(n:Notice)=>{
   const p=noticePayload(n);
   const kind=p.kind;
@@ -140,7 +143,10 @@ export default function Header(){
       ACHIEVEMENT_UNLOCKED:"Odblokowano nowe osi?gni?cie.",
       SECURITY_ALERT:"Wykryto wa?ne zdarzenie bezpiecze?stwa."
     }
-  }; }; const ui={
+  };
+
+  return bodies[language]?.[n.type] || n.body;
+   }; const ui={
   RU:{notifications:"Уведомления",readAll:"Прочитать всё",empty:"Пока нет уведомлений",profile:"Профиль",wallet:"Кошелёк",inventory:"Инвентарь",appearance:"Оформление",admin:"Панель администратора",logout:t.logout},
   UA:{notifications:"Сповіщення",readAll:"Прочитати все",empty:"Поки немає сповіщень",profile:"Профіль",wallet:"Гаманець",inventory:"Інвентар",appearance:"Оформлення",admin:"Панель адміністратора",logout:t.logout},
   EN:{notifications:"Notifications",readAll:"Mark all as read",empty:"No notifications yet",profile:"Profile",wallet:"Wallet",inventory:"Inventory",appearance:"Appearance",admin:"Admin panel",logout:t.logout},

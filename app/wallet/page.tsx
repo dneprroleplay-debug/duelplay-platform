@@ -40,7 +40,11 @@ export default function WalletPage(){
  const {t,language}=useLanguage();
  const methods=getPaymentMethods(language);
  const [user,setUser]=useState<any>(null),[txs,setTxs]=useState<any[]>([]),[modal,setModal]=useState<"deposit"|"withdraw"|null>(null),[method,setMethod]=useState<PaymentMethod>(methods[0]),[amount,setAmount]=useState("");
- useEffect(()=>{void load()},[]);
+ useEffect(()=>{
+  void load();
+  const timer=window.setInterval(()=>void load(),5000);
+  return()=>window.clearInterval(timer);
+},[]);
  async function load(){const r=await fetch("/api/auth/me",{cache:"no-store"});const d=await r.json();if(!d.user){location.href="/login";return}setUser(d.user);const tr=await fetch("/api/wallet/transactions",{cache:"no-store"});const td=await tr.json();setTxs(td.transactions??[])}
  if(!user)return <main className="pt-28 text-center text-zinc-500">{t.loading}</main>;
  const transactionDescription=(tx:any)=>{

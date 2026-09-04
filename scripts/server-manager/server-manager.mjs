@@ -111,7 +111,9 @@ function steam64FromSteam3(value) {
   const match = String(value).match(/\[U:1:(\d+)\]/);
   if (!match) return null;
   return String(76561197960265728n + BigInt(match[1]));
-}\n\nfunction normalizeSteamId(value) {
+}
+
+function normalizeSteamId(value) {
   const raw = String(value ?? '').trim();
 
   if (!raw) return null;
@@ -154,6 +156,31 @@ function canonicalPlayerSteamId(value) {
 
 function observeServerLine(text) {
   if (!current || resultSent) return;
+
+  // CS2 logs an authenticated Steam Net connection before warmup ends.
+  // Use this for immediate 1/2 detection instead of waiting for a team line.
+  const steamNetLine = text.match(
+    /Accepting Steam Net connection.*?steamid:(\\d{17})/i
+  );
+
+  if (steamNetLine) {
+    const steam64 = normalizeSteamId(steamNetLine[1]);
+    const playerSteamId = canonicalPlayerSteamId(steam64);
+
+    if (
+      playerSteamId &&
+      !connectedSteamIds.includes(playerSteamId)
+    ) {
+      connectedSteamIds.push(playerSteamId);
+      console.log(
+        `[DuelPlay] Steam Net player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
+      );
+
+      // Force the next manager tick to send the new count immediately.
+      lastHeartbeatSentAt = 0;
+    }
+  }
+
   const teamLine = text.match(/<\d+><(\[U:1:\d+\])><(CT|TERRORIST)>/i);
   if (teamLine) {
     const steam64 = normalizeSteamId(teamLine[1]);
