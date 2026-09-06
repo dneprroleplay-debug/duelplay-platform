@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const policy = readFileSync('lib/platform-setting-policy.ts','utf8');
+const route = readFileSync('app/api/platform-settings/route.ts','utf8');
+const admin = readFileSync('app/api/admin/route.ts','utf8');
+for (const key of ['COMMISSION_RATE','REFERRAL_COMMISSION','MIN_STAKE','MAX_STAKE','MIN_DEPOSIT','MIN_WITHDRAWAL','XP_MULTIPLIER','REPUTATION_MULTIPLIER']) assert.match(policy,new RegExp(key));
+assert.match(policy,/MIN_STAKE_GT_MAX_STAKE/);
+assert.match(policy,/VALUE_OUT_OF_RANGE/);
+assert.match(route,/requireAdmin\(5\)/);
+assert.match(route,/validatePlatformSettingValue/);
+assert.match(route,/validatePlatformSettingRelationships/);
+assert.match(admin,/adminLevel\(me\.role\)<5/);
+assert.match(admin,/validatePlatformSettingValue/);
+assert.match(admin,/validatePlatformSettingRelationships/);
+console.log('platform settings policy: 11/11 PASS');

@@ -1,0 +1,1072 @@
+model User {
+  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  steamId              String?           @unique
+  email                String?           @unique
+  passwordHash         String?
+  nickname             String            @unique
+  avatarUrl            String?
+  steamAvatarUrl       String?
+  role                 UserRole          @default(USER)
+  status               UserStatus        @default(ACTIVE)
+  isTestAccount        Boolean            @default(false)
+  twoFactorEnabled     Boolean           @default(false)
+  twoFactorSecret      String?
+  level                Int               @default(1)
+  xp                   Int               @default(0)
+  reputation           Int               @default(1000)
+  trustScore           Decimal           @db.Decimal(5, 2) @default(100.00)
+  referralCode         String            @unique
+  referredById         String?           @db.Uuid
+  lastLoginAt          DateTime?
+  lastLoginIp          String?
+  country              String?           @db.VarChar(3)
+  language             String            @default("en") @db.VarChar(5)
+  themePreference      String            @default("STANDARD") @db.VarChar(32)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
+
+  referredBy           User?             @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals            User[]            @relation("UserReferrals")
+  wallet               Wallet?
+  sessions             UserSession[]
+  devices              UserDevice[]
+  auditLogs            AuditLog[]
+  securityEvents       SecurityEvent[]
+  fraudCases           FraudCase[]
+  supportTickets       SupportTicket[]   @relation("UserTickets")
+  assignedTickets      SupportTicket[]   @relation("AgentTickets")
+  notifications        Notification[]
+  achievements         UserAchievement[]
+  promoCodeUses        PromoCodeUse[]
+  inventoryItems       InventoryItem[]
+  playerStats         PlayerStats?
+  friendsSent         Friend[] @relation("FriendSender")
+  friendsReceived     Friend[] @relation("FriendReceiver")
+  challengesSent      Challenge[] @relation("ChallengeSender")
+  challengesReceived  Challenge[] @relation("ChallengeReceiver")
+  rivals              Rival[] @relation("RivalOwner")
+  rivalOf             Rival[] @relation("RivalTarget")
+  clanMemberships     ClanMember[]
+  createdClans        Clan[] @relation("ClanCreator")
+  creatorProfile      CreatorProfile?
+  creatorPayouts      CreatorPayout[]
+  tournamentEntries   TournamentParticipant[]
+  tournamentMatchesOne TournamentMatch[] @relation("TournamentMatchPlayerOne")
+  tournamentMatchesTwo TournamentMatch[] @relation("TournamentMatchPlayerTwo")
+  reportsFiled        Report[] @relation("ReportReporter")
+  reportsAgainst      Report[] @relation("ReportTarget")
+  caseOpenings        CaseOpening[]
+  userMissions        UserMission[]
+  loginRewards        UserLoginReward[]
+  eventPasses         EventPass[]
+  eventMissionProgress EventMissionProgress[]
+  matchStats          MatchPlayerStat[]
+  cosmeticPurchases   CosmeticPurchase[]
+  primeSubscription   PrimeSubscription?
+  duelPassProgress    DuelPassProgress[]
+  xpBoosters          XPBooster[]
+
+  matchesAsPlayerOne   Match[]           @relation("PlayerOneMatches")
+  matchesAsPlayerTwo   Match[]           @relation("PlayerTwoMatches")
+  matchesWon           Match[]           @relation("WinnerMatches")
+  matchesLost          Match[]           @relation("LoserMatches")
+  matchEvidence        MatchEvidence[]
+  disputesRaised       Dispute[]         @relation("DisputeReporter")
+
+  @@index([role])
+  @@index([status])
+  @@index([createdAt])
+}
+// ==========================================
+// ЧАСТЬ 2 ИЗ 3: ФИНАНСЫ, МАТЧИ И ДИСПУТЫ
+// ==========================================
+
+model Wallet {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String        @unique @db.Uuid
+  balance       Decimal       @db.Decimal(20, 4) @default(0.0000)
+  lockedBalance Decimal       @db.Decimal(20, 4) @default(0.0000)
+  bonusBalance  Decimal       @db.Decimal(20, 4) @default(0.0000)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  deposits      Deposit[]
+  withdrawals   Withdrawal[]
+}
+
+model Transaction {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId        String            @db.Uuid
+  type            TransactionType
+  status          TransactionStatus @default(PENDING)
+  amount          Decimal           @db.Decimal(20, 4)
+  balanceBefore   Decimal           @db.Decimal(20, 4)
+  balanceAfter    Decimal           @db.Decimal(20, 4)
+  referenceId     String?           @db.Uuid
+  idempotencyKey  String?           @unique
+  description     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  wallet          Wallet            @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([walletId])
+  @@index([type])
+  @@index([status])
+  @@index([referenceId])
+  @@index([createdAt])
+}
+
+model Deposit {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId        String        @db.Uuid
+  provider        PaymentProvider
+  providerTxId    String        @unique
+  amount          Decimal       @db.Decimal(20, 4)
+  fee             Decimal       @db.Decimal(20, 4) @default(0.0000)
+  status          DepositStatus @default(PENDING)
+  paymentDetails  Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  wallet          Wallet        @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([walletId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Withdrawal {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId        String           @db.Uuid
+  provider        PaymentProvider
+  destination     String
+  amount          Decimal          @db.Decimal(20, 4)
+  fee             Decimal          @db.Decimal(20, 4) @default(0.0000)
+  status          WithdrawalStatus @default(PENDING)
+  reviewReason    String?
+  idempotencyKey  String? @unique
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  wallet          Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([walletId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Game {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String   @unique
+  title       String
+  isEnabled   Boolean  @default(true)
+  config      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  matches     Match[]
+}
+
+model Match {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gameId        String      @db.Uuid
+  playerOneId   String      @db.Uuid
+  playerTwoId   String?     @db.Uuid
+  winnerId      String?     @db.Uuid
+  loserId       String?     @db.Uuid
+  status        MatchStatus @default(CREATING)
+  mode          MatchMode
+  mapName       String?
+  betAmount     Decimal     @db.Decimal(20, 4) @default(0.0000)
+  commission    Decimal     @db.Decimal(20, 4) @default(0.0000)
+  serverConfig  Json?
+  gameServer    GameServer?
+  lobbyCode     String?
+  demoUrl       String?
+  replayUrl     String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  startDeadlineAt DateTime?
+  connectionDeadlineAt DateTime?
+  connectionPhaseCompleted Boolean @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  game          Game        @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  playerOne     User        @relation("PlayerOneMatches", fields: [playerOneId], references: [id], onDelete: Restrict)
+  playerTwo     User?       @relation("PlayerTwoMatches", fields: [playerTwoId], references: [id], onDelete: Restrict)
+  winner        User?       @relation("WinnerMatches", fields: [winnerId], references: [id], onDelete: Restrict)
+  loser         User?       @relation("LoserMatches", fields: [loserId], references: [id], onDelete: Restrict)
+  disputes      Dispute[]
+  aiJobs        AIJob[]
+  playerStats   MatchPlayerStat[]
+  reports       Report[]
+  challenges    Challenge[]
+  tournamentMatches TournamentMatch[]
+
+  @@index([gameId])
+  @@index([playerOneId])
+  @@index([playerTwoId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Dispute {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  matchId        String          @db.Uuid
+  reporterId     String          @db.Uuid
+  reason         String
+  status         DisputeStatus   @default(OPEN)
+  aiDecision     DisputeDecision @default(PENDING)
+  adminDecision  DisputeDecision @default(PENDING)
+  aiSummary      String?
+  adminNotes     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  match          Match           @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  reporter       User            @relation("DisputeReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  evidences      MatchEvidence[]
+
+  @@index([matchId])
+  @@index([reporterId])
+  @@index([status])
+}
+
+model MatchEvidence {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId   String       @db.Uuid
+  uploadedById String       @db.Uuid
+  type        EvidenceType
+  fileUrl     String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  dispute     Dispute      @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  uploadedBy  User         @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([disputeId])
+}
+// ==========================================
+// ЧАСТЬ 3 ИЗ 3: БЕЗОПАСНОСТЬ, ИИ, ПОДДЕРЖКА, МАРКЕТИНГ И СИСТЕМА
+// ==========================================
+
+model UserSession {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @db.Uuid
+  token        String   @unique
+  ipAddress    String
+  userAgent    String
+  isRevoked    Boolean  @default(false)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now()) @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model UserDevice {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @db.Uuid
+  deviceFingerprint String
+  deviceName   String?
+  os           String?
+  browser      String?
+  isTrusted    Boolean  @default(false)
+  lastUsedIp   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceFingerprint])
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @db.Uuid
+  action     String
+  targetType String
+  targetId   String?
+  ipAddress  String
+  userAgent  String
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model SecurityEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @db.Uuid
+  eventType  String
+  severity   String
+  ipAddress  String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model AIJob {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  matchId    String?   @db.Uuid
+  jobType    JobType
+  status     JobStatus @default(PENDING)
+  payload    Json?
+  result     Json?
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  match      Match?    @relation(fields: [matchId], references: [id], onDelete: SetNull)
+
+  @@index([matchId])
+  @@index([jobType])
+  @@index([status])
+}
+
+model FraudCase {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String      @db.Uuid
+  status      FraudStatus @default(DETECTED)
+  riskScore   Decimal     @db.Decimal(5, 2)
+  reason      String
+  aiResult    Json?
+  adminResult Json?
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SupportTicket {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String         @db.Uuid
+  assignedToId String?        @db.Uuid
+  subject     String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  category    String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user        User           @relation("UserTickets", fields: [userId], references: [id], onDelete: Restrict)
+  assignedTo  User?          @relation("AgentTickets", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages    TicketMessage[]
+
+  @@index([userId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([priority])
+}
+
+model TicketMessage {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketId  String        @db.Uuid
+  senderId  String        @db.Uuid
+  message   String
+  isSystem  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model Notification {
+  id        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String             @db.Uuid
+  type      NotificationType
+  status    NotificationStatus @default(UNREAD)
+  title     String
+  body      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime           @default(now())
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PromoCode {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String         @unique
+  bonusAmount Decimal        @db.Decimal(20, 4) @default(0.0000)
+  maxUses     Int?
+  usesCount   Int            @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  uses        PromoCodeUse[]
+}
+
+model PromoCodeUse {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promoCodeId String    @db.Uuid
+  userId      String    @db.Uuid
+  usedAt      DateTime  @default(now())
+
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, userId])
+}
+
+model Achievement {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String            @unique
+  description String
+  xpReward    Int               @default(0)
+  iconUrl     String?
+  conditions  Json
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String      @db.Uuid
+  achievementId String      @db.Uuid
+  unlockedAt    DateTime    @default(now())
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, achievementId])
+}
+
+model SiteSettings {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key                String   @unique
+  value              Json
+  description        String?
+  updatedBy          String?
+  updatedAt          DateTime @updatedAt
+}
+model GameServer {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String           @unique
+  host           String
+  port           Int
+  status         GameServerStatus  @default(OFFLINE)
+  matchId        String?          @unique @db.Uuid
+  processId      Int?
+  startedAt      DateTime?
+  stoppedAt      DateTime?
+  lastHeartbeat  DateTime?
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  match          Match?            @relation(fields: [matchId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([matchId])
+}
+
+
+model TopSkin {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  imageData   String   @db.Text
+  submittedBy String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, sortOrder])
+  @@index([createdAt])
+}
+
+model AvatarPreset {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  imageData   String   @db.Text
+  submittedBy String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, sortOrder])
+  @@index([createdAt])
+}
+
+
+model DuelCase {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String       @unique
+  name        String
+  description String?
+  price       Decimal      @db.Decimal(20, 4)
+  imageUrl    String
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  items       DuelCaseItem[]
+  inventory   InventoryItem[]
+  openings    CaseOpening[]
+
+  @@index([active])
+}
+
+model DuelCaseItem {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId    String    @db.Uuid
+  name      String
+  imageUrl  String
+  rarity    String
+  value     Decimal   @db.Decimal(20, 4)
+  weight    Int       @default(1)
+  createdAt DateTime  @default(now())
+
+  case      DuelCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  inventory InventoryItem[]
+  openings CaseOpening[]
+
+  @@index([caseId])
+}
+
+model InventoryItem {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String        @db.Uuid
+  caseId      String?       @db.Uuid
+  caseItemId  String?       @db.Uuid
+  name        String
+  imageUrl    String
+  rarity      String
+  value       Decimal       @db.Decimal(20, 4)
+  status      String        @default("AVAILABLE")
+  steamAssetId String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case        DuelCase?     @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  caseItem    DuelCaseItem? @relation(fields: [caseItemId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+
+model PlayerStats {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @unique @db.Uuid
+  rating          Int      @default(1000)
+  wins            Int      @default(0)
+  losses          Int      @default(0)
+  totalDuels      Int      @default(0)
+  winStreak       Int      @default(0)
+  bestStreak      Int      @default(0)
+  kills           Int      @default(0)
+  deaths          Int      @default(0)
+  headshots       Int      @default(0)
+  damage          Int      @default(0)
+  ratingHistory   Json?
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields:[userId], references:[id], onDelete: Cascade)
+}
+
+model MatchPlayerStat {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  matchId     String   @db.Uuid
+  userId      String   @db.Uuid
+  kills       Int      @default(0)
+  deaths      Int      @default(0)
+  headshots   Int      @default(0)
+  damage      Int      @default(0)
+  score       Int      @default(0)
+  connectedAt DateTime?
+  disconnectedAt DateTime?
+  createdAt   DateTime @default(now())
+  match       Match   @relation(fields:[matchId], references:[id], onDelete: Cascade)
+  user        User    @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([matchId,userId])
+  @@index([userId])
+}
+
+model Friend {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  senderId    String @db.Uuid
+  receiverId  String @db.Uuid
+  status      FriendStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sender      User @relation("FriendSender", fields:[senderId], references:[id], onDelete: Cascade)
+  receiver    User @relation("FriendReceiver", fields:[receiverId], references:[id], onDelete: Cascade)
+  @@unique([senderId,receiverId])
+  @@index([receiverId,status])
+}
+
+model Challenge {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  senderId    String @db.Uuid
+  receiverId  String @db.Uuid
+  matchId     String? @db.Uuid
+  mode        String
+  mapName     String?
+  stake       Decimal @db.Decimal(20,4)
+  format      String @default("1v1")
+  weaponModifier String?
+  status      ChallengeStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sender      User @relation("ChallengeSender", fields:[senderId], references:[id], onDelete: Cascade)
+  receiver    User @relation("ChallengeReceiver", fields:[receiverId], references:[id], onDelete: Cascade)
+  match       Match? @relation(fields:[matchId], references:[id], onDelete: SetNull)
+  @@index([receiverId,status,expiresAt])
+  @@index([senderId,status])
+}
+
+model Rival {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId    String @db.Uuid
+  targetId   String @db.Uuid
+  status     RivalStatus @default(ACTIVE)
+  createdAt  DateTime @default(now())
+  owner      User @relation("RivalOwner", fields:[ownerId], references:[id], onDelete: Cascade)
+  target     User @relation("RivalTarget", fields:[targetId], references:[id], onDelete: Cascade)
+  @@unique([ownerId,targetId])
+}
+
+model Clan {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String @unique
+  tag       String @unique
+  logoUrl   String?
+  creatorId String @db.Uuid
+  rating    Int @default(1000)
+  wins      Int @default(0)
+  losses    Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  creator   User @relation("ClanCreator", fields:[creatorId], references:[id], onDelete: Restrict)
+  members   ClanMember[]
+  warsOne   ClanWar[] @relation("ClanWarOne")
+  warsTwo   ClanWar[] @relation("ClanWarTwo")
+}
+
+model ClanMember {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clanId   String @db.Uuid
+  userId   String @db.Uuid
+  role     ClanMemberRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  clan     Clan @relation(fields:[clanId], references:[id], onDelete: Cascade)
+  user     User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([clanId,userId])
+  @@index([userId])
+}
+
+model ClanWar {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clanOneId String @db.Uuid
+  clanTwoId String @db.Uuid
+  status    String @default("PENDING")
+  winnerClanId String?
+  createdAt DateTime @default(now())
+  clanOne Clan @relation("ClanWarOne", fields:[clanOneId], references:[id], onDelete: Cascade)
+  clanTwo Clan @relation("ClanWarTwo", fields:[clanTwoId], references:[id], onDelete: Cascade)
+}
+
+model CreatorProfile {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String @unique @db.Uuid
+  displayName  String
+  bio          String?
+  referralCode String @unique
+  commissionRate Decimal @db.Decimal(5,2) @default(20)
+  badge        String @default("CREATOR")
+  campaigns    Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  payouts      CreatorPayout[]
+}
+
+model CreatorPayout {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  creatorId  String @db.Uuid
+  userId     String @db.Uuid
+  amount     Decimal @db.Decimal(20,4)
+  status     CreatorPayoutStatus @default(PENDING)
+  approvedAt DateTime?
+  paidAt     DateTime?
+  rejectionReason String?
+  createdAt  DateTime @default(now())
+  creator    CreatorProfile @relation(fields:[creatorId], references:[id], onDelete: Cascade)
+  user       User @relation(fields:[userId], references:[id], onDelete: Restrict)
+  @@index([creatorId,status])
+}
+
+model PromoCampaign {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  type        String
+  startsAt    DateTime
+  endsAt      DateTime
+  multiplier  Decimal @db.Decimal(8,2) @default(1)
+  usageLimit  Int?
+  maxPayout   Decimal? @db.Decimal(20,4)
+  conditions  Json?
+  status      String @default("DRAFT")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([status,startsAt,endsAt])
+}
+
+model DepositPromotion {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  type           String
+  multiplier     Decimal @db.Decimal(8,2) @default(1)
+  maxBonus      Decimal @db.Decimal(20,4) @default(0)
+  wagering       Decimal @db.Decimal(20,4) @default(0)
+  expiresHours   Int @default(168)
+  withdrawable   Boolean @default(false)
+  restrictions  Json?
+  active        Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CaseOpening {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String @db.Uuid
+  caseId      String @db.Uuid
+  resultItemId String @db.Uuid
+  price       Decimal @db.Decimal(20,4)
+  status      CaseOpeningStatus @default(PENDING)
+  idempotencyKey String @unique
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  user        User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  case        DuelCase @relation(fields:[caseId], references:[id], onDelete: Restrict)
+  resultItem  DuelCaseItem @relation(fields:[resultItemId], references:[id], onDelete: Restrict)
+  @@index([userId,createdAt])
+}
+
+model Collection {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String @unique
+  name        String
+  description String?
+  requirements Json
+  reward       Json?
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Mission {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String @unique
+  name        String
+  description String
+  type        String
+  target      Int
+  reward      Json
+  startsAt    DateTime?
+  endsAt      DateTime?
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  userMissions UserMission[]
+}
+
+model UserMission {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String @db.Uuid
+  missionId   String @db.Uuid
+  progress    Int @default(0)
+  status      MissionStatus @default(ACTIVE)
+  completedAt DateTime?
+  claimedAt   DateTime?
+  user        User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  mission     Mission @relation(fields:[missionId], references:[id], onDelete: Cascade)
+  @@unique([userId,missionId])
+}
+
+model LoginReward {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  day         Int @unique
+  reward      Json
+  active      Boolean @default(true)
+}
+
+model UserLoginReward {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String @db.Uuid
+  day         Int
+  claimedAt   DateTime @default(now())
+  reward      Json
+  user        User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([userId,day])
+}
+
+model Tournament {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  slug        String @unique
+  maxPlayers  Int
+  entryFee    Decimal @db.Decimal(20,4) @default(0)
+  prizePool   Decimal @db.Decimal(20,4) @default(0)
+  status      TournamentStatus @default(DRAFT)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  rules       Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  participants TournamentParticipant[]
+  matches     TournamentMatch[]
+}
+
+model TournamentParticipant {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tournamentId String @db.Uuid
+  userId       String @db.Uuid
+  seed         Int?
+  eliminatedAt DateTime?
+  createdAt    DateTime @default(now())
+  tournament Tournament @relation(fields:[tournamentId], references:[id], onDelete: Cascade)
+  user       User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([tournamentId,userId])
+}
+
+model TournamentMatch {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tournamentId String @db.Uuid
+  round        Int
+  bracketIndex Int
+  playerOneId String?
+  playerTwoId String?
+  winnerId    String?
+  status      TournamentMatchStatus @default(PENDING)
+  matchId     String? @unique @db.Uuid
+  createdAt   DateTime @default(now())
+  tournament Tournament @relation(fields:[tournamentId], references:[id], onDelete: Cascade)
+  playerOne User? @relation("TournamentMatchPlayerOne", fields:[playerOneId], references:[id], onDelete: SetNull)
+  playerTwo User? @relation("TournamentMatchPlayerTwo", fields:[playerTwoId], references:[id], onDelete: SetNull)
+  match Match? @relation(fields:[matchId], references:[id], onDelete: SetNull)
+  @@unique([tournamentId,round,bracketIndex])
+}
+
+model Event {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  icon        String?
+  startsAt    DateTime
+  endsAt      DateTime
+  theme       String?
+  effects     Json?
+  missions    Json?
+  rewards     Json?
+  caseId      String?
+  leaderboard Json?
+  eventPass   Boolean @default(false)
+  premiumPass Boolean @default(false)
+  promoMultiplier Decimal @db.Decimal(8,2) @default(1)
+  status      EventStatus @default(DRAFT)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  passes      EventPass[]
+  missionProgress EventMissionProgress[]
+}
+
+model EventPass {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId   String @db.Uuid
+  userId    String @db.Uuid
+  premium   Boolean @default(false)
+  level     Int @default(1)
+  xp        Int @default(0)
+  createdAt DateTime @default(now())
+  event     Event @relation(fields:[eventId], references:[id], onDelete: Cascade)
+  user      User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([eventId,userId])
+}
+
+model EventMissionProgress {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId   String @db.Uuid
+  userId    String @db.Uuid
+  missionId String
+  progress  Int @default(0)
+  completed Boolean @default(false)
+  event Event @relation(fields:[eventId], references:[id], onDelete: Cascade)
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@index([eventId,userId])
+}
+
+model Banner {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String
+  imageUrl  String
+  placement String
+  startsAt  DateTime?
+  endsAt    DateTime?
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Season {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  theme     String
+  startsAt  DateTime
+  endsAt    DateTime
+  mode      SeasonMode @default(AUTO)
+  effects   Json?
+  active    Boolean @default(false)
+  createdAt DateTime @default(now())
+  duelPasses DuelPass[]
+}
+
+model Report {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterId  String @db.Uuid
+  targetId    String? @db.Uuid
+  matchId     String? @db.Uuid
+  type        ReportType
+  reason      String
+  evidence   Json?
+  status      ReportStatus @default(OPEN)
+  reviewedBy String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  reporter User @relation("ReportReporter", fields:[reporterId], references:[id], onDelete: Cascade)
+  target User? @relation("ReportTarget", fields:[targetId], references:[id], onDelete: SetNull)
+  match Match? @relation(fields:[matchId], references:[id], onDelete: SetNull)
+  @@index([status,createdAt])
+}
+
+model FeatureFlag {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key       String @unique
+  enabled   Boolean @default(true)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model PlatformSetting {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key       String @unique
+  value     Decimal @db.Decimal(20,4)
+  minValue  Decimal?
+  maxValue  Decimal?
+  step      Decimal?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+
+model CosmeticItem {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String @unique
+  name        String
+  type        String
+  price       Decimal @db.Decimal(20,4)
+  imageUrl    String?
+  active      Boolean @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  purchases   CosmeticPurchase[]
+}
+
+model CosmeticPurchase {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String @db.Uuid
+  itemId    String @db.Uuid
+  price     Decimal @db.Decimal(20,4)
+  createdAt DateTime @default(now())
+  user      User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  item      CosmeticItem @relation(fields:[itemId], references:[id], onDelete: Restrict)
+  @@unique([userId,itemId])
+}
+
+model PrimeSubscription {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String @unique @db.Uuid
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean @default(true)
+  tier      String @default("PRIME")
+  createdAt DateTime @default(now())
+  user      User @relation(fields:[userId], references:[id], onDelete: Cascade)
+}
+
+model DuelPass {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seasonId  String @db.Uuid
+  name      String
+  maxLevel  Int @default(50)
+  startsAt  DateTime
+  endsAt    DateTime
+  premiumPrice Decimal @db.Decimal(20,4) @default(0)
+  season    Season @relation(fields:[seasonId], references:[id], onDelete: Cascade)
+  active    Boolean @default(false)
+  rewards   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  levels    DuelPassProgress[]
+}
+
+model DuelPassProgress {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  passId   String @db.Uuid
+  userId    String @db.Uuid
+  level    Int @default(1)
+  xp       Int @default(0)
+  premium  Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  pass     DuelPass @relation(fields:[passId], references:[id], onDelete: Cascade)
+  user     User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@unique([passId,userId])
+}
+
+model XPBooster {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String @db.Uuid
+  multiplier Decimal @db.Decimal(8,2) @default(2)
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean @default(true)
+  user      User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@index([userId,active,endsAt])
+}

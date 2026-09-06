@@ -1,0 +1,405 @@
+@import "tailwindcss";
+
+:root{
+  --background:#050507;
+  --foreground:#f7f7fa;
+  --pink:#ff2f91;
+  --pink-soft:#ff66ad;
+  --pink-bg:rgba(255,47,145,.08);
+  --green:#8dff52;
+  --green-bg:rgba(141,255,82,.08);
+  --line:rgba(255,255,255,.08);
+  --panel:#0b0b10;
+  --panel-2:#0f0f15;
+}
+@theme inline{
+  --color-background:var(--background);
+  --color-foreground:var(--foreground);
+  --font-sans:var(--font-geist-sans);
+  --font-mono:var(--font-geist-mono)
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth} 
+html,body,*{-webkit-user-select:none;user-select:none} input,textarea,select,[contenteditable="true"]{-webkit-user-select:text;user-select:text}
+body{position:relative;isolation:isolate;margin:0;background:#050507 var(--global-hero-image, url('/hero-backgrounds/hero-01.jpg')) center/cover fixed no-repeat;color:var(--foreground);font-family:Arial,Helvetica,sans-serif}
+/* Active season uses its own full-site seasonal background. Without a season the normal global background is untouched. */
+html[data-season] body{background-image:linear-gradient(rgba(5,5,7,.18),rgba(5,5,7,.34)),var(--season-site-image, var(--global-hero-image, url('/hero-backgrounds/hero-01.jpg')));background-position:center;background-size:cover;background-attachment:fixed;background-repeat:no-repeat}
+html[data-season] body{background-color:#050507}
+::selection{background:transparent;color:inherit}
+button,a,select{cursor:pointer}
+button:disabled{cursor:not-allowed}
+.hero{min-height:680px}
+.pill{display:inline-flex;align-items:center;border:1px solid rgba(255,47,145,.28);background:var(--pink-bg);border-radius:999px;padding:7px 11px;font-size:10px;font-weight:900;letter-spacing:.16em;color:var(--pink-soft)}
+.panel{border:1px solid var(--line);background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.018));box-shadow:0 20px 60px rgba(0,0,0,.22)}
+.input{width:100%;border:1px solid rgba(255,255,255,.1);background:#07070a;border-radius:12px;padding:12px 14px;color:#fff;outline:none}
+.input:focus{border-color:rgba(255,47,145,.65);box-shadow:0 0 0 3px rgba(255,47,145,.09)}
+.status{display:inline-flex;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900;letter-spacing:.08em}
+.status.waiting{background:var(--pink-bg);color:#ff82bd;border:1px solid rgba(255,47,145,.18)}
+.status.live{background:var(--green-bg);color:var(--green);border:1px solid rgba(141,255,82,.18)}
+select option{background:#0b0b10;color:#fff}
+.avatar-square{aspect-ratio:1/1;width:100%;height:100%;display:block;object-fit:cover;object-position:center center}
+.avatar-preset img{image-rendering:auto}
+.cancel-match:hover,.cancel-match:focus-visible{transform:translateY(-1px);border-color:rgba(248,113,113,.75);background:rgba(239,68,68,.14);color:#fecaca;box-shadow:0 0 24px rgba(248,113,113,.14)}
+a:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid rgba(255,47,145,.75);outline-offset:2px}
+
+/* DuelPlay theme engine */
+:root{--theme-accent:#ff2f91;--theme-accent-soft:#ff66ad;--theme-accent-bg:rgba(255,47,145,.08);--theme-glow:rgba(255,47,145,.22)}
+html[data-theme="BLACK_BLUE"]{--theme-accent:#38bdf8;--theme-accent-soft:#7dd3fc;--theme-accent-bg:rgba(56,189,248,.08);--theme-glow:rgba(56,189,248,.2)}
+html[data-theme="FULL_GREEN"]{--theme-accent:#8dff52;--theme-accent-soft:#b6ff8d;--theme-accent-bg:rgba(141,255,82,.08);--theme-glow:rgba(141,255,82,.2)}
+html[data-theme="FULL_PINK"]{--theme-accent:#ff4da6;--theme-accent-soft:#ff91c6;--theme-accent-bg:rgba(255,77,166,.09);--theme-glow:rgba(255,77,166,.22)}
+html[data-theme="NEON"]{--theme-accent:#a78bfa;--theme-accent-soft:#67e8f9;--theme-accent-bg:rgba(167,139,250,.09);--theme-glow:rgba(103,232,249,.22)}
+html[data-theme="CYBER_PURPLE"]{--theme-accent:#9b5cff;--theme-accent-soft:#c4a4ff;--theme-accent-bg:rgba(155,92,255,.09);--theme-glow:rgba(155,92,255,.22)}
+html[data-theme="CRIMSON"]{--theme-accent:#ff4655;--theme-accent-soft:#ff8b94;--theme-accent-bg:rgba(255,70,85,.09);--theme-glow:rgba(255,70,85,.22)}
+html[data-theme="ORANGE"]{--theme-accent:#ff8a3d;--theme-accent-soft:#ffb077;--theme-accent-bg:rgba(255,138,61,.09);--theme-glow:rgba(255,138,61,.22)}
+html[data-theme="CYAN"]{--theme-accent:#2dd4bf;--theme-accent-soft:#7ee7dc;--theme-accent-bg:rgba(45,212,191,.09);--theme-glow:rgba(45,212,191,.2)}
+html[data-theme="GOLD"]{--theme-accent:#f5c451;--theme-accent-soft:#ffe29a;--theme-accent-bg:rgba(245,196,81,.09);--theme-glow:rgba(245,196,81,.2)}
+html[data-theme] .text-pink-300,html[data-theme] .text-pink-400,html[data-theme] .text-pink-500{color:var(--theme-accent)!important}
+html[data-theme] .bg-pink-400,html[data-theme] .bg-pink-500{background-color:var(--theme-accent)!important}
+html[data-theme] .border-pink-400,html[data-theme] .border-pink-400\/30,html[data-theme] .border-pink-400\/40{border-color:color-mix(in srgb,var(--theme-accent) 35%,transparent)!important}
+html[data-theme] .bg-pink-400\/10,html[data-theme] .bg-pink-400\/5{background-color:var(--theme-accent-bg)!important}
+html[data-theme] .pill{border-color:color-mix(in srgb,var(--theme-accent) 40%,transparent);background:var(--theme-accent-bg);color:var(--theme-accent-soft)}
+html[data-theme] .input:focus{border-color:var(--theme-accent);box-shadow:0 0 0 3px var(--theme-accent-bg)}
+
+/* DuelPlay responsive polish */
+.theme-card-preview{background:linear-gradient(135deg,var(--p1),var(--p2));}
+@media (max-width: 767px){
+  .hero h1{font-size:clamp(2.8rem,14vw,4.8rem)}
+  .panel{border-radius:1.25rem}
+}
+html,body{max-width:100%;overflow-x:hidden}
+img,svg,video,canvas{max-width:100%}
+button,a{overflow-wrap:anywhere}
+@media (max-width:1023px){.hero{min-height:0}.hero h1{max-width:11ch}.hero .panel{backdrop-filter:blur(10px)}}
+@media (max-width:767px){body{font-size:14px}.hero{min-height:0}.hero h1{font-size:clamp(2.7rem,15vw,4.8rem);line-height:.9}.hero .relative.mx-auto{padding-top:4.5rem;padding-bottom:4rem}.panel{border-radius:1rem}.input{font-size:16px}.status{font-size:9px}.pill{font-size:9px}.grid{min-width:0}}
+@media (min-width:768px) and (max-width:1023px){.hero .relative.mx-auto{padding-top:5rem;padding-bottom:5rem}.hero h1{font-size:clamp(4rem,9vw,6rem)}}
+
+/* DuelPlay base atmosphere — deliberately flat. No orbit/ellipse geometry. */
+.site-atmosphere{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden;background:transparent!important;opacity:1!important;mix-blend-mode:normal!important}
+.site-atmosphere::before{display:none!important}
+.site-atmosphere .atmosphere-nebula,.site-atmosphere .atmosphere-stars,.site-atmosphere .season-art-backdrop{display:none!important}
+.site-live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--theme-accent);box-shadow:0 0 0 0 color-mix(in srgb,var(--theme-accent) 45%,transparent);animation:livePulse 1.8s infinite}
+@keyframes livePulse{70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.wallet-method{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);transition:.2s}
+.wallet-method:hover,.wallet-method.active{border-color:color-mix(in srgb,var(--theme-accent) 70%,transparent);background:var(--theme-accent-bg);transform:translateY(-1px)}
+.step-circle{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:#0c0d12;font-size:12px;font-weight:900}
+.step-circle.active{border-color:var(--theme-accent);background:var(--theme-accent-bg);color:var(--theme-accent)}
+
+/* DuelPlay mobile/tablet hardening */
+@media (max-width: 767px){
+  main{min-width:0;max-width:100%;}
+  section,.panel,article,aside{min-width:0;max-width:100%;}
+  img,video,canvas,svg{max-width:100%;}
+  table{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  pre,code{max-width:100%;overflow-x:auto;}
+  .mobile-scroll-x{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .mobile-stack{flex-direction:column!important;align-items:stretch!important;}
+  .mobile-full{width:100%!important;max-width:none!important;}
+  .mobile-hide-overflow{overflow:hidden!important;}
+  .mobile-modal{max-height:calc(100dvh - 2rem)!important;max-width:calc(100vw - 1rem)!important;}
+  .mobile-safe-grid{grid-template-columns:1fr!important;}
+  .mobile-safe-grid-2{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+}
+@media (min-width:768px) and (max-width:1023px){
+  main{min-width:0;max-width:100%;}
+  section,.panel,article,aside{min-width:0;max-width:100%;}
+  img,video,canvas,svg{max-width:100%;}
+  .tablet-scroll-x{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+}
+
+/* Case roulette — restore the real fullscreen track/pointer layout. Seasonal layers are decorative only. */
+.roulette-fullscreen-v2{width:100vw;margin-left:calc(50% - 50vw);height:420px;overflow:hidden;border-top:1px solid color-mix(in srgb,var(--theme-accent) 28%,transparent);border-bottom:1px solid color-mix(in srgb,var(--theme-accent) 28%,transparent);background:radial-gradient(circle at 50% 50%,rgba(167,139,250,.14),transparent 40%),linear-gradient(180deg,rgba(255,255,255,.035),rgba(0,0,0,.62));display:flex;align-items:center;position:relative}
+.roulette-fullscreen-v2:before,.roulette-fullscreen-v2:after{content:"";position:absolute;z-index:5;top:0;bottom:0;width:14%;pointer-events:none}.roulette-fullscreen-v2:before{left:0;background:linear-gradient(90deg,#050507,transparent)}.roulette-fullscreen-v2:after{right:0;background:linear-gradient(270deg,#050507,transparent)}
+.roulette-fullscreen-v2 .roulette-track-full{display:flex;gap:0;padding:0;transform:translate3d(0,0,0);transition:none;will-change:transform;z-index:2}
+.roulette-fullscreen-v2 .roulette-item-large{flex:0 0 235px;width:235px;height:330px;border-radius:0;padding:14px;border:0;border-right:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.025));box-shadow:none}
+.roulette-fullscreen-v2 .roulette-item-large img{height:235px;width:100%;object-fit:cover;border-radius:14px;background:#07070a}
+.roulette-fullscreen-v2 .roulette-pointer{position:absolute;left:50%;top:0;bottom:0;width:4px;transform:translateX(-50%);background:var(--theme-accent);z-index:8;box-shadow:0 0 28px var(--theme-glow),0 0 75px var(--theme-accent)}
+.roulette-fullscreen-v2 .roulette-pointer:before{content:"";position:absolute;left:50%;top:0;transform:translateX(-50%);width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-top:16px solid var(--theme-accent)}
+.roulette-fullscreen-v2.roulette-fullscreen-go .roulette-track-full{transform:translate3d(var(--roll-x,0px),0,0);transition:transform 6.8s cubic-bezier(.08,.72,.12,1)}
+@media(max-width:767px){.roulette-fullscreen-v2{height:300px}.roulette-fullscreen-v2 .roulette-item-large{flex-basis:165px;width:165px;height:240px;padding:9px}.roulette-fullscreen-v2 .roulette-item-large img{height:165px}.roulette-fullscreen-v2:before,.roulette-fullscreen-v2:after{width:20%}}
+
+/* DuelPlay seasonal world — automatic artwork system.
+   IMPORTANT: no viewport ellipse/orbit, no emoji decorations, no fake CTA buttons.
+   Seasonal artwork is used as a real background on the hero, map area and create area. */
+.site-atmosphere{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden;background:transparent!important;opacity:1!important;mix-blend-mode:normal!important}
+.site-atmosphere::before,.site-atmosphere::after{display:none!important;content:none!important}
+.site-atmosphere .atmosphere-nebula,.site-atmosphere .atmosphere-stars,.site-atmosphere .season-art-backdrop{display:none!important}
+
+.site-atmosphere .season-particles{position:absolute;inset:0;overflow:hidden;z-index:2;opacity:1}
+.site-atmosphere .season-particle{position:absolute;top:-12%;display:block;line-height:1;animation:seasonFallClean linear infinite;will-change:transform;user-select:none;filter:drop-shadow(0 0 5px rgba(255,255,255,.28));transform:translate3d(0,-12vh,0) rotate(0deg)}
+@keyframes seasonFallClean{0%{transform:translate3d(0,-14vh,0) rotate(0deg);opacity:0}7%{opacity:.9}35%{opacity:1}65%{opacity:.9}100%{transform:translate3d(var(--season-drift),115vh,0) rotate(360deg);opacity:0}}
+.season-snow-dots{position:absolute;inset:0;overflow:hidden}
+.season-snow-dot{position:absolute;top:-2%;display:block;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 0 5px rgba(255,255,255,.75),0 0 12px rgba(220,240,255,.32);animation:seasonSnowDot linear infinite;will-change:transform,opacity}
+@keyframes seasonSnowDot{0%{transform:translate3d(0,-8vh,0);opacity:0}8%{opacity:.35}25%{opacity:.82}65%{opacity:.9}100%{transform:translate3d(var(--season-drift),112vh,0);opacity:0}}
+.season-winter,.season-christmas{filter:drop-shadow(0 0 5px rgba(220,240,255,.72))}
+.season-halloween{filter:drop-shadow(0 0 7px rgba(255,100,20,.65))}
+.season-autumn,.season-thanksgiving{filter:drop-shadow(0 0 4px rgba(255,150,50,.38))}
+.season-summer{filter:drop-shadow(0 0 6px rgba(255,220,100,.42))}
+.season-spring,.season-easter{filter:drop-shadow(0 0 5px rgba(255,170,210,.42))}
+
+/* Autumn: realistic water-on-glass droplets. No falling rain lines — only beads and slow trails that cling to the screen. */
+/* Real autumn glass-water video: no fake CSS drops, only the supplied glass-rain footage. */
+.season-glass-rain-layer{position:fixed;inset:0;z-index:4;pointer-events:none;overflow:hidden;mix-blend-mode:multiply;opacity:.62;
+  -webkit-mask-image:radial-gradient(ellipse 92% 88% at 50% 43%,#000 0%,#000 67%,rgba(0,0,0,.92) 78%,rgba(0,0,0,.55) 90%,transparent 100%);mask-image:radial-gradient(ellipse 92% 88% at 50% 43%,#000 0%,#000 67%,rgba(0,0,0,.92) 78%,rgba(0,0,0,.55) 90%,transparent 100%)}
+.season-glass-rain-video{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;object-position:center;filter:contrast(1.04) brightness(1.02);pointer-events:none;transform:translateZ(0);backface-visibility:hidden}
+@keyframes seasonGlassLoopFade{0%{opacity:0}5%{opacity:.72}88%{opacity:.72}94%{opacity:.34}98%{opacity:0}100%{opacity:0}}
+html[data-season="autumn"] .season-glass-rain-layer,html[data-season="thanksgiving"] .season-glass-rain-layer{display:block}
+.season-rain-layer{position:absolute;inset:0;overflow:hidden;z-index:4;pointer-events:none;mix-blend-mode:normal}
+.season-rain-drop{position:absolute;display:block;border-radius:54% 46% 58% 42%;background:radial-gradient(ellipse at 30% 22%,rgba(255,255,255,.88) 0 3%,rgba(255,255,255,.42) 4% 8%,transparent 18%),radial-gradient(ellipse at 69% 76%,rgba(0,8,16,.34) 0 10%,rgba(15,30,40,.16) 28%,transparent 62%);border:1px solid rgba(225,238,246,.48);box-shadow:inset 1px 1px 2px rgba(255,255,255,.72),inset -2px -3px 5px rgba(0,10,18,.32),0 1px 5px rgba(0,0,0,.32),0 0 4px rgba(255,255,255,.12);backdrop-filter:blur(1.2px) saturate(1.55);-webkit-backdrop-filter:blur(1.2px) saturate(1.55);animation:seasonRainGlass linear infinite;will-change:transform,opacity;opacity:.72}
+.season-rain-drop::before{content:"";position:absolute;inset:12% 18% 16% 20%;border-radius:58% 42% 62% 38%;background:linear-gradient(112deg,transparent 0 26%,rgba(255,255,255,.42) 29%,rgba(255,255,255,.08) 39%,transparent 48%),radial-gradient(ellipse at 72% 82%,rgba(0,0,0,.27),transparent 52%);filter:blur(.35px)}
+.season-rain-drop::after{content:"";position:absolute;left:22%;top:4%;width:34%;height:43%;border-radius:999px;transform:rotate(22deg);background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(255,255,255,.32) 30%,transparent 78%);filter:blur(.45px);opacity:.9}
+.season-rain-trail{position:absolute;left:34%;top:58%;width:32%;height:150%;border-radius:999px;background:linear-gradient(180deg,rgba(225,240,248,.12),rgba(255,255,255,.30) 18%,rgba(125,165,185,.12) 58%,transparent 100%);filter:blur(1px);opacity:.55;transform:rotate(var(--trail-angle,0deg));transform-origin:top}
+.season-rain-bead{position:absolute;left:24%;bottom:-7%;width:52%;height:32%;border-radius:50%;background:radial-gradient(circle at 34% 24%,rgba(255,255,255,.85),rgba(255,255,255,.18) 24%,rgba(0,12,22,.34) 64%,transparent 72%);filter:blur(.25px);opacity:.72}
+.season-rain-drop-large{opacity:.88;box-shadow:inset 1px 1px 3px rgba(255,255,255,.8),inset -3px -5px 8px rgba(0,10,18,.34),0 2px 7px rgba(0,0,0,.38),0 0 6px rgba(255,255,255,.16)}
+.season-rain-drop-large .season-rain-trail{height:240%;width:27%;opacity:.62;filter:blur(1.2px)}
+@keyframes seasonRainGlass{0%{transform:translate3d(0,-10vh,0) scale(.82);opacity:0}7%{opacity:.35}14%{transform:translate3d(0,-2vh,0) scale(.98);opacity:.74}30%{transform:translate3d(calc(var(--rain-drift)*.08),8vh,0) scale(1);opacity:.82}48%{transform:translate3d(calc(var(--rain-drift)*.25),24vh,0) scale(1.02);opacity:.8}68%{transform:translate3d(calc(var(--rain-drift)*.52),48vh,0) scale(1.04);opacity:.76}84%{transform:translate3d(calc(var(--rain-drift)*.78),72vh,0) scale(1.06);opacity:.66}100%{transform:translate3d(var(--rain-drift),110vh,0) scale(1.08);opacity:0}}
+html[data-season="autumn"] .season-rain-drop,html[data-season="thanksgiving"] .season-rain-drop{opacity:.78}
+
+/* Real seasonal artwork. It never draws a second CTA layer. */
+html[data-season] .hero-base-art{background-image:var(--season-hero-image)!important;background-position:center;background-size:cover;background-repeat:no-repeat}
+html[data-season] .hero-base-overlay{background:linear-gradient(90deg,rgba(5,5,7,.16),rgba(5,5,7,.10) 48%,rgba(5,5,7,.38))!important}
+
+/* Create-match uses the same artwork as the home hero. */
+html[data-season] #create > .pointer-events-none.absolute.inset-y-0.left-0{background-image:var(--season-hero-image)!important;background-position:center;background-size:cover;background-repeat:no-repeat}
+html[data-season] #create > div:nth-child(2){background:linear-gradient(90deg,rgba(5,5,7,.16) 0%,rgba(5,5,7,.46) 38%,rgba(5,5,7,.93) 68%,#0a0d12 100%)!important}
+html[data-season] #create > div:nth-child(3){background:radial-gradient(circle_at_22%_48%,rgba(255,47,145,.14),transparent_34%),linear-gradient(0deg,rgba(5,5,7,.86),transparent 25%,transparent 75%,rgba(5,5,7,.62))!important}
+
+/* Map selection keeps the successful look from the user's screenshot. */
+.season-map-section{isolation:isolate}
+.season-map-section::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--season-hero-image);background-position:center;background-size:cover;background-repeat:no-repeat;opacity:0;transition:opacity .35s ease}
+.season-map-section::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(5,5,7,.96),rgba(5,5,7,.72) 28%,rgba(5,5,7,.90));opacity:0;transition:opacity .35s ease}
+html[data-season] .season-map-section::before{opacity:.42;border-radius:inherit}
+html[data-season] .season-map-section::after{opacity:.82;border-radius:inherit}
+
+/* Seasonal material on every normal panel/window, kept subtle so text remains primary. */
+html[data-season] .panel,html[data-season] article:not(.roulette-item),html[data-season] .roulette-item:not(.roulette-item-large){position:relative;background-image:linear-gradient(rgba(7,7,10,.86),rgba(7,7,10,.93)),var(--season-hero-image)!important;background-position:center;background-size:cover;background-blend-mode:normal}
+html[data-season] .roulette-fullscreen-v2 .roulette-item-large{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.025))!important;background-image:none!important}
+html[data-season] .roulette-fullscreen-v2 .roulette-item-large::after{display:none!important}
+html[data-season] .panel::after,html[data-season] article:not(.roulette-item)::after,html[data-season] .roulette-item:not(.roulette-item-large)::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 1px 0 color-mix(in srgb,var(--theme-accent) 16%,transparent),inset 0 0 28px color-mix(in srgb,var(--theme-accent) 3%,transparent);z-index:4}
+
+html[data-season="halloween"] .panel::before,html[data-season="halloween"] article::before{content:"";position:absolute;left:10px;right:10px;top:-2px;height:7px;z-index:5;pointer-events:none;border-radius:50%;background:linear-gradient(90deg,transparent,rgba(255,119,38,.18),transparent);box-shadow:0 0 16px rgba(255,105,25,.12)}
+html[data-season="halloween"] #maps button::before{content:"🎃";position:absolute;z-index:6;top:3px;right:8px;font-size:14px;opacity:.78;pointer-events:none}
+html[data-season="valentines"] .season-hearts{filter:drop-shadow(0 0 6px rgba(255,80,150,.5))}
+html[data-season="st-patricks"] .season-stpatricks{filter:drop-shadow(0 0 6px rgba(70,255,120,.45))}
+html[data-season="lunar-new-year"] .season-lunarnewyear{filter:drop-shadow(0 0 7px rgba(255,80,50,.55))}
+html[data-season="april-fools"] .season-aprilfools{filter:drop-shadow(0 0 5px rgba(255,220,80,.45))}
+
+/* Realistic winter snow cap: irregular, soft and narrow — never a solid white bar. */
+html[data-season="winter"] .panel::before,html[data-season="christmas"] .panel::before,html[data-season="new-year"] .panel::before,html[data-season="winter"] article::before,html[data-season="christmas"] article::before,html[data-season="new-year"] article::before{content:"";position:absolute;left:10px;right:10px;top:-2px;height:8px;z-index:5;pointer-events:none;background:radial-gradient(ellipse at 8% 100%,rgba(248,252,255,.88) 0 16%,transparent 17%),radial-gradient(ellipse at 24% 100%,rgba(230,243,252,.72) 0 12%,transparent 13%),radial-gradient(ellipse at 42% 100%,rgba(255,255,255,.82) 0 15%,transparent 16%),radial-gradient(ellipse at 61% 100%,rgba(220,239,250,.72) 0 11%,transparent 12%),radial-gradient(ellipse at 79% 100%,rgba(248,252,255,.80) 0 14%,transparent 15%),radial-gradient(ellipse at 94% 100%,rgba(225,241,250,.72) 0 12%,transparent 13%);filter:blur(.25px);opacity:.8}
+
+/* Dedicated holiday decoration layers: real CSS shapes, not emoji placeholders. */
+.season-special-decor{position:fixed;inset:0;z-index:1;overflow:hidden;pointer-events:none!important}
+.season-special-decor span{position:absolute;display:block;pointer-events:none!important}
+.season-decor-heart{width:16px;height:16px;background:linear-gradient(135deg,#ff4f9a,#ff176f);transform:rotate(-45deg);border-radius:4px;filter:drop-shadow(0 0 7px rgba(255,45,125,.48));animation:seasonHeartFloat 7s ease-in-out infinite}
+.season-decor-heart::before,.season-decor-heart::after{content:"";position:absolute;width:16px;height:16px;background:inherit;border-radius:50%}
+.season-decor-heart::before{top:-8px;left:0}.season-decor-heart::after{top:0;left:8px}
+@keyframes seasonHeartFloat{0%,100%{margin-top:14px;opacity:.22}50%{margin-top:-18px;opacity:.72}}
+.season-decor-clover{width:20px;height:20px;filter:drop-shadow(0 0 7px rgba(64,255,118,.4));animation:seasonCloverFloat 8s ease-in-out infinite}
+.season-decor-clover::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 25% 25%,#6dff8c 0 31%,transparent 33%),radial-gradient(circle at 75% 25%,#45e976 0 31%,transparent 33%),radial-gradient(circle at 25% 75%,#45e976 0 31%,transparent 33%),radial-gradient(circle at 75% 75%,#72ff9a 0 31%,transparent 33%);transform:rotate(45deg) scale(.72);border-radius:50%}
+.season-decor-clover::after{content:"";position:absolute;left:9px;top:13px;width:3px;height:10px;background:#39c965;border-radius:99px;transform:rotate(28deg)}
+@keyframes seasonCloverFloat{0%,100%{transform:translateY(8px) rotate(-6deg);opacity:.18}50%{transform:translateY(-14px) rotate(7deg);opacity:.62}}
+.season-decor-lantern{width:24px;height:34px;border-radius:8px 8px 10px 10px;background:linear-gradient(90deg,#8b0715,#ff3345 28%,#ff1729 52%,#9a0817 82%);border:1px solid rgba(255,218,128,.5);box-shadow:0 0 14px rgba(255,55,40,.42),inset 0 0 9px rgba(255,220,130,.3);animation:seasonLanternSway 5s ease-in-out infinite}
+.season-decor-lantern::before{content:"";position:absolute;left:4px;right:4px;top:-7px;height:7px;border-top:2px solid rgba(255,207,115,.75);border-radius:50%}
+.season-decor-lantern::after{content:"";position:absolute;left:10px;bottom:-9px;width:3px;height:9px;background:#e7a83b;box-shadow:0 5px 0 1px #e7a83b;border-radius:99px}
+@keyframes seasonLanternSway{0%,100%{transform:translateY(0) rotate(-2deg);opacity:.35}50%{transform:translateY(9px) rotate(3deg);opacity:.8}}
+.season-decor-confetti{width:7px;height:18px;border-radius:2px;background:linear-gradient(180deg,#ff4f9a 0 33%,#ffd34f 34% 66%,#53e7ff 67%);box-shadow:0 0 7px rgba(255,210,90,.22);animation:seasonConfettiFall 5.5s linear infinite}
+@keyframes seasonConfettiFall{0%{transform:translateY(-10vh) rotate(0deg);opacity:0}12%{opacity:.72}100%{transform:translateY(112vh) rotate(520deg);opacity:.08}}
+
+/* Permanent guard: seasonal atmosphere must never draw a viewport-sized oval/orbit. */
+body::before,body::after{content:none!important;display:none!important;background:none!important;border:0!important;box-shadow:none!important}
+.site-atmosphere::before,.site-atmosphere::after{content:none!important;display:none!important;border:0!important;box-shadow:none!important;background:none!important}
+
+/* No emoji/tree/pumpkin decorations are rendered globally. */
+.site-atmosphere .season-decoration{display:none!important}
+.site-atmosphere,.site-atmosphere *{pointer-events:none!important}
+
+@media(max-width:767px){
+  html[data-season] .season-map-section::before{opacity:.24}
+  .site-atmosphere .season-particles{opacity:.8}
+}
+
+/* Home hero layout: keep the generated seasonal artwork visible and move the real UI
+   into clean zones so no HTML controls cover the artwork's logo. */
+.home-hero{min-height:780px;background:#050507}
+.home-hero-content{min-height:780px;padding-top:34px;padding-bottom:42px}
+.home-hero-title{font-size:clamp(2.15rem,4.1vw,4.15rem);line-height:1;white-space:nowrap;text-shadow:0 4px 24px rgba(0,0,0,.65)}
+.home-hero-subtitle{font-size:clamp(.95rem,1.3vw,1.2rem);text-shadow:0 2px 14px rgba(0,0,0,.75)}
+.home-hero-bottom{margin-top:auto;width:100%;display:flex;flex-direction:column;align-items:center}
+.home-hero-bottom .panel{background:rgba(5,5,7,.58)!important;backdrop-filter:blur(8px)}
+.create-season-art{background-image:url("/hero-backgrounds/hero-01.jpg");background-size:cover;background-position:center}
+html[data-season] #create .create-season-art{background-image:var(--season-hero-image)!important;background-size:cover;background-position:center;background-repeat:no-repeat}
+html[data-season] #create .create-season-art + div{background:linear-gradient(90deg,rgba(5,5,7,.16),rgba(5,5,7,.45) 38%,rgba(5,5,7,.91) 68%,#0a0d12 100%)!important}
+
+@media(max-width:767px){
+  .home-hero,.home-hero-content{min-height:680px}
+  .home-hero-content{padding-top:28px;padding-bottom:28px}
+  .home-hero-title{font-size:clamp(1.7rem,8vw,2.5rem);white-space:normal}
+  .home-hero-subtitle{max-width:92%;font-size:.9rem;line-height:1.5}
+}
+
+/* V13 visual tuning: hero hierarchy and clean create-match form. */
+.home-hero-content{padding-top:12px;padding-bottom:64px}
+.home-hero-title{transform:translateY(-10px)}
+.home-hero-subtitle{margin-top:4px;transform:translateY(-10px)}
+.home-hero-bottom{transform:translateY(12px)}
+.create-hero-copy{transform:translate(34px,-72px)}
+.create-match-panel{background-image:none!important;background:rgba(7,7,10,.88)!important;background-blend-mode:normal!important;backdrop-filter:blur(4px)}
+@media (max-width:1023px){.create-hero-copy{transform:none}.home-hero-content{padding-top:20px;padding-bottom:44px}.home-hero-title{transform:none}.home-hero-subtitle{transform:none}.home-hero-bottom{transform:none}}
+@media (max-width:767px){.create-hero-copy{transform:none}.home-hero-content{padding-top:20px;padding-bottom:36px}}
+
+/* Final create-match composition: move the copy up/left without covering the artwork. */
+.create-match-hero-copy{transform:translate(4px,-105px)}
+/* The match form itself stays clean and readable; seasonal art belongs behind the section, not inside the form. */
+html[data-season] .create-match-panel{background:rgba(7,7,10,.94)!important;background-image:none!important;background-blend-mode:normal!important;backdrop-filter:blur(14px)}
+/* Keep the admin season history compact so it doesn't create a page-long column. */
+@media (min-width:1024px){
+  .admin-season-history{max-height:620px;overflow-y:auto;padding-right:4px}
+}
+@media (max-width:1023px){.create-match-hero-copy{transform:translate(0,-55px)}}
+@media (max-width:767px){.create-match-hero-copy{transform:none}}
+
+/* Seasonal-safe copy: the descriptive CS2 line must remain readable on every artwork. */
+.create-hero-description{color:rgba(255,255,255,.92);text-shadow:0 2px 10px rgba(0,0,0,.92),0 0 2px rgba(0,0,0,.9);font-weight:600}
+html[data-season] .create-hero-description{color:#fff!important}
+.season-intensity-range{-webkit-appearance:none;appearance:none;height:7px;border-radius:999px;background:linear-gradient(90deg,var(--theme-accent),rgba(255,255,255,.14));outline:none}
+.season-intensity-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:var(--theme-accent);border:2px solid #050507;box-shadow:0 0 0 3px color-mix(in srgb,var(--theme-accent) 20%,transparent),0 0 18px var(--theme-glow)}
+.season-intensity-range::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--theme-accent);border:2px solid #050507;box-shadow:0 0 0 3px color-mix(in srgb,var(--theme-accent) 20%,transparent),0 0 18px var(--theme-glow)}
+
+.season-delete-backdrop{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(2,2,6,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:seasonDeleteFade .18s ease-out}
+.season-delete-modal{position:relative;width:min(520px,calc(100vw - 32px));overflow:hidden;border:1px solid rgba(255,45,143,.28);border-radius:28px;background:linear-gradient(145deg,rgba(25,10,25,.98),rgba(10,10,15,.99));box-shadow:0 30px 90px rgba(0,0,0,.65),0 0 55px rgba(255,45,143,.12);padding:28px;animation:seasonDeleteIn .2s cubic-bezier(.2,.8,.2,1)}
+.season-delete-modal:before{content:"";position:absolute;left:-90px;top:-120px;width:250px;height:250px;border-radius:50%;background:rgba(255,45,143,.13);filter:blur(45px);pointer-events:none}
+.season-delete-icon{position:absolute;right:22px;top:18px;width:38px;height:38px;border:1px solid rgba(255,90,130,.22);border-radius:12px;display:grid;place-items:center;color:#ff6b93;font-size:25px;font-weight:800;background:rgba(255,80,120,.06)}
+.season-delete-kicker{position:relative;color:#ff4c9a;font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
+.season-delete-modal h2{position:relative;margin:9px 50px 8px 0;font-size:27px;font-weight:900;line-height:1.1;color:#fff}
+.season-delete-modal>p{position:relative;margin:0;color:#a9a6b1;font-size:14px;line-height:1.65;max-width:430px}
+.season-delete-preview{position:relative;display:flex;align-items:center;gap:13px;margin-top:20px;padding:15px 16px;border:1px solid rgba(255,255,255,.08);border-radius:18px;background:rgba(255,255,255,.035)}
+.season-delete-preview-dot{width:11px;height:11px;border-radius:50%;background:#ff2d8f;box-shadow:0 0 16px rgba(255,45,143,.7);flex:0 0 auto}
+.season-delete-preview b{display:block;color:#fff;font-size:14px}
+.season-delete-preview small{display:block;margin-top:3px;color:#666572;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.season-delete-actions{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}
+.season-delete-actions button{min-height:48px;border-radius:15px;font-size:13px;font-weight:900;transition:.18s ease}
+.season-delete-cancel{border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.04);color:#ddd}
+.season-delete-cancel:hover{background:rgba(255,255,255,.08)}
+.season-delete-confirm{border:1px solid rgba(255,55,105,.4);background:linear-gradient(135deg,#ff2d8f,#e71968);color:#fff;box-shadow:0 8px 25px rgba(255,45,143,.2)}
+.season-delete-confirm:hover{transform:translateY(-1px);box-shadow:0 12px 30px rgba(255,45,143,.3)}
+.season-delete-actions button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+@keyframes seasonDeleteFade{from{opacity:0}to{opacity:1}}
+@keyframes seasonDeleteIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+@media(max-width:600px){.season-delete-modal{padding:22px;border-radius:22px}.season-delete-modal h2{font-size:23px}.season-delete-actions{grid-template-columns:1fr}}
+
+/* Autumn uses a real transparent-alpha glass-water video. No fake CSS rain. */
+html[data-season="autumn"] .season-rain-layer,html[data-season="thanksgiving"] .season-rain-layer{display:none!important}
+/* v28: runtime transparent glass water. The source video is never shown directly. */
+.season-glass-rain-layer{mix-blend-mode:normal!important;opacity:1!important;mask-image:none!important;-webkit-mask-image:none!important;background:transparent!important;}
+.season-glass-source{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;left:-99999px!important;top:-99999px!important;}
+.season-glass-water-canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;pointer-events:none;opacity:.82;z-index:4;object-fit:cover;transform:translateZ(0);}
+html[data-season="autumn"] .season-glass-rain-layer,html[data-season="thanksgiving"] .season-glass-rain-layer{display:block!important;}
+
+/* Seasonal content: lightweight CSS decorations tied to preset flags. */
+.season-decor-winter,.season-decor-tree,.season-decor-flowers,.season-decor-eggs,.season-decor-sun,.season-decor-leaves,.season-decor-halloween,.season-decor-thanksgiving,.season-decor-fireworks{z-index:1}
+.season-decor-snowman{position:absolute;right:5%;bottom:7%;width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#111 0 3px,transparent 4px),radial-gradient(circle at 62% 34%,#111 0 3px,transparent 4px),radial-gradient(circle at 50% 54%,#ff8b3d 0 3px,transparent 4px),#f4fbff;box-shadow:0 0 18px rgba(220,245,255,.25);animation:seasonDecorFloat 5s ease-in-out infinite}
+.season-decor-snowman::before{content:"";position:absolute;left:-7px;top:31px;width:58px;height:42px;border-radius:50%;background:radial-gradient(circle at 38% 25%,#111 0 3px,transparent 4px),radial-gradient(circle at 62% 25%,#111 0 3px,transparent 4px),#f8fcff;z-index:-1}
+.season-decor-snowman::after{content:"";position:absolute;left:4px;top:-10px;width:36px;height:13px;border-radius:6px 6px 2px 2px;background:#17181d;box-shadow:0 -5px 0 -1px #17181d}
+.season-decor-tree{display:block}
+.season-decor-tree-shape{position:absolute;right:11%;bottom:5%;width:0;height:0;border-left:48px solid transparent;border-right:48px solid transparent;border-bottom:105px solid #164d37;filter:drop-shadow(0 0 10px rgba(70,255,150,.16));animation:seasonDecorFloat 6s ease-in-out infinite}
+.season-decor-tree-shape::before,.season-decor-tree-shape::after{content:"";position:absolute;left:-37px;width:74px;height:65px;border-left:37px solid transparent;border-right:37px solid transparent;border-bottom:78px solid #1f6b47}
+.season-decor-tree-shape::before{top:26px}.season-decor-tree-shape::after{top:53px}
+.season-decor-star{position:absolute;right:calc(11% + 33px);bottom:101px;font-size:18px;color:#ffd45c;text-shadow:0 0 10px rgba(255,210,80,.6);animation:seasonDecorPulse 2.5s ease-in-out infinite}
+.season-decor-gift{position:absolute;bottom:5%;width:18px;height:15px;border-radius:2px;background:#ff2d8f;box-shadow:inset 7px 0 rgba(255,255,255,.18)}
+.season-decor-gift::after{content:"";position:absolute;left:7px;top:0;width:3px;height:100%;background:#ffd34f}.gift-a{right:18%}.gift-b{right:14%;transform:scale(.8);background:#42e08a}
+.season-decor-flower{position:absolute;width:13px;height:13px;border-radius:50%;background:#ff5eaa;box-shadow:0 -7px 0 -2px #ffb7d6,7px 0 0 -2px #ffb7d6,0 7px 0 -2px #ffb7d6,-7px 0 0 -2px #ffb7d6;animation:seasonDecorFloat 6s ease-in-out infinite}
+.season-decor-egg{position:absolute;width:18px;height:24px;border-radius:52% 48% 48% 52%;background:linear-gradient(135deg,#fff,#f2a7d2 65%,#8ddcff);box-shadow:0 0 8px rgba(255,180,220,.22);animation:seasonDecorFloat 5s ease-in-out infinite}
+.season-decor-sun-disc{position:absolute;right:7%;top:12%;width:74px;height:74px;border-radius:50%;background:radial-gradient(circle,#ffe48a 0 36%,rgba(255,190,60,.48) 52%,transparent 72%);box-shadow:0 0 38px rgba(255,190,70,.25);animation:seasonDecorPulse 4s ease-in-out infinite}
+.season-decor-leaf{position:absolute;width:13px;height:8px;border-radius:100% 0 100% 0;background:#d98b2b;transform:rotate(35deg);box-shadow:0 0 7px rgba(220,130,30,.2);animation:seasonLeafDrift 8s ease-in-out infinite}
+.season-decor-pumpkin{position:absolute;left:7%;bottom:8%;width:38px;height:31px;border-radius:45%;background:linear-gradient(90deg,#9e3516,#ff7b24 35%,#c34819 70%,#7e2814);box-shadow:inset 8px 0 rgba(255,255,255,.08),0 0 14px rgba(255,100,20,.2);animation:seasonDecorPulse 3s ease-in-out infinite}
+.season-decor-pumpkin::before{content:"";position:absolute;left:17px;top:-7px;width:6px;height:9px;background:#5b3a1b;border-radius:3px}
+.season-decor-pumpkin::after{content:"";position:absolute;left:8px;top:10px;width:6px;height:6px;background:#17100e;box-shadow:16px 0 #17100e,8px 10px 0 -1px #17100e;transform:rotate(45deg)}
+.season-decor-ghost{position:absolute;right:8%;top:28%;width:34px;height:43px;border-radius:18px 18px 8px 8px;background:rgba(245,245,255,.8);box-shadow:0 0 16px rgba(255,255,255,.15);animation:seasonGhostFloat 5s ease-in-out infinite}
+.season-decor-ghost::before{content:"";position:absolute;left:8px;top:14px;width:5px;height:7px;background:#222;border-radius:50%;box-shadow:13px 0 #222}
+.season-decor-turkey{position:absolute;right:7%;bottom:7%;font-size:40px;filter:drop-shadow(0 0 8px rgba(255,170,60,.25));animation:seasonDecorFloat 5s ease-in-out infinite}
+.season-decor-firework{position:absolute;width:4px;height:4px;border-radius:50%;background:#ffd34f;box-shadow:0 -20px 0 1px #ff4f9a,14px -14px 0 1px #53e7ff,20px 0 #ffd34f,14px 14px #ff4f9a,0 20px #53e7ff,-14px 14px #ffd34f,-20px 0 #ff4f9a,-14px -14px #53e7ff;animation:seasonFirework 3.2s ease-out infinite}
+@keyframes seasonDecorFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes seasonDecorPulse{0%,100%{opacity:.72;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes seasonLeafDrift{0%{transform:translate3d(0,-8vh,0) rotate(0deg);opacity:0}15%{opacity:.8}100%{transform:translate3d(28px,110vh,0) rotate(320deg);opacity:0}}
+@keyframes seasonGhostFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-12px) rotate(2deg)}}
+@keyframes seasonFirework{0%{transform:scale(.3);opacity:0}20%{transform:scale(1);opacity:1}75%{transform:scale(.8);opacity:.8}100%{transform:scale(1.3);opacity:0}}
+.season-corner-mascot{position:fixed;right:34px;bottom:62px;z-index:39;width:92px;height:104px;display:grid;place-items:end center;pointer-events:none!important;filter:drop-shadow(0 0 12px var(--season-glow));font-size:34px;line-height:1;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease}.season-corner-snowman span{position:relative;display:block;width:60px;height:60px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#111 0 3px,transparent 4px),radial-gradient(circle at 62% 34%,#111 0 3px,transparent 4px),radial-gradient(circle at 50% 54%,#ff8b3d 0 3px,transparent 4px),#f4fbff;box-shadow:0 0 18px rgba(220,245,255,.25)}.season-corner-snowman span:before{content:"";position:absolute;left:-10px;top:42px;width:80px;height:52px;border-radius:50%;background:#f8fcff;z-index:-1}.season-corner-snowman span:after{content:"";position:absolute;left:7px;top:-13px;width:46px;height:17px;border-radius:6px 6px 2px 2px;background:#17181d;box-shadow:0 -5px 0 -1px #17181d}.season-corner-pumpkin span{position:relative;display:block;width:64px;height:48px;border-radius:45%;background:linear-gradient(90deg,#8e2e12,#ff7b24 35%,#c34819 70%,#742411);box-shadow:0 0 16px rgba(255,100,20,.3)}.season-corner-pumpkin span:before{content:"";position:absolute;left:29px;top:-9px;width:8px;height:12px;background:#5b3a1b;border-radius:3px}.season-corner-pumpkin span:after{content:"";position:absolute;left:13px;top:14px;width:9px;height:9px;background:#17100e;box-shadow:27px 0 #17100e,14px 13px 0 -1px #17100e;transform:rotate(45deg)}.season-corner-bunny{font-size:52px}.season-corner-summer{font-size:50px}.season-corner-leaf{font-size:50px}.season-corner-heart{font-size:54px}.season-corner-clover{font-size:54px}.season-corner-lantern{font-size:54px}.season-corner-fool{font-size:50px}.season-corner-bot{font-size:50px}.season-corner-star{font-size:48px}.season-corner-mascot:before{content:"";position:absolute;inset:auto 0 0;width:92px;height:30px;background:linear-gradient(180deg,transparent,rgba(5,5,7,.9));z-index:-1;border-radius:50%}.season-corner-mascot{animation:seasonCornerPeek 4.5s ease-in-out infinite}@keyframes seasonCornerPeek{0%,100%{transform:translateY(28px)}50%{transform:translateY(16px)}}
+@media(prefers-reduced-motion:reduce){.season-special-decor span{animation:none!important}.season-particle,.season-snow-dot,.season-corner-mascot{animation:none!important}}
+
+/* Thanksgiving turkey: CSS silhouette, keeping seasonal content free of emoji glyphs. */
+.season-decor-turkey{position:absolute;right:7%;bottom:7%;width:48px;height:38px;border-radius:48% 48% 42% 42%;background:radial-gradient(circle at 68% 40%,#ffe08a 0 2px,transparent 3px),#a95825;box-shadow:0 0 10px rgba(255,170,60,.22);animation:seasonDecorFloat 5s ease-in-out infinite}
+.season-decor-turkey::before{content:"";position:absolute;left:-20px;top:-16px;width:28px;height:28px;border-radius:50%;background:#c66d2f;box-shadow:14px -4px 0 1px #d98b38,28px 1px 0 -1px #b85b27,38px 10px 0 -3px #d17a32}
+.season-decor-turkey::after{content:"";position:absolute;right:-8px;top:15px;width:12px;height:7px;background:#f2a33e;clip-path:polygon(0 0,100% 50%,0 100%);}
+
+/* Seasonal content accents: each holiday keeps DuelPlay's dark base but gets its own restrained identity. */
+html[data-season="winter"],html[data-season="christmas"],html[data-season="new-year"]{--season-accent:#bfe9ff;--season-glow:rgba(150,220,255,.18)}
+html[data-season="spring"],html[data-season="easter"]{--season-accent:#ff8fc7;--season-glow:rgba(255,140,200,.16)}
+html[data-season="summer"]{--season-accent:#ffd45c;--season-glow:rgba(255,210,80,.16)}
+html[data-season="autumn"],html[data-season="thanksgiving"]{--season-accent:#e7a24a;--season-glow:rgba(230,150,60,.16)}
+html[data-season="halloween"]{--season-accent:#ff7a2f;--season-glow:rgba(255,100,25,.2)}
+html[data-season="valentines"]{--season-accent:#ff4f9a;--season-glow:rgba(255,55,140,.2)}
+html[data-season="st-patricks"]{--season-accent:#62e88a;--season-glow:rgba(70,220,110,.18)}
+html[data-season="april-fools"]{--season-accent:#ffd34f;--season-glow:rgba(255,210,70,.18)}
+html[data-season="lunar-new-year"]{--season-accent:#ff4b55;--season-glow:rgba(255,55,55,.2)}
+html[data-season="esports"]{--season-accent:#b18cff;--season-glow:rgba(140,100,255,.18)}
+html[data-season] .season-special-decor{filter:drop-shadow(0 0 10px var(--season-glow));}
+@media(prefers-reduced-motion:reduce){html[data-season] .season-special-decor{filter:none!important}}
+
+/* Performance mode: decorative layers only; gameplay/UI remain untouched. */
+html[data-performance-effective="performance"] .season-particle,
+html[data-performance-effective="performance"] .season-snow-dot{animation-duration:14s!important;filter:none!important}
+html[data-performance-effective="performance"] .season-special-decor{filter:none!important;opacity:.72!important}
+html[data-performance-effective="performance"] .season-glass-rain-layer{display:none!important}
+html[data-performance-effective="performance"] .season-particles{opacity:.72!important}
+@media (max-width:900px){html[data-performance-effective="auto"] .season-particles{opacity:.8}}
+
+/* Mobile UI hardening: every modal/dialog stays inside the viewport. */
+.fixed[role="dialog"],
+.fixed[role="alertdialog"]{box-sizing:border-box;overflow:hidden;overscroll-behavior:contain}
+.fixed[role="dialog"] > .relative,
+.fixed[role="alertdialog"] > .relative{box-sizing:border-box;min-width:0;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain}
+.fixed[role="dialog"] > .relative > *,
+.fixed[role="alertdialog"] > .relative > *{min-width:0;max-width:100%}
+.fixed[role="dialog"] input,
+.fixed[role="dialog"] select,
+.fixed[role="dialog"] textarea,
+.fixed[role="dialog"] button,
+.fixed[role="alertdialog"] input,
+.fixed[role="alertdialog"] select,
+.fixed[role="alertdialog"] textarea,
+.fixed[role="alertdialog"] button{max-width:100%;box-sizing:border-box}
+
+@media (max-width:767px){
+  .fixed[role="dialog"],.fixed[role="alertdialog"]{padding:12px!important;align-items:center!important;justify-content:center!important}
+  .fixed[role="dialog"] > .relative,
+  .fixed[role="alertdialog"] > .relative{width:100%!important;max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 24px)!important;border-radius:20px!important}
+  .fixed[role="dialog"] > .relative > div:first-child,
+  .fixed[role="alertdialog"] > .relative > div:first-child{padding-left:16px!important;padding-right:16px!important}
+  .fixed[role="dialog"] > .relative > div:last-child,
+  .fixed[role="alertdialog"] > .relative > div:last-child{padding-left:16px!important;padding-right:16px!important}
+  .fixed[role="dialog"] h1,.fixed[role="dialog"] h2,.fixed[role="dialog"] h3,
+  .fixed[role="alertdialog"] h1,.fixed[role="alertdialog"] h2,.fixed[role="alertdialog"] h3{overflow-wrap:anywhere}
+  .fixed[role="dialog"] .grid-cols-2,.fixed[role="alertdialog"] .grid-cols-2{grid-template-columns:1fr!important}
+}
+
+@media (max-width:380px){
+  .fixed[role="dialog"],.fixed[role="alertdialog"]{padding:8px!important}
+  .fixed[role="dialog"] > .relative,
+  .fixed[role="alertdialog"] > .relative{max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;border-radius:16px!important}
+}
+
+/* Final 121-125 hardening: safe admin preview and viewport-bound modal primitives. */
+html[data-admin-preview="1"]::before{content:"PREVIEW MODE";position:fixed;z-index:2147483647;top:8px;left:50%;transform:translateX(-50%);padding:5px 10px;border:1px solid rgba(255,47,145,.45);border-radius:999px;background:rgba(8,8,10,.9);color:#ff7fba;font:800 10px/1 system-ui,sans-serif;letter-spacing:.14em;pointer-events:none}
+html[data-season-preview] [data-season-decor],html[data-season-preview] .season-special-decor{pointer-events:none}
+
+/* Global mobile modal safety: dialogs stay inside the visual viewport. */
+@media (max-width:640px){
+ dialog,[role="dialog"],[role="alertdialog"],.modal,.center-modal,.season-delete-modal,.confirm-modal{box-sizing:border-box;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain}
+ [role="dialog"] input,[role="dialog"] select,[role="dialog"] textarea,[role="dialog"] button,[role="alertdialog"] input,[role="alertdialog"] select,[role="alertdialog"] textarea,[role="alertdialog"] button{max-width:100%;box-sizing:border-box}
+ .modal-actions,.center-modal-actions,.season-delete-actions{flex-wrap:wrap}
+ .modal-actions>* ,.center-modal-actions>*,.season-delete-actions>*{min-width:0;max-width:100%}
+}
+@media (max-width:380px){dialog,[role="dialog"],[role="alertdialog"],.modal,.center-modal,.season-delete-modal,.confirm-modal{max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}}
+
+@media(max-width:640px){.season-corner-mascot{right:18px;bottom:62px;transform:scale(.82) translateY(8px);transform-origin:bottom right}}
+
+@media(max-width:640px){.season-corner-mascot{right:18px;bottom:58px;width:76px;height:86px}.season-corner-snowman span{width:50px;height:50px}.season-corner-pumpkin span{width:54px;height:40px}.season-corner-bunny,.season-corner-summer,.season-corner-leaf,.season-corner-heart,.season-corner-clover,.season-corner-lantern,.season-corner-fool,.season-corner-bot,.season-corner-star{font-size:44px}}

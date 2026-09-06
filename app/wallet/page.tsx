@@ -1,0 +1,75 @@
+"use client";
+import {useEffect,useState} from "react";
+import CenterModal from "@/components/Common/CenterModal";
+import {useLanguage} from "@/components/Common/LanguageContext";
+
+type PaymentMethod={id:string;title:string;sub:string;img:string;steps:string[]};
+
+const PAYMENT_METHODS:Record<string,PaymentMethod[]>={
+ EN:[
+  {id:"skins",title:"CS2 Skins",sub:"Trade via Steam",img:"/payment-methods/skins.svg",steps:["Choose a skin","Open Steam Trade","Send the skin to the bot","Balance is credited automatically"]},
+  {id:"card",title:"Bank card",sub:"Visa / Mastercard",img:"/payment-methods/card.svg",steps:["Choose an amount","Open secure checkout","Confirm payment","Balance is credited automatically"]},
+  {id:"crypto",title:"Cryptocurrency",sub:"USDT / BTC / ETH",img:"/payment-methods/crypto.svg",steps:["Choose network and amount","Get payment address","Send cryptocurrency","Balance is credited automatically"]},
+  {id:"paypal",title:"PayPal",sub:"PayPal",img:"/payment-methods/paypal.svg",steps:["Choose an amount","Open PayPal","Confirm payment","Balance is credited automatically"]},
+  {id:"other",title:"Other methods",sub:"Skrill / QIWI / WebMoney",img:"/payment-methods/other.svg",steps:["Choose a method","Enter amount","Confirm payment","Balance is credited automatically"]}],
+ UA:[
+  {id:"skins",title:"Скіни CS2",sub:"Обмін через Steam",img:"/payment-methods/skins.svg",steps:["Обери скін","Відкрий Steam Trade","Надішли скін боту","Баланс зарахується автоматично"]},
+  {id:"card",title:"Банківська картка",sub:"Visa / Mastercard",img:"/payment-methods/card.svg",steps:["Обери суму","Перейди до захищеної оплати","Підтвердь платіж","Баланс зарахується автоматично"]},
+  {id:"crypto",title:"Криптовалюта",sub:"USDT / BTC / ETH",img:"/payment-methods/crypto.svg",steps:["Обери мережу та суму","Отримай адресу оплати","Надішли криптовалюту","Баланс зарахується автоматично"]},
+  {id:"paypal",title:"PayPal",sub:"PayPal",img:"/payment-methods/paypal.svg",steps:["Обери суму","Перейди в PayPal","Підтвердь платіж","Баланс зарахується автоматично"]},
+  {id:"other",title:"Інші методи",sub:"Skrill / QIWI / WebMoney",img:"/payment-methods/other.svg",steps:["Обери метод","Вкажи суму","Підтвердь оплату","Баланс зарахується автоматично"]}],
+ PL:[
+  {id:"skins",title:"Skórki CS2",sub:"Wymiana przez Steam",img:"/payment-methods/skins.svg",steps:["Wybierz skórkę","Otwórz Steam Trade","Wyślij skórkę do bota","Saldo zostanie dodane automatycznie"]},
+  {id:"card",title:"Karta bankowa",sub:"Visa / Mastercard",img:"/payment-methods/card.svg",steps:["Wybierz kwotę","Otwórz bezpieczną płatność","Potwierdź płatność","Saldo zostanie dodane automatycznie"]},
+  {id:"crypto",title:"Kryptowaluta",sub:"USDT / BTC / ETH",img:"/payment-methods/crypto.svg",steps:["Wybierz sieć i kwotę","Otrzymaj adres płatności","Wyślij kryptowalutę","Saldo zostanie dodane automatycznie"]},
+  {id:"paypal",title:"PayPal",sub:"PayPal",img:"/payment-methods/paypal.svg",steps:["Wybierz kwotę","Otwórz PayPal","Potwierdź płatność","Saldo zostanie dodane automatycznie"]},
+  {id:"other",title:"Inne metody",sub:"Skrill / QIWI / WebMoney",img:"/payment-methods/other.svg",steps:["Wybierz metodę","Podaj kwotę","Potwierdź płatność","Saldo zostanie dodane automatycznie"]}],
+ RU:[
+  {id:"skins",title:"Скины CS2",sub:"Trade через Steam",img:"/payment-methods/skins.svg",steps:["Выберите скин","Откроется Steam Trade","Отправьте скин боту","Баланс пополнится автоматически"]},
+  {id:"card",title:"Банковская карта",sub:"Visa / Mastercard",img:"/payment-methods/card.svg",steps:["Выберите сумму","Перейдите к защищённой оплате","Подтвердите платёж","Баланс пополнится автоматически"]},
+  {id:"crypto",title:"Криптовалюта",sub:"USDT / BTC / ETH",img:"/payment-methods/crypto.svg",steps:["Выберите сеть и сумму","Получите адрес оплаты","Отправьте криптовалюту","Баланс пополнится автоматически"]},
+  {id:"paypal",title:"PayPal",sub:"PayPal",img:"/payment-methods/paypal.svg",steps:["Выберите сумму","Перейдите в PayPal","Подтвердите платёж","Баланс пополнится автоматически"]},
+  {id:"other",title:"Другие методы",sub:"Skrill / QIWI / WebMoney",img:"/payment-methods/other.svg",steps:["Выберите метод","Укажите сумму","Подтвердите оплату","Баланс пополнится автоматически"]}]
+};
+function getPaymentMethods(language:string):PaymentMethod[]{ return PAYMENT_METHODS[language]||PAYMENT_METHODS.EN; }
+
+export default function WalletPage(){
+ const {t,language}=useLanguage();
+ const methods=getPaymentMethods(language);
+ const [user,setUser]=useState<any>(null),[txs,setTxs]=useState<any[]>([]),[modal,setModal]=useState<"deposit"|"withdraw"|null>(null),[method,setMethod]=useState<PaymentMethod>(methods[0]),[amount,setAmount]=useState("");
+ useEffect(()=>{
+  let disposed=false; let loading=false;
+  const refresh=async()=>{if(disposed||document.visibilityState==='hidden'||loading)return;loading=true;try{await load()}finally{loading=false}};
+  void refresh(); const timer=window.setInterval(()=>void refresh(),5000);
+  const onVisibility=()=>{if(document.visibilityState==='visible')void refresh()};
+  document.addEventListener('visibilitychange',onVisibility);
+  return()=>{disposed=true;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility)};
+ },[]);
+ async function load(){const r=await fetch("/api/auth/me",{cache:"no-store"});const d=await r.json();if(!d.user){location.href="/login";return}setUser(d.user);const tr=await fetch("/api/wallet/transactions",{cache:"no-store"});const td=await tr.json();setTxs(td.transactions??[])}
+ if(!user)return <main className="pt-28 text-center text-zinc-500">{t.loading}</main>;
+ const transactionDescription=(tx:any)=>{
+  const type=String(tx.type||"");
+  const texts={
+   RU:{DEPOSIT:"Пополнение баланса",WITHDRAW:"Вывод средств",MATCH_BET:"Ставка на матч",MATCH_WIN:"Выигрыш в матче",REFUND:"Возврат ставки при отмене матча",BONUS:"Бонус",REFERRAL:"Реферальная награда",COMMISSION:"Комиссия",CASE_OPEN:"Открытие кейса"},
+   UA:{DEPOSIT:"Поповнення балансу",WITHDRAW:"Виведення коштів",MATCH_BET:"Ставка на матч",MATCH_WIN:"Виграш у матчі",REFUND:"Повернення ставки при скасуванні матчу",BONUS:"Бонус",REFERRAL:"Реферальна винагорода",COMMISSION:"Комісія",CASE_OPEN:"Відкриття кейса"},
+   EN:{DEPOSIT:"Balance deposit",WITHDRAW:"Withdrawal",MATCH_BET:"Match bet",MATCH_WIN:"Match win",REFUND:"Bet refund after match cancellation",BONUS:"Bonus",REFERRAL:"Referral reward",COMMISSION:"Commission",CASE_OPEN:"Case opening"},
+   PL:{DEPOSIT:"Wpłata środków",WITHDRAW:"Wypłata środków",MATCH_BET:"Stawka za mecz",MATCH_WIN:"Wygrana w meczu",REFUND:"Zwrot stawki po anulowaniu meczu",BONUS:"Bonus",REFERRAL:"Nagroda za polecenie",COMMISSION:"Prowizja",CASE_OPEN:"Otwarcie skrzynki"}
+  };
+  const current=(texts as any)[language]||texts.EN;
+  return current[type]||tx.description||"";
+ }; const labels={
+  RU:{deposit:"Пополнение",withdraw:"Вывод средств",withdrawText:"Создай заявку на вывод. Перед выплатой реквизиты и операция проходят проверку.",withdrawBtn:"Вывести средства",safe:"Безопасно · Автоматически · Мгновенно",history:"История операций",available:"Доступный баланс",amount:"Сумма, USD",continue:"Продолжить пополнение",request:"Создать запрос на вывод",depositInfo:"Платёжная интеграция подключается к выбранному провайдеру. После подтверждения провайдера операция будет отражена в транзакциях.",withdrawInfo:"Запрос на вывод проходит проверку и после подтверждения отображается в истории операций."},
+  UA:{deposit:"Поповнення",withdraw:"Вивід коштів",withdrawText:"Створи заявку на виведення. Перед виплатою реквізити та операція проходять перевірку.",withdrawBtn:"Вивести кошти",safe:"Безпечно · Автоматично · Миттєво",history:"Історія операцій",available:"Доступний баланс",amount:"Сума, USD",continue:"Продовжити поповнення",request:"Створити запит на виведення",depositInfo:"Платіжна інтеграція підключається до обраного провайдера. Після підтвердження операція з’явиться в транзакціях.",withdrawInfo:"Запит на виведення проходить перевірку та після підтвердження з’являється в історії операцій."},
+  PL:{deposit:"Wpłata",withdraw:"Wypłata środków",withdrawText:"Utwórz wniosek o wypłatę. Przed wypłatą dane i operacja przechodzą weryfikację.",withdrawBtn:"Wypłać środki",safe:"Bezpiecznie · Automatycznie · Natychmiast",history:"Historia operacji",available:"Dostępne saldo",amount:"Kwota, USD",continue:"Kontynuuj wpłatę",request:"Utwórz wniosek o wypłatę",depositInfo:"Integracja płatności zostanie podłączona do wybranego dostawcy. Po potwierdzeniu operacja pojawi się w historii.",withdrawInfo:"Wniosek o wypłatę jest weryfikowany i po zatwierdzeniu pojawia się w historii."},
+  EN:{deposit:"Deposit",withdraw:"Withdraw funds",withdrawText:"Create a withdrawal request. Details and the transaction are reviewed before payout.",withdrawBtn:"Withdraw funds",safe:"Safe · Automatic · Instant",history:"Transaction history",available:"Available balance",amount:"Amount, USD",continue:"Continue deposit",request:"Create withdrawal request",depositInfo:"Payment integration connects to the selected provider. After confirmation, the transaction will appear in history.",withdrawInfo:"Withdrawal requests are reviewed and appear in the transaction history after approval."}
+ }[language as "RU"|"UA"|"PL"|"EN"]||undefined;
+ const L=labels||({deposit:"Deposit",withdraw:"Withdraw funds",withdrawText:"Create a withdrawal request.",withdrawBtn:"Withdraw funds",safe:"Safe · Automatic · Instant",history:"Transaction history",available:"Available balance",amount:"Amount, USD",continue:"Continue deposit",request:"Create withdrawal request",depositInfo:"Payment integration is ready for provider connection.",withdrawInfo:"Withdrawal requests are reviewed before payout."});
+ async function submitWalletAction(){const value=Number(amount);if(!(value>0))return;const action=modal;const destination=action==="withdraw"?window.prompt(t.withdrawDestinationPrompt):"";if(action==="withdraw"&&!destination)return;const r=await fetch("/api/wallet/transactions",{method:"POST",headers:{"Content-Type":"application/json","idempotency-key":crypto.randomUUID()},body:JSON.stringify({action,amount:value,provider:action==="deposit"?method.id:"STRIPE",destination})});const d=await r.json();if(!r.ok){window.alert(d.error||t.genericLoadError);return;}setModal(null);setAmount("");await load();}
+ return <>
+  <main className="mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-24 sm:px-6"><div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+   <section className="panel rounded-3xl p-7"><span className="pill">USD WALLET</span><div className="mt-4 text-sm text-zinc-500">{L.available}</div><div className="mt-1 text-5xl font-black">${Number(user.balance).toFixed(2)}</div><div className="mt-2 text-sm text-zinc-500">{t.locked}: ${Number(user.lockedBalance||0).toFixed(2)}</div><div className="mt-6 rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">{L.withdraw}</div><p className="mt-2 text-sm leading-6 text-zinc-500">{L.withdrawText}</p><button onClick={()=>{setAmount("");setModal("withdraw")}} className="mt-4 rounded-xl border border-[var(--theme-accent)]/30 px-4 py-3 text-sm font-black text-[var(--theme-accent)]">{L.withdrawBtn}</button></div></section>
+   <section className="panel rounded-3xl p-6"><div className="flex items-center justify-between"><div><span className="pill">PAYMENT CENTER</span><h2 className="mt-3 text-2xl font-black">{L.deposit}</h2></div><span className="text-sm text-zinc-500">USD</span></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{methods.map(m=><button key={m.id} onClick={()=>{setMethod(m);setAmount("");setModal("deposit")}} className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[.025] p-3 text-left transition hover:border-[var(--theme-accent)]/35 hover:bg-[var(--theme-accent-bg)]"><span className="grid h-14 w-24 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#0a0b10]"><img src={m.img} alt="" className="h-full w-full object-contain"/></span><span className="min-w-0"><b className="block truncate">{m.title}</b><span className="mt-1 block text-xs text-zinc-500">{m.sub}</span></span></button>)}</div><div className="mt-5 rounded-2xl border border-emerald-400/10 bg-emerald-400/[.03] p-4 text-sm text-emerald-300">{L.safe}</div></section>
+  </div><section className="panel mt-6 rounded-3xl p-7"><div className="flex items-center justify-between"><h2 className="text-2xl font-black">{t.transactions}</h2><span className="text-sm text-zinc-500">{L.history}</span></div><div className="mt-5 space-y-2">{txs.length?txs.map(tx=><div key={tx.id} className="flex items-center justify-between gap-4 rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="min-w-0"><b>{t.transactionTypes[tx.type as keyof typeof t.transactionTypes]??tx.type}</b><div className="mt-1 text-sm text-zinc-400">{transactionDescription(tx)}</div><div className="mt-1 text-[11px] text-zinc-600">{new Date(tx.createdAt).toLocaleString()}</div></div><span className={Number(tx.amount)>=0?"shrink-0 text-emerald-300":"shrink-0 text-red-300"}>{Number(tx.amount)>=0?"+":""}${Number(tx.amount).toFixed(2)}</span></div>):<p className="text-zinc-500">{t.noTransactions}</p>}</div></section></main>
+  <CenterModal open={Boolean(modal)} title={modal==="withdraw"?L.withdraw:method.title} onClose={()=>setModal(null)}><div className="rounded-2xl border border-[var(--theme-accent)]/15 bg-[var(--theme-accent-bg)] p-4"><div className="flex items-center gap-3"><img src={modal==="withdraw"?"/branding/duelplay-logo-transparent.png":method.img} className="h-12 w-20 rounded-xl object-contain bg-black/30" alt=""/><div><b>{modal==="withdraw"?L.available:method.title}</b><div className="mt-1 text-xs text-zinc-500">${Number(user.balance).toFixed(2)} {L.available}</div></div></div></div>{modal==="deposit"&&<div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">{method.steps.map((x,i)=><div key={x} className="rounded-xl border border-white/5 bg-white/[.025] p-3 text-center"><span className="step-circle active mx-auto">{i+1}</span><div className="mt-2 text-xs leading-5 text-zinc-400">{x}</div></div>)}</div>}<label className="mt-5 block"><span className="mb-2 block text-xs uppercase tracking-wider text-zinc-500">{L.amount}</span><input autoFocus className="input" type="number" min="1" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="50.00"/></label><div className="mt-4 rounded-2xl border border-white/5 bg-white/[.025] p-4 text-sm text-zinc-400">{modal==="deposit"?L.depositInfo:L.withdrawInfo}</div><button onClick={submitWalletAction} disabled={!(Number(amount)>0)} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-4 font-black text-black disabled:opacity-40">{modal==="deposit"?L.continue:L.request}</button></CenterModal>
+ </>;
+}
