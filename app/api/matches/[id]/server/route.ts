@@ -175,9 +175,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!winnerSteamId) return NextResponse.json({ error: "Connected player is required" }, { status: 400 });
       const result = await resolveConnectionTimeout(id, winnerSteamId);
       if (result?.status === "FINISHED") {
-        if (result.gameServer) {
-          await prisma.gameServer.updateMany({ where: { id: result.gameServer.id, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
-        }
+        await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
         return NextResponse.json({ ok: true, match: result });
       }
       return NextResponse.json({ error: "Connection timeout could not be resolved" }, { status: 409 });
