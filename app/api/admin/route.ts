@@ -312,7 +312,7 @@ export async function PATCH(request:NextRequest){
       const result=await prisma.$transaction(async tx=>{
         const target=await tx.user.findUnique({where:{id},select:{id:true,nickname:true,steamId:true,wallet:{select:{id:true,balance:true,lockedBalance:true}}}});
         if(!target?.wallet)throw new Error("WALLET");
-        const targetLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${target.wallet.id} FOR UPDATE`)[0];
+        const targetLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${target.wallet.id}::uuid FOR UPDATE`)[0];
         if(!targetLock)throw new Error("WALLET");
         if(target.nickname==="DuelPlayOwner" || (OWNER_STEAM_ID && target.steamId===OWNER_STEAM_ID))throw new Error("OWNER_TARGET");
         const before=Number(targetLock.balance);
@@ -324,16 +324,18 @@ export async function PATCH(request:NextRequest){
             owner=await tx.user.findFirst({where:{role:"SUPERADMIN",status:"ACTIVE",wallet:{isNot:null}},orderBy:{createdAt:"asc"},select:{id:true,nickname:true,wallet:{select:{id:true,balance:true}}}});
           }
           if(!owner?.wallet)throw new Error("OWNER_WALLET");
-          const ownerLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${owner.wallet.id} FOR UPDATE`)[0];
+          const ownerLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${owner.wallet.id}::uuid FOR UPDATE`)[0];
           if(!ownerLock)throw new Error("OWNER_WALLET");
-          const targetDebit=await debitWallet(tx,target.id,debit,`admin-adjust:${id}:${Math.abs(amount).toFixed(4)}`,"WITHDRAW",`Админ ${me.nickname} списал $${debit.toFixed(2)} у игрока ${target.nickname}${reason?` · ${reason}`:""}`,id);
+          const adjustmentKey=`admin-adjust:${id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          const targetDebit=await debitWallet(tx,target.id,debit,adjustmentKey,"WITHDRAW",`Админ ${me.nickname} списал $${debit.toFixed(2)} у игрока ${target.nickname}${reason?` · ${reason}`:""}`,id);
           if(targetDebit.idempotent) throw new Error("IDEMPOTENCY_CONFLICT");
-          const ownerCredit=await creditWallet(tx,owner.id,debit,`admin-adjust-credit:${id}:${Math.abs(amount).toFixed(4)}`,"DEPOSIT",`Админ ${me.nickname} получил $${debit.toFixed(2)} со счёта игрока ${target.nickname}${reason?` · ${reason}`:""}`,id);
+          const ownerCredit=await creditWallet(tx,owner.id,debit,`${adjustmentKey}:owner`,"DEPOSIT",`Админ ${me.nickname} получил $${debit.toFixed(2)} со счёта игрока ${target.nickname}${reason?` · ${reason}`:""}`,id);
           if(ownerCredit.idempotent) throw new Error("IDEMPOTENCY_CONFLICT");
           return {balance:Number(targetDebit.transaction.balanceAfter),ownerNickname:owner.nickname};
         }
         const desc=`Админ ${me.nickname} зачислил $${amount.toFixed(2)} игроку ${target.nickname}${reason?` · ${reason}`:""}`;
-        const credited=await creditWallet(tx,target.id,amount,`admin-credit:${id}:${amount.toFixed(4)}:${reason}`,"DEPOSIT",desc,id);
+        const adjustmentKey=`admin-credit:${id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        const credited=await creditWallet(tx,target.id,amount,adjustmentKey,"DEPOSIT",desc,id);
         if(credited.idempotent) throw new Error("IDEMPOTENCY_CONFLICT");
         return {balance:Number(credited.transaction.balanceAfter),ownerNickname:null};
       });

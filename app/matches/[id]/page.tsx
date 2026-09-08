@@ -86,7 +86,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
     </div>
     {m.status==="WAITING_FOR_PLAYERS"&&<>
       <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2 text-sm font-black text-amber-300">{u.waiting}</div><p className="mt-2 text-sm leading-6 text-zinc-400">{u.waitingText}</p></div>{currentDeadline()&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><DeadlineCountdown deadline={currentDeadline()!.at} maxSeconds={currentDeadline()!.maxSeconds} className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200" onExpire={()=>{setDeadlineExpired(true);void load()}}/></div>}</div></div>
-      {participant&&<div className="mt-5 flex justify-center">
+      {participant&&user?.id!==m.playerOneId&&<div className="mt-5 flex justify-center">
         <button type="button" disabled className="w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/[.04] px-6 py-4 text-base font-black text-zinc-400 opacity-80 sm:w-auto sm:min-w-[320px]">
           {u.alreadyInDuel}
         </button>

@@ -32,13 +32,10 @@ export default function Header(){
   const p=noticePayload(n);
   const kind=p.kind;
   if(n.type==="CANCELLATION"){
-   const reason=String(p.reason||"").toLowerCase();
-   const noConnect=reason.includes("no player connected") || reason.includes("никто не подключ") || reason.includes("no player");
-   const serverTimeout=reason.includes("server start timeout") || reason.includes("heartbeat timeout") || reason.includes("сервер") && reason.includes("таймаут");
-   if(language==="RU") return noConnect ? "Матч отменён: никто не подключился к серверу CS2 вовремя. Ставка возвращена." : serverTimeout ? "Матч отменён: сервер CS2 не запустился вовремя. Ставка возвращена." : "Матч автоматически отменён. Ставка возвращена.";
-   if(language==="UA") return noConnect ? "Матч скасовано: ніхто вчасно не підключився до сервера CS2. Ставку повернено." : serverTimeout ? "Матч скасовано: сервер CS2 не запустився вчасно. Ставку повернено." : "Матч автоматично скасовано. Ставку повернено.";
-   if(language==="EN") return noConnect ? "The match was cancelled because nobody connected to the CS2 server in time. Your stake was refunded." : serverTimeout ? "The match was cancelled because the CS2 server did not start in time. Your stake was refunded." : "The match was automatically cancelled. Your stake was refunded.";
-   return noConnect ? "Mecz anulowano, ponieważ nikt nie połączył się na czas z serwerem CS2. Stawka została zwrócona." : serverTimeout ? "Mecz anulowano, ponieważ serwer CS2 nie uruchomił się na czas. Stawka została zwrócona." : "Mecz został automatycznie anulowany. Stawka została zwrócona.";
+   if(language==="RU") return "Матч отменён";
+   if(language==="UA") return "Матч скасовано";
+   if(language==="EN") return "Match cancelled";
+   return "Mecz anulowany";
   }
   if(p.localTest===true){ return Number(p.payout||0)>0 ? t.testDuelWon : t.testMatchCompleted; }
   if(kind==="SUPPORT_CLOSED")return t.ticketClosed;
@@ -109,6 +106,15 @@ export default function Header(){
   if(kind==="SUPPORT_CLOSED"){
    const subject=p.subject||"";
    return t.supportTicketClosed.replace("{subject}", subject);
+  }
+  if(n.type==="CANCELLATION"){
+   const reason=String(p.reason||"").toLowerCase();
+   const noConnect=reason.includes("no player connected") || reason.includes("никто не подключ") || reason.includes("no player");
+   const serverTimeout=reason.includes("server start timeout") || reason.includes("heartbeat timeout") || (reason.includes("сервер") && reason.includes("таймаут"));
+   if(language==="RU") return noConnect ? "Никто не подключился к серверу CS2 за 10 минут. Ставка возвращена." : serverTimeout ? "Сервер CS2 не запустился вовремя. Ставка возвращена." : "Матч автоматически отменён. Ставка возвращена.";
+   if(language==="UA") return noConnect ? "Ніхто не підключився до сервера CS2 за 10 хвилин. Ставку повернено." : serverTimeout ? "Сервер CS2 не запустився вчасно. Ставку повернено." : "Матч автоматично скасовано. Ставку повернено.";
+   if(language==="EN") return noConnect ? "Nobody connected to the CS2 server within 10 minutes. Your stake was refunded." : serverTimeout ? "The CS2 server did not start in time. Your stake was refunded." : "The match was automatically cancelled. Your stake was refunded.";
+   return noConnect ? "Nikt nie połączył się z serwerem CS2 w ciągu 10 minut. Stawka została zwrócona." : serverTimeout ? "Serwer CS2 nie uruchomił się na czas. Stawka została zwrócona." : "Mecz został automatycznie anulowany. Stawka została zwrócona.";
   }
   const bodies:any={
     RU:{
