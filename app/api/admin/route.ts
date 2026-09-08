@@ -8,6 +8,7 @@ import { THEMES, themeById } from "@/lib/themes";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
 import { creditWallet, debitWallet } from "@/lib/wallet";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
+import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
 
 const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
 function protectedOwner(u:{steamId:string|null;nickname:string;role:string}){
@@ -392,46 +393,46 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="cancelMatch"){
-        if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
-        const id=String(body.matchId);
-        const match=await prisma.match.findUnique({where:{id},include:{gameServer:true}});
-        if(!match)return NextResponse.json({error:"Матч не найден"},{status:404});
-        if(["CANCELLED","FINISHED","COMPLETED"].includes(match.status))return NextResponse.json({error:"Матч уже завершён"},{status:409});
+      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
+      const id=String(body.matchId||"").trim();
+      if(!id)return NextResponse.json({error:"Матч не найден"},{status:400});
 
-        const amount=Number(match.betAmount);
-        await prisma.$transaction(async tx=>{
-          for(const uid of [match.playerOneId,match.playerTwoId].filter(Boolean) as string[]){
-            const w=await tx.wallet.findUnique({where:{userId:uid}});
-            if(w){
-              const locked=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${w.id} FOR UPDATE`)[0];
-              if(!locked) continue;
-              if(Number(locked.lockedBalance)+1e-9<amount) throw new Error("LOCKED_STAKE");
-              const owner=await tx.wallet.findUniqueOrThrow({where:{id:w.id},select:{userId:true}});
-              await creditWallet(tx,owner.userId,amount,`admin-refund:${id}:${uid}`,"REFUND","Admin match refund",id);
-              await tx.wallet.update({where:{id:w.id},data:{lockedBalance:{decrement:amount}}});
-            }
-          }
-          if(match.gameServer){
-            await tx.gameServer.update({
-              where:{id:match.gameServer.id},
-              data:{
-                status:"OFFLINE",
-                matchId:null,
-                processId:null,
-                startedAt:null,
-                stoppedAt:new Date(),
-                lastHeartbeat:null
-              }
-            });
-          }
-          await tx.match.update({
-            where:{id},
-            data:{status:"CANCELLED",endedAt:new Date(),serverConfig:Prisma.JsonNull}
-          });
-        });
-        await audit(me.id,"CANCEL_MATCH","MATCH",id);
-        return NextResponse.json({ok:true});
+      // Admin cancellation must work for WAITING/READY/STARTING/LIVE matches.
+      // Reuse the same idempotent refund lifecycle used by the automatic watchdog
+      // instead of maintaining a second, subtly different refund implementation.
+      const matchBefore=await prisma.match.findUnique({
+        where:{id},
+        select:{id:true,status:true,gameServer:{select:{id:true}}}
+      });
+      if(!matchBefore)return NextResponse.json({error:"Матч не найден"},{status:404});
+
+      if(["FINISHED","DISPUTED"].includes(matchBefore.status)){
+        return NextResponse.json({error:"Матч уже завершён"},{status:409});
       }
+
+      if(matchBefore.status!=="CANCELLED"){
+        await cancelMatchWithRefund(id, `Match cancelled by admin ${me.nickname}`);
+      }
+
+      // Release the DB server allocation as part of admin recovery. If CS2 is
+      // still running, the server-manager state poll sees CANCELLED and sends
+      // `quit`; its stopped handler is then idempotent because the match is already
+      // CANCELLED.
+      await prisma.gameServer.updateMany({
+        where:{matchId:id},
+        data:{
+          status:"OFFLINE",
+          matchId:null,
+          processId:null,
+          startedAt:null,
+          stoppedAt:new Date(),
+          lastHeartbeat:null
+        }
+      });
+
+      await audit(me.id,"CANCEL_MATCH","MATCH",id,{reason:"ADMIN_MANUAL_CANCEL"});
+      return NextResponse.json({ok:true});
+    }
 return NextResponse.json({error:"Неизвестное действие"},{status:400});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
