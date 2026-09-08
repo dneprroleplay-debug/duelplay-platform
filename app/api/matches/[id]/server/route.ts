@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     if (action === "heartbeat") {
-      const connectedSteamIds = Array.isArray(body.connectedSteamIds)
+      const connectedSteamIds: string[] = Array.isArray(body.connectedSteamIds)
         ? body.connectedSteamIds
             .map((value: unknown) => String(value).trim())
             .filter(Boolean)
@@ -128,10 +128,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           if (/^\d{17}$/.test(raw)) return raw;
           const steam3 = raw.match(/^\[U:1:(\d+)\]$/);
           if (steam3) {
-            try { return String(76561197960265728n + BigInt(steam3[1])); } catch { return null; }
+            try { return String(BigInt("76561197960265728") + BigInt(steam3[1])); } catch { return null; }
           }
           if (/^\d+$/.test(raw)) {
-            try { return String(76561197960265728n + BigInt(raw)); } catch { return null; }
+            try { return String(BigInt("76561197960265728") + BigInt(raw)); } catch { return null; }
           }
           return raw;
         };
