@@ -122,12 +122,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         if (serverUpdate.count !== 1) throw new Error("SERVER_NOT_ASSIGNED");
 
         const cfg = asRecord(match.serverConfig);
+        const normalizeSteamId = (value: unknown): string | null => {
+          const raw = String(value ?? '').trim();
+          if (!raw) return null;
+          if (/^\d{17}$/.test(raw)) return raw;
+          const steam3 = raw.match(/^\[U:1:(\d+)\]$/);
+          if (steam3) {
+            try { return String(76561197960265728n + BigInt(steam3[1])); } catch { return null; }
+          }
+          if (/^\d+$/.test(raw)) {
+            try { return String(76561197960265728n + BigInt(raw)); } catch { return null; }
+          }
+          return raw;
+        };
         const participantSteamIds = new Set(
           [match.playerOne?.steamId, match.playerTwo?.steamId]
-            .map(value => String(value ?? '').trim())
-            .filter(Boolean),
+            .map(normalizeSteamId)
+            .filter((value): value is string => Boolean(value)),
         );
-        const normalizedConnectedSteamIds: string[] = connectedSteamIds;
+        const normalizedConnectedSteamIds = connectedSteamIds
+          .map(normalizeSteamId)
+          .filter((value): value is string => Boolean(value));
         const validConnectedSteamIds = [...new Set<string>(normalizedConnectedSteamIds)]
           .filter((steamId: string) => participantSteamIds.has(steamId));
         const bothParticipantsConnected = validConnectedSteamIds.length >= 2 && participantSteamIds.size >= 2;
@@ -157,7 +172,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (due?.status === "LIVE" && !due.connectionPhaseCompleted && due.connectionDeadlineAt && due.connectionDeadlineAt.getTime() <= Date.now()) {
         const cfg = due.serverConfig && typeof due.serverConfig === "object" && !Array.isArray(due.serverConfig) ? due.serverConfig as Record<string, unknown> : {};
         const ids = Array.isArray(cfg.connectedSteamIds) ? [...new Set(cfg.connectedSteamIds.map(String).filter(Boolean))] : [];
-        if (ids.length === 1) {
+        if (ids.length >= 2) {
+          return NextResponse.json({ ok: true, phaseCompleted: true });
+        } else if (ids.length === 1) {
           const resolved = await resolveConnectionTimeout(id, ids[0]);
           if (resolved?.status === "FINISHED") {
             await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
@@ -176,7 +193,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const result = await resolveConnectionTimeout(id, winnerSteamId);
       if (result?.status === "FINISHED") {
         await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
-        return NextResponse.json({ ok: true, match: result });
+        return NextResponse.json({ ok: true, match: result, technicalWin: true });
+      }
+      const state = await prisma.match.findUnique({ where: { id }, select: { status: true, winnerId: true } });
+      if (state?.status === "FINISHED" && state.winnerId) {
+        await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        return NextResponse.json({ ok: true, technicalWin: true, alreadyResolved: true });
       }
       return NextResponse.json({ error: "Connection timeout could not be resolved" }, { status: 409 });
     }

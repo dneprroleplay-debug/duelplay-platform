@@ -63,9 +63,23 @@ export async function resolveConnectionTimeout(matchId: string, connectedSteamId
     });
     if (!full || full.status !== "LIVE" || full.connectionPhaseCompleted || !full.playerTwoId) return null;
     const freshCfg = full.serverConfig && typeof full.serverConfig === "object" && !Array.isArray(full.serverConfig) ? full.serverConfig as Record<string, unknown> : {};
-    const freshIds = Array.isArray(freshCfg.connectedSteamIds) ? [...new Set(freshCfg.connectedSteamIds.map(String).filter(Boolean))] : [];
-    if (freshIds.length !== 1 || freshIds[0] !== String(connectedSteamId).trim()) return null;
-    const winnerId = freshIds[0] === full.playerOne.steamId ? full.playerOneId : freshIds[0] === full.playerTwo?.steamId ? full.playerTwoId : null;
+    const freshIds = Array.isArray(freshCfg.connectedSteamIds)
+      ? [...new Set(freshCfg.connectedSteamIds.map(String).map(v => v.trim()).filter(Boolean))]
+      : [];
+    const candidateSteamId = String(connectedSteamId).trim();
+    const participantSteamIds = new Set(
+      [full.playerOne.steamId, full.playerTwo?.steamId]
+        .map(value => String(value ?? '').trim())
+        .filter(Boolean),
+    );
+    if (!candidateSteamId || !participantSteamIds.has(candidateSteamId)) return null;
+    // The server-manager is the authoritative source at the timeout moment.
+    // Accept its single connected player even if the last persisted heartbeat
+    // was one tick behind. If the database already has two players, the
+    // connection phase must be considered complete instead of awarding a win.
+    if (freshIds.length >= 2) return null;
+    if (freshIds.length === 1 && freshIds[0] !== candidateSteamId) return null;
+    const winnerId = candidateSteamId === full.playerOne.steamId ? full.playerOneId : candidateSteamId === full.playerTwo?.steamId ? full.playerTwoId : null;
     if (!winnerId) return null;
     const loserId = winnerId === full.playerOneId ? full.playerTwoId : full.playerOneId;
     const pot = Number(full.betAmount) * 2;
