@@ -28,7 +28,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const wallet = walletRows[0];
       if (!wallet) throw new Error("INSUFFICIENT_BALANCE");
       await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { increment: amount } } });
-      const ready = await tx.match.update({ where: { id }, data: { playerTwoId: user.id, status: "READY", startDeadlineAt: deadlineFromNow(MATCH_START_TIMEOUT_MS), connectionPhaseCompleted:false } });
+      const ready = await tx.match.update({ where: { id }, data: { playerTwoId: user.id, status: "READY", startDeadlineAt: deadlineFromNow(MATCH_START_TIMEOUT_MS), connectionPhaseCompleted:false }, include: { playerOne: { select: { id:true, nickname:true, avatarUrl:true, steamAvatarUrl:true } }, playerTwo: { select: { id:true, nickname:true, avatarUrl:true, steamAvatarUrl:true } } } });
       await tx.notification.createMany({data:[{userId:match.playerOneId,type:"MATCH_READY",title:"Match Ready",body:"Both players are ready. Press START to launch the duel.",payload:{matchId:id}},{userId:user.id,type:"MATCH_READY",title:"Match Ready",body:"Both players are ready. Press START to launch the duel.",payload:{matchId:id}}]});
       return ready;
     });

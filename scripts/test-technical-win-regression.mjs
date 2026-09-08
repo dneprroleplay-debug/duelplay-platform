@@ -7,7 +7,7 @@ const manager = fs.readFileSync('scripts/server-manager/server-manager.mjs', 'ut
 const checks = [
   ['result wallet UUID casts', result.includes('WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)')],
   ['watchdog wallet UUID casts', lifecycle.includes('WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)')],
-  ['manager null guard after technical result', manager.includes('if (!current || current.id !== matchId) return;')],
+  ['manager null guard after technical result', manager.includes('if (!current || current.id !== timedOutMatchId) return;')],
   ['manager state-poll null guard', manager.includes('if (!current) return;\n      try {\n        const state = await api(`/api/matches/${current.id}`);')],
 ];
 

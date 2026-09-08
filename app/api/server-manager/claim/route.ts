@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
       const current = (match.serverConfig ?? {}) as Record<string, unknown>;
       await tx.match.update({ where: { id: matchId }, data: { serverConfig: { ...current, state: "STARTING", serverId: server.id, connectUrl: `steam://connect/${host}:${port}` } } });
-      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, mapName: match.mapName ?? "Dust2" };
+      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, mapName: match.mapName ?? "Dust2", mode: match.mode, weaponModifier: match.weaponModifier ?? null };
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
