@@ -171,7 +171,6 @@ function mapCode(name) {
 }
 
 function applyDuelRules(mode, weaponModifier) {
-  // Every duel is a clean 1v1: no map-placed guns and no free weapon pickup from a previous round.
   command('mp_autoteambalance 0');
   command('mp_limitteams 0');
   command('mp_weapons_allow_map_placed 0');
@@ -179,9 +178,6 @@ function applyDuelRules(mode, weaponModifier) {
   command('mp_buy_anywhere 0');
 
   if (weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY') {
-    // CS2 exposes weapon classes through mp_buy_allow_guns. Snipers are class 16,
-    // but that also includes SSG/G3/SCAR, so purchases are disabled entirely and
-    // AWP is supplied as the default primary for both sides.
     command('mp_buy_allow_guns 0');
     command('mp_buy_allow_grenades 0');
     command('mp_t_default_primary weapon_awp');
@@ -425,6 +421,12 @@ async function claimAndStart(match) {
       command('mp_autoteambalance 0');
       command('mp_limitteams 0');
       applyDuelRules(current.mode, current.weaponModifier);
+      if (current.weaponModifier === 'AWP_ONLY' || current.mode === 'AWP_ONLY') {
+        // Default weapon cvars are applied on spawn. Restart the empty server
+        // once, before the connection button is exposed, so the first player
+        // cannot spawn with the standard pistol loadout.
+        command('mp_restartgame 1');
+      }
       command('mp_match_can_clinch 1');
       command('mp_match_end_restart 0');
       command('sv_visiblemaxplayers 2');

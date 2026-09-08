@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { buildLiveMatchState } from "@/lib/live-match";
@@ -8,4 +11,4 @@ export async function GET(_:Request,{params}:{params:Promise<{id:string}>}){cons
   const safeConfig = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
     ? Object.fromEntries(Object.entries(rawConfig as Record<string, unknown>).filter(([key]) => !["connectedSteamIds", "playerOneSteamId", "playerTwoSteamId", "processId"].includes(key)))
     : rawConfig;
-  return NextResponse.json({match: { ...match, serverConfig: safeConfig, liveState }})}
+  return NextResponse.json({match: { ...match, serverConfig: safeConfig, liveState }}, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate", "CDN-Cache-Control": "no-store", "Vercel-CDN-Cache-Control": "no-store" } })}

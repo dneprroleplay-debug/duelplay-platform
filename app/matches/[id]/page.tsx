@@ -50,7 +50,16 @@ function openServer(){
  if(!m?.serverConfig?.connectUrl)return;
  setConnectClicked(true);
  try{localStorage.setItem(`duelplay-connect-${m.id}`,"1")}catch{}
- window.location.href=m.serverConfig.connectUrl;
+ const raw=m.serverConfig.connectUrl;
+ const match=raw.match(/^steam:\/\/connect\/(.+)$/i);
+ const endpoint=match?.[1]||raw.replace(/^steam:\/\/connect\//i,"");
+ const steamUrl=`steam://rungameid/730//+connect%20${encodeURIComponent(endpoint)}`;
+ const anchor=document.createElement("a");
+ anchor.href=steamUrl;
+ anchor.style.display="none";
+ document.body.appendChild(anchor);
+ anchor.click();
+ window.setTimeout(()=>anchor.remove(),1000);
 }
 
 function showMessage(text:string){if(msgTimer.current)window.clearTimeout(msgTimer.current);setMsg(text);msgTimer.current=window.setTimeout(()=>setMsg(""),5000)}

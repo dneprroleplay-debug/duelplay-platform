@@ -18,3 +18,11 @@ assert.match(manager,/mp_buy_allow_guns 0/,'AWP mode disables weapon purchases')
 assert.match(manager,/const timedOutMatchId = current\.id/,'technical timeout preserves match id');
 assert.match(manager,/current\.id !== timedOutMatchId/,'technical timeout null guard uses saved id');
 console.log('CS2 duel regression checks passed.');
+
+const getRoute = fs.readFileSync('app/api/matches/[id]/route.ts','utf8');
+assert.match(getRoute, /dynamic\s*=\s*["']force-dynamic["']/,'match GET is force-dynamic');
+assert.match(getRoute, /Cache-Control.*no-store/,'match GET disables caches');
+assert.match(page, /rungameid\/730/,'client launches CS2 directly via Steam rungameid');
+assert.match(manager, /mp_restartgame 1/,'AWP mode forces a clean spawn before connection');
+assert.match(manager, /mp_t_default_primary weapon_awp/,'AWP mode sets deterministic default primary');
+console.log('Live UI polling, Steam launch and AWP enforcement checks passed.');
