@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { lockMatchForUpdate } from "@/lib/match-lifecycle";
+import { cancelMatchWithRefund, lockMatchForUpdate } from "@/lib/match-lifecycle";
+import { MATCH_SERVER_START_TIMEOUT_MS } from "@/lib/match-timers";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -9,6 +10,13 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const { id } = await params;
 
   try {
+    const preflight = await prisma.match.findUnique({ where: { id }, select: { status: true, startDeadlineAt: true } });
+    if (!preflight) throw new Error("NOT_FOUND");
+    if (preflight.status === "READY" && preflight.startDeadlineAt && preflight.startDeadlineAt.getTime() <= Date.now()) {
+      await cancelMatchWithRefund(id, "START timeout expired");
+      throw new Error("START_EXPIRED");
+    }
+
     const result = await prisma.$transaction(async tx => {
       const locked = await lockMatchForUpdate(tx, id);
       if (!locked) throw new Error("NOT_FOUND");
@@ -58,7 +66,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       const updated = await tx.match.update({
         where: { id },
         data: {
-          startDeadlineAt: null,
+          startDeadlineAt: new Date(Date.now() + MATCH_SERVER_START_TIMEOUT_MS),
           status: "STARTING",
           serverConfig: {
             ...current,
@@ -78,6 +86,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (code === "FORBIDDEN") return NextResponse.json({ error: "Вы не участник матча" }, { status: 403 });
     if (code === "NOT_READY") return NextResponse.json({ error: "Матч не готов к старту" }, { status: 409 });
     if (code === "STEAM_REQUIRED") return NextResponse.json({ error: "Оба игрока должны привязать Steam", errorCode: "STEAM_REQUIRED" }, { status: 409 });
+    if (code === "START_EXPIRED") return NextResponse.json({ error: "Время на запуск матча истекло. Матч отменён, ставки возвращены.", errorCode: "START_EXPIRED" }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Не удалось запустить матч" }, { status: 500 });
   }

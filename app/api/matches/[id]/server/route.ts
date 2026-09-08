@@ -8,34 +8,48 @@ import { deadlineFromNow, MATCH_CONNECTION_TIMEOUT_MS } from "@/lib/match-timers
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
-async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>) {
+async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>, reason = "Match server failed/stopped before completion") {
   const amount = Number(match.betAmount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("INVALID_AMOUNT");
 
   for (const uid of [match.playerOneId, match.playerTwoId].filter(Boolean) as string[]) {
     const idem = `refund:${match.id}:${uid}`;
     const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
-    if (existing) continue;
 
     const rows = await tx.$queryRaw<Array<{ id: string; lockedBalance: Prisma.Decimal }>>`
       SELECT id, "lockedBalance" FROM "Wallet" WHERE "userId" = ${uid}::uuid FOR UPDATE
     `;
     const wallet = rows[0];
     if (!wallet) throw new Error("WALLET");
-    if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
 
-    await creditWallet(
+    if (!existing) {
+      if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
+
+      await creditWallet(
       tx,
       uid,
       amount,
       idem,
       "REFUND",
-      "Match server failed/stopped before completion",
+      reason,
       match.id,
     );
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { lockedBalance: { decrement: amount } },
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: { lockedBalance: { decrement: amount } },
+      });
+    }
+
+    await tx.notification.create({
+      data: {
+        userId: uid,
+        type: "CANCELLATION",
+        title: "Match cancelled",
+        body: reason.toLowerCase().includes("nobody connected") || reason.toLowerCase().includes("no player connected")
+          ? "The match was automatically cancelled because nobody connected to the CS2 server in time. Your stake was refunded."
+          : "The match was automatically cancelled because the CS2 server could not continue. Your stake was refunded.",
+        payload: { matchId: match.id, reason },
+      },
     });
   }
 
@@ -67,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const host = String(body.host ?? match.gameServer.host);
         await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId: Number.isInteger(body.processId) ? Number(body.processId) : null, startedAt: new Date(), lastHeartbeat: new Date() } });
         const cfg = asRecord(match.serverConfig);
-        return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt: new Date(), connectionDeadlineAt: deadlineFromNow(MATCH_CONNECTION_TIMEOUT_MS),
+        return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt: new Date(), startDeadlineAt: null, connectionDeadlineAt: deadlineFromNow(MATCH_CONNECTION_TIMEOUT_MS),
         connectionPhaseCompleted: false,
         serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://run/730//+connect ${host}:${port}` } } });
       });
@@ -149,7 +163,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
           return;
         }
-        await refundAndCancel(tx, match);
+        await refundAndCancel(tx, match, String(body.reason ?? "Match server failed/stopped before completion"));
         if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
       });
       return NextResponse.json({ ok: true });

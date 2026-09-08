@@ -612,7 +612,8 @@ async function loop() {
               method: 'POST',
               body: JSON.stringify({
                 action: 'failed',
-                serverId: current.serverId
+                serverId: current.serverId,
+                reason: 'No player connected within 10 minutes' 
               })
             });
           } catch (error) {

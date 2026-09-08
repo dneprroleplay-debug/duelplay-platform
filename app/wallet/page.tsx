@@ -42,8 +42,10 @@ export default function WalletPage(){
   const refresh=async()=>{if(disposed||document.visibilityState==='hidden'||loading)return;loading=true;try{await load()}finally{loading=false}};
   void refresh(); const timer=window.setInterval(()=>void refresh(),5000);
   const onVisibility=()=>{if(document.visibilityState==='visible')void refresh()};
+  const onWalletUpdated=()=>{void refresh()};
   document.addEventListener('visibilitychange',onVisibility);
-  return()=>{disposed=true;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility)};
+  window.addEventListener('duelplay:wallet-updated',onWalletUpdated);
+  return()=>{disposed=true;window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisibility);window.removeEventListener('duelplay:wallet-updated',onWalletUpdated)};
  },[]);
  async function load(){const r=await fetch("/api/auth/me",{cache:"no-store"});const d=await r.json();if(!d.user){location.href="/login";return}setUser(d.user);const tr=await fetch("/api/wallet/transactions",{cache:"no-store"});const td=await tr.json();setTxs(td.transactions??[])}
  if(!user)return <main className="pt-28 text-center text-zinc-500">{t.loading}</main>;

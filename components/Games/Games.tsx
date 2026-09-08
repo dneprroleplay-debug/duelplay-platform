@@ -8,9 +8,10 @@ const games = [
   ["Inferno", "/images/maps/inferno.jpg"],
 ] as const;
 
-export default function Games() {
+export default function Games({onSelectMap}:{onSelectMap?:(name:string)=>void}) {
   const { t } = useLanguage();
   const select = (name: string) => {
+    onSelectMap?.(name);
     window.dispatchEvent(new CustomEvent("duelplay:select-map", { detail: name }));
     document.getElementById("create")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };

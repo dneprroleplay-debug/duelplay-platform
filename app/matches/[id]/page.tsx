@@ -8,88 +8,41 @@ import { useAuth } from "@/components/Common/AuthContext";
 import { languages } from "@/lib/language";
 const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"/images/maps/dust2.jpg",Ancient:"/images/maps/ancient.jpg",Train:"/images/maps/train.jpg",Overpass:"/images/maps/overpass.jpg",Inferno:"/images/maps/inferno.jpg",Nuke:"/images/maps/nuke.jpg",Anubis:"/images/maps/anubis.jpg"};
 type Player={id?:string;nickname:string;avatarUrl:string|null;steamAvatarUrl?:string|null};
-type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[];connectionPhaseCompleted?:boolean}|null;liveState?:{state:string|null;connectUrl:string|null;connectionPhaseCompleted:boolean;connectedCount:number;connectionSlots:number;heartbeatAgeMs:number|null;serverHealthy:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null;startDeadlineAt?:string|null;connectionDeadlineAt?:string|null};
+type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;weaponModifier?:string|null;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[];connectionPhaseCompleted?:boolean}|null;liveState?:{state:string|null;connectUrl:string|null;connectionPhaseCompleted:boolean;connectedCount:number;connectionSlots:number;heartbeatAgeMs:number|null;serverHealthy:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null;startDeadlineAt?:string|null;connectionDeadlineAt?:string|null};
 const MATCH_UI:any={
- RU:{matchTitle:"Матч",created:"Создан",player2:"Игрок 2",server:"Сервер",game:"Игра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Ожидание игрока",waitingText:"Ожидаем второго игрока. После его подключения и подтверждения ставки дуэль перейдёт к запуску сервера CS2.",ready:"Матч готов",serverStarting:"Сервер DuelPlay запускается автоматически. Как только он будет готов, появится кнопка подключения.",bothReady:"Оба игрока готовы. Нажмите Start, чтобы запустить сервер.",inProgress:"Матч в процессе",serverAuto:"Результат определяет сервер CS2 автоматически.",connect:"Подключиться к серверу",reconnect:"Переподключиться к серверу",connecting:"Подключение…",timeout:"Автоматическая отмена через",connected:"Подключено",connectionRule:"\u0415\u0441\u043b\u0438 \u0432\u0442\u043e\u0440\u043e\u0439 \u0438\u0433\u0440\u043e\u043a \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0441\u044f \u0437\u0430 \u044d\u0442\u043e \u0432\u0440\u0435\u043c\u044f, \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0432\u0448\u0435\u043c\u0443 \u0437\u0430\u0441\u0447\u0438\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043f\u043e\u0431\u0435\u0434\u0430. \u0415\u0441\u043b\u0438 \u043d\u0438\u043a\u0442\u043e \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0441\u044f \u2014 \u0441\u0442\u0430\u0432\u043a\u0438 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u044e\u0442\u0441\u044f.",confirmed:"Результат подтверждён сервером",winner:"Победитель",payout:"Выплата",cancelled:"Матч отменён",refund:"Ставки возвращены согласно правилам DuelPlay.",start:"START",bank:"БАНК",commission:"КОМИССИЯ",winnerGets:"ПОБЕДИТЕЛЬ ПОЛУЧИТ",cancelMatch:"Отмена матча",confirmation:"Подтверждение",cancelQuestion:"Отменить дуэль?",cancelText:"Ставка будет возвращена тебе, а если второй игрок уже присоединился — и ему. Отмена необратима.",keep:"Оставить матч",yesCancel:"Да, отменить",cancelling:"Отмена…",creator:"Создатель дуэли",readyConnect:"Готов подключиться",waitingStatus:"ОЖИДАНИЕ",waitingPlayer:"Ожидание игрока...",readyStatus:"ГОТОВ",localTest:"ЛОКАЛЬНЫЙ ТЕСТ",localTestText:"Сервер смоделирован локально. Можно выбрать победителя для проверки выплаты.",testWin:"Победа",testFinish:"Завершить тест"},
- UA:{matchTitle:"Матч",created:"Створено",player2:"Гравець 2",server:"Сервер",game:"Гра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Очікування гравця",waitingText:"Очікуємо другого гравця. Після його підключення та підтвердження ставки дуель перейде до запуску сервера CS2.",ready:"Матч готовий",serverStarting:"Сервер DuelPlay запускається автоматично. Щойно він буде готовий, з’явиться кнопка підключення.",bothReady:"Обидва гравці готові. Натисніть Start, щоб запустити сервер.",inProgress:"Матч триває",serverAuto:"Результат автоматично визначає сервер CS2.",connect:"Підключитися до сервера",reconnect:"Перепідключитися до сервера",connecting:"Підключення…",timeout:"Автоматичне скасування через",connected:"Підключено",connectionRule:"\u042f\u043a\u0449\u043e \u0434\u0440\u0443\u0433\u0438\u0439 \u0433\u0440\u0430\u0432\u0435\u0446\u044c \u043d\u0435 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u0437\u0430 \u0446\u0435\u0439 \u0447\u0430\u0441, \u0442\u043e\u043c\u0443 \u0445\u0442\u043e \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0432\u0441\u044f \u0437\u0430\u0440\u0430\u0445\u043e\u0432\u0443\u0454\u0442\u044c\u0441\u044f \u0442\u0435\u0445\u043d\u0456\u0447\u043d\u0430 \u043f\u0435\u0440\u0435\u043c\u043e\u0433\u0430. \u042f\u043a\u0449\u043e \u043d\u0456\u0445\u0442\u043e \u043d\u0435 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u2014 \u0441\u0442\u0430\u0432\u043a\u0438 \u043f\u043e\u0432\u0435\u0440\u0442\u0430\u044e\u0442\u044c\u0441\u044f.",confirmed:"Результат підтверджено сервером",winner:"Переможець",payout:"Виплата",cancelled:"Матч скасовано",refund:"Ставки повернено згідно з правилами DuelPlay.",start:"START",bank:"БАНК",commission:"КОМІСІЯ",winnerGets:"ПЕРЕМОЖЕЦЬ ОТРИМАЄ",cancelMatch:"Скасування матчу",confirmation:"Підтвердження",cancelQuestion:"Скасувати дуель?",cancelText:"Ставку буде повернено тобі, а якщо другий гравець уже приєднався — і йому. Скасування незворотне.",keep:"Залишити матч",yesCancel:"Так, скасувати",cancelling:"Скасування…",creator:"Творець дуелі",readyConnect:"Готовий підключитися",waitingStatus:"ОЧІКУВАННЯ",waitingPlayer:"Очікування гравця...",readyStatus:"ГОТОВИЙ",localTest:"ЛОКАЛЬНИЙ ТЕСТ",localTestText:"Сервер змодельовано локально. Можна обрати переможця для перевірки виплати.",testWin:"Перемога",testFinish:"Завершити тест"},
- EN:{matchTitle:"Match",created:"Created",player2:"Player 2",server:"Server",game:"Game",result:"Result",map:"Map",bet:"Bet",waiting:"Waiting for player",waitingText:"Waiting for the second player. After they connect and confirm the stake, the duel will move to CS2 server startup.",ready:"Match ready",serverStarting:"The DuelPlay server starts automatically. Once ready, the connection button will appear.",bothReady:"Both players are ready. Press Start to launch the server.",inProgress:"Match in progress",serverAuto:"The CS2 server determines the result automatically.",connect:"Connect to server",reconnect:"Reconnect to server",connecting:"Connecting…",timeout:"Automatic cancellation in",connected:"Connected",connectionRule:"If the second player does not connect in time, the connected player wins by forfeit. If nobody connects, both stakes are refunded.",confirmed:"Result confirmed by server",winner:"Winner",payout:"Payout",cancelled:"Match cancelled",refund:"Stakes were returned according to DuelPlay rules.",start:"START",bank:"BANK",commission:"COMMISSION",winnerGets:"WINNER GETS",cancelMatch:"Cancel match",confirmation:"Confirmation",cancelQuestion:"Cancel the duel?",cancelText:"Your stake will be returned, and if the second player has already joined, theirs will be returned too. Cancellation cannot be undone.",keep:"Keep match",yesCancel:"Yes, cancel",cancelling:"Cancelling…",creator:"Duel creator",readyConnect:"Ready to connect",waitingStatus:"WAITING",waitingPlayer:"Waiting for player...",readyStatus:"READY",localTest:"LOCAL TEST",localTestText:"The server is simulated locally. Choose a winner to test the payout flow.",testWin:"Win",testFinish:"Finish test"},
- PL:{matchTitle:"Mecz",created:"Utworzono",player2:"Gracz 2",server:"Serwer",game:"Gra",result:"Wynik",map:"Mapa",bet:"Stawka",waiting:"Oczekiwanie na gracza",waitingText:"Czekamy na drugiego gracza. Po jego dołączeniu i potwierdzeniu stawki pojedynek przejdzie do uruchomienia serwera CS2.",ready:"Mecz gotowy",serverStarting:"Serwer DuelPlay uruchamia się automatycznie. Gdy będzie gotowy, pojawi się przycisk połączenia.",bothReady:"Obaj gracze są gotowi. Naciśnij Start, aby uruchomić serwer.",inProgress:"Mecz trwa",serverAuto:"Serwer CS2 automatycznie określa wynik.",connect:"Połącz z serwerem",reconnect:"Połącz ponownie z serwerem",connecting:"Łączenie…",timeout:"Automatyczne anulowanie za",connected:"Po\u0142\u0105czono",connectionRule:"Je\u015bli drugi gracz nie do\u0142\u0105czy na czas, po\u0142\u0105czony gracz wygrywa walkowerem. Je\u015bli nie do\u0142\u0105czy nikt, obie stawki zostan\u0105 zwr\u00f3cone.",confirmed:"Wynik potwierdzony przez serwer",winner:"Zwycięzca",payout:"Wypłata",cancelled:"Mecz anulowany",refund:"Stawki zwrócono zgodnie z zasadami DuelPlay.",start:"START",bank:"PULA",commission:"PROWIZJA",winnerGets:"ZWYCIĘZCA OTRZYMA",cancelMatch:"Anulowanie meczu",confirmation:"Potwierdzenie",cancelQuestion:"Anulować pojedynek?",cancelText:"Twoja stawka zostanie zwrócona, a jeśli drugi gracz już dołączył — również jego. Anulowania nie można cofnąć.",keep:"Zostaw mecz",yesCancel:"Tak, anuluj",cancelling:"Anulowanie…",creator:"Twórca pojedynku",readyConnect:"Gotowy do połączenia",waitingStatus:"OCZEKIWANIE",waitingPlayer:"Oczekiwanie na gracza...",readyStatus:"GOTOWY",localTest:"TEST LOKALNY",localTestText:"Serwer jest symulowany lokalnie. Wybierz zwycięzcę, aby sprawdzić wypłatę.",testWin:"Wygrana",testFinish:"Zakończ test"}
+ RU:{matchTitle:"Матч",created:"Создан",player2:"Игрок 2",server:"Сервер",game:"Игра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Ожидание игрока",waitingText:"Ожидаем второго игрока. После его подключения и подтверждения ставки дуэль перейдёт к запуску сервера CS2.",ready:"Матч готов",serverStarting:"Сервер DuelPlay запускается автоматически. Как только он будет готов, появится кнопка подключения.",bothReady:"Оба игрока готовы. Нажмите Start, чтобы запустить сервер.",inProgress:"Матч в процессе",serverAuto:"Результат определяет сервер CS2 автоматически.",connect:"Подключиться к серверу",reconnect:"Переподключиться к серверу",connecting:"Подключение…",timeout:"Автоматическая отмена через",connected:"Подключено",connectionRule:"\u0415\u0441\u043b\u0438 \u0432\u0442\u043e\u0440\u043e\u0439 \u0438\u0433\u0440\u043e\u043a \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0441\u044f \u0437\u0430 \u044d\u0442\u043e \u0432\u0440\u0435\u043c\u044f, \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0432\u0448\u0435\u043c\u0443 \u0437\u0430\u0441\u0447\u0438\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043f\u043e\u0431\u0435\u0434\u0430. \u0415\u0441\u043b\u0438 \u043d\u0438\u043a\u0442\u043e \u043d\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0441\u044f \u2014 \u0441\u0442\u0430\u0432\u043a\u0438 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u044e\u0442\u0441\u044f.",confirmed:"Результат подтверждён сервером",winner:"Победитель",payout:"Выплата",cancelled:"Матч отменён",refund:"Ставки возвращены согласно правилам DuelPlay.",start:"START",bank:"БАНК",commission:"КОМИССИЯ",winnerGets:"ПОБЕДИТЕЛЬ ПОЛУЧИТ",cancelMatch:"Отмена матча",confirmation:"Подтверждение",cancelQuestion:"Отменить дуэль?",cancelText:"Твоя ставка будет возвращена. После присоединения второго игрока отмена матча недоступна.",keep:"Оставить матч",yesCancel:"Да, отменить",cancelling:"Отмена…",creator:"Создатель дуэли",readyConnect:"Готов подключиться",waitingStatus:"ОЖИДАНИЕ",waitingPlayer:"Ожидание игрока...",alreadyInDuel:"Вы уже в дуэли",readyStatus:"ГОТОВ",localTest:"ЛОКАЛЬНЫЙ ТЕСТ",localTestText:"Сервер смоделирован локально. Можно выбрать победителя для проверки выплаты.",testWin:"Победа",testFinish:"Завершить тест"},
+ UA:{matchTitle:"Матч",created:"Створено",player2:"Гравець 2",server:"Сервер",game:"Гра",result:"Результат",map:"Карта",bet:"Ставка",waiting:"Очікування гравця",waitingText:"Очікуємо другого гравця. Після його підключення та підтвердження ставки дуель перейде до запуску сервера CS2.",ready:"Матч готовий",serverStarting:"Сервер DuelPlay запускається автоматично. Щойно він буде готовий, з’явиться кнопка підключення.",bothReady:"Обидва гравці готові. Натисніть Start, щоб запустити сервер.",inProgress:"Матч триває",serverAuto:"Результат автоматично визначає сервер CS2.",connect:"Підключитися до сервера",reconnect:"Перепідключитися до сервера",connecting:"Підключення…",timeout:"Автоматичне скасування через",connected:"Підключено",connectionRule:"\u042f\u043a\u0449\u043e \u0434\u0440\u0443\u0433\u0438\u0439 \u0433\u0440\u0430\u0432\u0435\u0446\u044c \u043d\u0435 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u0437\u0430 \u0446\u0435\u0439 \u0447\u0430\u0441, \u0442\u043e\u043c\u0443 \u0445\u0442\u043e \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0432\u0441\u044f \u0437\u0430\u0440\u0430\u0445\u043e\u0432\u0443\u0454\u0442\u044c\u0441\u044f \u0442\u0435\u0445\u043d\u0456\u0447\u043d\u0430 \u043f\u0435\u0440\u0435\u043c\u043e\u0433\u0430. \u042f\u043a\u0449\u043e \u043d\u0456\u0445\u0442\u043e \u043d\u0435 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f \u2014 \u0441\u0442\u0430\u0432\u043a\u0438 \u043f\u043e\u0432\u0435\u0440\u0442\u0430\u044e\u0442\u044c\u0441\u044f.",confirmed:"Результат підтверджено сервером",winner:"Переможець",payout:"Виплата",cancelled:"Матч скасовано",refund:"Ставки повернено згідно з правилами DuelPlay.",start:"START",bank:"БАНК",commission:"КОМІСІЯ",winnerGets:"ПЕРЕМОЖЕЦЬ ОТРИМАЄ",cancelMatch:"Скасування матчу",confirmation:"Підтвердження",cancelQuestion:"Скасувати дуель?",cancelText:"Твою ставку буде повернено. Після приєднання другого гравця скасування матчу недоступне.",keep:"Залишити матч",yesCancel:"Так, скасувати",cancelling:"Скасування…",creator:"Творець дуелі",readyConnect:"Готовий підключитися",waitingStatus:"ОЧІКУВАННЯ",waitingPlayer:"Очікування гравця...",alreadyInDuel:"Ви вже в дуелі",readyStatus:"ГОТОВИЙ",localTest:"ЛОКАЛЬНИЙ ТЕСТ",localTestText:"Сервер змодельовано локально. Можна обрати переможця для перевірки виплати.",testWin:"Перемога",testFinish:"Завершити тест"},
+ EN:{matchTitle:"Match",created:"Created",player2:"Player 2",server:"Server",game:"Game",result:"Result",map:"Map",bet:"Bet",waiting:"Waiting for player",waitingText:"Waiting for the second player. After they connect and confirm the stake, the duel will move to CS2 server startup.",ready:"Match ready",serverStarting:"The DuelPlay server starts automatically. Once ready, the connection button will appear.",bothReady:"Both players are ready. Press Start to launch the server.",inProgress:"Match in progress",serverAuto:"The CS2 server determines the result automatically.",connect:"Connect to server",reconnect:"Reconnect to server",connecting:"Connecting…",timeout:"Automatic cancellation in",connected:"Connected",connectionRule:"If the second player does not connect in time, the connected player wins by forfeit. If nobody connects, both stakes are refunded.",confirmed:"Result confirmed by server",winner:"Winner",payout:"Payout",cancelled:"Match cancelled",refund:"Stakes were returned according to DuelPlay rules.",start:"START",bank:"BANK",commission:"COMMISSION",winnerGets:"WINNER GETS",cancelMatch:"Cancel match",confirmation:"Confirmation",cancelQuestion:"Cancel the duel?",cancelText:"Your stake will be returned. Once the second player joins, match cancellation is no longer available.",keep:"Keep match",yesCancel:"Yes, cancel",cancelling:"Cancelling…",creator:"Duel creator",readyConnect:"Ready to connect",waitingStatus:"WAITING",waitingPlayer:"Waiting for player...",alreadyInDuel:"You are already in a duel",readyStatus:"READY",localTest:"LOCAL TEST",localTestText:"The server is simulated locally. Choose a winner to test the payout flow.",testWin:"Win",testFinish:"Finish test"},
+ PL:{matchTitle:"Mecz",created:"Utworzono",player2:"Gracz 2",server:"Serwer",game:"Gra",result:"Wynik",map:"Mapa",bet:"Stawka",waiting:"Oczekiwanie na gracza",waitingText:"Czekamy na drugiego gracza. Po jego dołączeniu i potwierdzeniu stawki pojedynek przejdzie do uruchomienia serwera CS2.",ready:"Mecz gotowy",serverStarting:"Serwer DuelPlay uruchamia się automatycznie. Gdy będzie gotowy, pojawi się przycisk połączenia.",bothReady:"Obaj gracze są gotowi. Naciśnij Start, aby uruchomić serwer.",inProgress:"Mecz trwa",serverAuto:"Serwer CS2 automatycznie określa wynik.",connect:"Połącz z serwerem",reconnect:"Połącz ponownie z serwerem",connecting:"Łączenie…",timeout:"Automatyczne anulowanie za",connected:"Po\u0142\u0105czono",connectionRule:"Je\u015bli drugi gracz nie do\u0142\u0105czy na czas, po\u0142\u0105czony gracz wygrywa walkowerem. Je\u015bli nie do\u0142\u0105czy nikt, obie stawki zostan\u0105 zwr\u00f3cone.",confirmed:"Wynik potwierdzony przez serwer",winner:"Zwycięzca",payout:"Wypłata",cancelled:"Mecz anulowany",refund:"Stawki zwrócono zgodnie z zasadami DuelPlay.",start:"START",bank:"PULA",commission:"PROWIZJA",winnerGets:"ZWYCIĘZCA OTRZYMA",cancelMatch:"Anulowanie meczu",confirmation:"Potwierdzenie",cancelQuestion:"Anulować pojedynek?",cancelText:"Twoja stawka zostanie zwrócona. Po dołączeniu drugiego gracza anulowanie meczu jest niedostępne.",keep:"Zostaw mecz",yesCancel:"Tak, anuluj",cancelling:"Anulowanie…",creator:"Twórca pojedynku",readyConnect:"Gotowy do połączenia",waitingStatus:"OCZEKIWANIE",waitingPlayer:"Oczekiwanie na gracza...",alreadyInDuel:"Jesteś już w pojedynku",readyStatus:"GOTOWY",localTest:"TEST LOKALNY",localTestText:"Serwer jest symulowany lokalnie. Wybierz zwycięzcę, aby sprawdzić wypłatę.",testWin:"Wygrana",testFinish:"Zakończ test"}
 };
+function formatCountdown(total:number){
+ const safe=Math.max(0,Math.floor(Number.isFinite(total)?total:0));
+ const min=Math.floor(safe/60).toString().padStart(2,"0");
+ const sec=(safe%60).toString().padStart(2,"0");
+ return `${min}:${sec}`;
+}
+
 export default function MatchPage({params}:{params:Promise<{id:string}>}){
  const{language,t}=useLanguage();
- const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[secondsLeft,setSecondsLeft]=useState<number|null>(null);
+ const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[deadlineExpired,setDeadlineExpired]=useState(false);
  useEffect(()=>{params.then(p=>{setId(p.id);try{setConnectClicked(localStorage.getItem(`duelplay-connect-${p.id}`)==="1")}catch{}})},[params]);
  const loadInFlight=useRef(false);
  async function load(){if(!id||loadInFlight.current)return;loadInFlight.current=true;try{const [mr,ur]=await Promise.all([fetch(`/api/matches/${id}`,{cache:"no-store"}),fetch("/api/auth/me",{cache:"no-store"})]);const md=await mr.json(),ud=await ur.json();if(!mr.ok)throw 0;setM(md.match??md);setUser(ud.user??null)}catch{setMsg(t.matchLoadError)}finally{loadInFlight.current=false}}
  useEffect(()=>{void load()},[id]);
  useEffect(()=>{if(!id)return;const tick=()=>{if(document.visibilityState!=="hidden")void load()};const timer=setInterval(tick,3000);const onVisibility=()=>{if(document.visibilityState==="visible")void load()};document.addEventListener("visibilitychange",onVisibility);return()=>{clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility)}},[id]);
  useEffect(()=>{
- if(!m)return;
+   setDeadlineExpired(false);
+ },[m?.status,m?.startDeadlineAt,m?.connectionDeadlineAt,m?.startedAt]);
 
- if(m.status==="READY"){
-   const deadline=m.startDeadlineAt;
-   if(!deadline){ setSecondsLeft(null); return; }
-   const update=()=>{
-     const left=Math.max(0,Math.ceil((new Date(deadline).getTime()-Date.now())/1000));
-     setSecondsLeft(left);
-     if(left<=0) void load();
-   };
-   update(); const timer=setInterval(update,1000); return()=>clearInterval(timer);
- }
-
- if(m.status==="LIVE"){
-   const connected=m.serverConfig?.connectedSteamIds??[];
-   const connectionPhaseCompleted=
-     m.serverConfig?.connectionPhaseCompleted===true;
-
-   if(connectionPhaseCompleted||connected.length>=2){
-     setSecondsLeft(null);
-     return;
+ function currentDeadline(){
+   if(!m)return null;
+   if(m.status==="READY"&&m.startDeadlineAt)return {at:m.startDeadlineAt,maxSeconds:120};
+   if(m.status==="LIVE"&&m.liveState?.connectionPhaseCompleted!==true){
+     if(m.connectionDeadlineAt)return {at:m.connectionDeadlineAt,maxSeconds:600};
+     if(m.startedAt)return {at:new Date(new Date(m.startedAt).getTime()+10*60*1000).toISOString(),maxSeconds:600};
    }
-
-   const base=m.connectionDeadlineAt || m.startedAt;
-   if(!base){
-     setSecondsLeft(null);
-     return;
-   }
-
-   const timeoutMs=m.connectionDeadlineAt ? 0 : 10*60*1000;
-
-   const update=()=>{
-     const left=Math.max(
-       0,
-       Math.ceil((new Date(base).getTime()+timeoutMs-Date.now())/1000)
-     );
-
-     setSecondsLeft(left);
-
-     if(left<=0) void load();
-   };
-
-   update();
-
-   const timer=setInterval(update,1000);
-   return()=>clearInterval(timer);
+   return null;
  }
-
- setSecondsLeft(null);
-},[
- m?.status,
- m?.updatedAt,
- m?.startedAt,
- m?.startDeadlineAt,
- m?.connectionDeadlineAt,
- m?.serverConfig?.managerRequested,
- m?.serverConfig?.connectedSteamIds,
- m?.serverConfig?.connectionPhaseCompleted,
- id
-]);
-
-function formatCountdown(total:number){
- const min=Math.floor(total/60).toString().padStart(2,"0");
- const sec=(total%60).toString().padStart(2,"0");
- return `${min}:${sec}`;
-}
 
 function openServer(){
  if(!m?.serverConfig?.connectUrl)return;
@@ -103,6 +56,8 @@ useEffect(()=>()=>{if(msgTimer.current)window.clearTimeout(msgTimer.current)},[]
 useEffect(()=>{
  if(m?.status==="FINISHED"||m?.status==="CANCELLED"){
    void refreshAuth();
+   window.dispatchEvent(new Event("duelplay:wallet-updated"));
+   window.dispatchEvent(new Event("duelplay:notifications-updated"));
  }
 },[m?.status,refreshAuth]);
 
@@ -111,32 +66,38 @@ useEffect(()=>{
  const steamMessages=Object.values(languages).map((x:any)=>String(x.steamAccountRequired));
  if(steamMessages.includes(msg))setMsg(t.steamAccountRequired);
 },[language,t.steamAccountRequired]);
-async function action(path:string){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${id}/${path}`,{method:"POST"});const d=await r.json();if(!r.ok){const code=String(d.errorCode||"").trim().toUpperCase();const raw=String(d.error||"").trim();const rawLower=raw.toLowerCase();const joinErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,OWN_MATCH:t.ownMatch,MATCH_FULL:t.full,INSUFFICIENT_BALANCE:t.walletRequired,JOIN_ERROR:t.joinError};const startErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,STEAM_REQUIRED:t.steamAccountRequired,NOT_READY:t.startError,NOT_PARTICIPANT:t.startError,START_ERROR:t.startError};const isOwn=rawLower.includes("своему матчу")||rawLower.includes("own match")||rawLower.includes("własnego meczu")||rawLower.includes("власного матчу");const isFull=rawLower.includes("матч уже заполнен")||rawLower.includes("match is full")||rawLower.includes("mecz jest pełny")||rawLower.includes("матч уже заповнений");const localized=path==="join"?(joinErrors[code]||(isOwn?t.ownMatch:isFull?t.full:t.joinError)):(startErrors[code]||t.startError);throw new Error(localized||"ERROR")}await load();await refreshAuth();if(path==="start")showMessage(t.matchStarted);if(path==="join")showMessage(t.bothReady)}catch(e){showMessage(e instanceof Error?e.message:(path==="join"?t.joinError:t.startError))}finally{setBusy(false)}}
+async function action(path:string){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${id}/${path}`,{method:"POST"});const d=await r.json();if(!r.ok){const code=String(d.errorCode||"").trim().toUpperCase();const raw=String(d.error||"").trim();const rawLower=raw.toLowerCase();const joinErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,OWN_MATCH:t.ownMatch,MATCH_FULL:t.full,INSUFFICIENT_BALANCE:t.walletRequired,JOIN_ERROR:t.joinError};const startErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,STEAM_REQUIRED:t.steamAccountRequired,NOT_READY:t.startError,NOT_PARTICIPANT:t.startError,START_EXPIRED:"Время на запуск матча истекло. Матч отменён, ставка возвращена.",START_ERROR:t.startError};const isOwn=rawLower.includes("своему матчу")||rawLower.includes("own match")||rawLower.includes("własnego meczu")||rawLower.includes("власного матчу");const isFull=rawLower.includes("матч уже заполнен")||rawLower.includes("match is full")||rawLower.includes("mecz jest pełny")||rawLower.includes("матч уже заповнений");const localized=path==="join"?(joinErrors[code]||(isOwn?t.ownMatch:isFull?t.full:t.joinError)):(startErrors[code]||t.startError);throw new Error(localized||"ERROR")}if(d?.match?.id||d?.id){setM(d.match??d);}await load();await refreshAuth();if(path==="start")showMessage(t.matchStarted);if(path==="join")showMessage(t.bothReady)}catch(e){showMessage(e instanceof Error?e.message:(path==="join"?t.joinError:t.startError))}finally{setBusy(false)}}
 async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${id}/local-test`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({winnerId})});const d=await r.json();if(!r.ok)throw new Error(d.error||t.startError);await load();await refreshAuth();showMessage(t.finished)}catch(e){showMessage(e instanceof Error?e.message:t.startError)}finally{setBusy(false)}}
  if(!m)return <><main className="min-h-screen pt-28 text-center text-zinc-500">{t.loading}</main></>;
  const pot=Number(m.betAmount)*(m.playerTwo?2:1),payout=pot-Number(m.commission??pot*.10),participant=Boolean(user&&[m.playerOneId,m.playerTwoId].includes(user.id));const mapImage=MAP_IMAGES[m.mapName||""];
  const statusLabel=(status:string)=>({WAITING_FOR_PLAYERS:u.waitingStatus,READY:u.readyStatus,LIVE:"LIVE",FINISHED:u.confirmed,CANCELLED:u.cancelled}[status]||status);
+ const weaponLabel=(value:string|null|undefined)=>({AWP_ONLY:"AWP Only",DEAGLE_ONLY:"Deagle Only",KNIFE_ONLY:"Knife Only",HEADSHOT_ONLY:"Headshot Only",RANDOM_WEAPON:"Random Weapon",FIRST_TO_10:"First to 10",HIGH_STAKES:"High Stakes"}[String(value||"")]||"");
  const activeStep=m.status==="WAITING_FOR_PLAYERS"?1:m.status==="READY"?3:m.status==="STARTING"?4:m.status==="LIVE"?5:m.status==="FINISHED"?6:1;
  const p1=m.playerOne?.avatarUrl||m.playerOne?.steamAvatarUrl||"/avatars/premium/01-cyan.svg",p2=m.playerTwo?.avatarUrl||m.playerTwo?.steamAvatarUrl||"/avatars/premium/02-violet.svg";
- return <><main className="mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-24 sm:px-6">
+ return <><main className="match-page-shell mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-24 sm:px-6">
   <div className="mb-4 flex items-center justify-between gap-3"><Link href="/matches" className="text-sm font-bold text-zinc-500 hover:text-[var(--theme-accent)]">← {t.backMatches}</Link><span className={`status ${m.status==="LIVE"?"live":"waiting"}`}>{statusLabel(m.status)}</span></div>
-  <section className="panel overflow-hidden rounded-[28px]">
-   <div className="relative h-56 sm:h-72"><Image src={mapImage||"/images/maps/mirage.jpg"} alt={m.mapName||"CS2"} fill className="object-cover"/><div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,5,7,.96),rgba(5,5,7,.35),rgba(5,5,7,.96))]"/><div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,47,145,.18),transparent_45%)]"/><div className="absolute inset-x-5 bottom-7 text-center"><div className="text-xs font-black tracking-[.25em] text-[var(--theme-accent)]">CS2 · 1х1 DUEL</div><h1 className="mt-2 text-3xl font-black sm:text-5xl">{u.matchTitle} #{m.id.slice(0,8).toUpperCase()}</h1><p className="mt-2 text-sm text-zinc-400">{m.mapName||"Mirage"} · 1х1 · ${Number(m.betAmount).toFixed(2)}</p></div></div>
+  <section className="match-panel panel overflow-hidden rounded-[28px]">
+   <div className="relative h-56 sm:h-72"><Image src={mapImage||"/images/maps/mirage.jpg"} alt={m.mapName||"CS2"} fill className="object-cover"/><div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,5,7,.96),rgba(5,5,7,.35),rgba(5,5,7,.96))]"/><div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,47,145,.18),transparent_45%)]"/><div className="absolute inset-x-5 bottom-7 text-center"><div className="text-xs font-black tracking-[.25em] text-[var(--theme-accent)]">CS2 · 1х1 DUEL</div><h1 className="mt-2 text-3xl font-black sm:text-5xl">{u.matchTitle} #{m.id.slice(0,8).toUpperCase()}</h1><p className="mt-2 text-sm font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,.85)]">{m.mapName||"Mirage"} · 1х1 · {weaponLabel(m.weaponModifier) ? `${weaponLabel(m.weaponModifier)} · ` : ""}${Number(m.betAmount).toFixed(2)}</p></div></div>
    <div className="p-5 sm:p-8">
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">{steps.map((s,i)=><div key={s} className="flex flex-col items-center gap-2 text-center"><span className={`step-circle ${i+1<=activeStep?"active":""}`}>{i+1}</span><span className={`text-[11px] ${i+1<=activeStep?"text-white":"text-zinc-600"}`}>{s}</span></div>)}</div>
-    <div className="mt-7 grid gap-4 lg:grid-cols-[1fr_auto_1fr_auto] lg:items-stretch">
-      <PlayerCard player={m.playerOne} avatar={p1} crown={true} bet={Number(m.betAmount)} ready={m.status!=="WAITING_FOR_PLAYERS"} u={u}/><div className="hidden items-center justify-center lg:flex text-2xl font-black text-[var(--theme-accent)]">VS</div>
-      <PlayerCard player={m.playerTwo} avatar={p2} bet={Number(m.betAmount)} ready={Boolean(m.playerTwo)} u={u}/><div className="rounded-2xl border border-white/5 bg-white/[.025] p-4 lg:w-56"><div className="text-xs uppercase tracking-wider text-zinc-600">{u.map}</div><div className="mt-2 overflow-hidden rounded-xl"><Image src={mapImage||"/images/maps/mirage.jpg"} alt="" width={320} height={150} className="h-24 w-full object-cover"/></div><div className="mt-3 flex justify-between text-sm"><b>{m.mapName||"Mirage"}</b><span className="text-zinc-500">1х1</span></div><div className="mt-1 text-xs text-zinc-500">{u.bet} <b className="text-white">${Number(m.betAmount).toFixed(2)}</b></div></div>
+    <div className="mt-7 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-stretch">
+      <PlayerCard player={m.playerOne} avatar={p1} crown={true} bet={Number(m.betAmount)} ready={m.status!=="WAITING_FOR_PLAYERS"} u={u}/><div className="hidden items-center justify-center md:flex text-2xl font-black text-[var(--theme-accent)]">VS</div>
+      <PlayerCard player={m.playerTwo} avatar={p2} bet={Number(m.betAmount)} ready={Boolean(m.playerTwo)} u={u}/>
     </div>
     {m.status==="WAITING_FOR_PLAYERS"&&<>
-      <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2 text-sm font-black text-amber-300">{u.waiting}</div><p className="mt-2 text-sm leading-6 text-zinc-400">{u.waitingText}</p></div>{secondsLeft!==null&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><div className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div></div>}</div></div>
+      <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2 text-sm font-black text-amber-300">{u.waiting}</div><p className="mt-2 text-sm leading-6 text-zinc-400">{u.waitingText}</p></div>{currentDeadline()&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><DeadlineCountdown deadline={currentDeadline()!.at} maxSeconds={currentDeadline()!.maxSeconds} className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200" onExpire={()=>{setDeadlineExpired(true);void load()}}/></div>}</div></div>
+      {participant&&<div className="mt-5 flex justify-center">
+        <button type="button" disabled className="w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/[.04] px-6 py-4 text-base font-black text-zinc-400 opacity-80 sm:w-auto sm:min-w-[320px]">
+          {u.alreadyInDuel}
+        </button>
+      </div>}
       {!participant&&user?.id!==m.playerOneId&&<div className="mt-5 flex justify-center">
         <button disabled={busy} onClick={()=>action("join")} className="w-full rounded-2xl bg-[var(--theme-accent)] px-6 py-4 text-base font-black text-black shadow-[0_0_28px_var(--theme-glow)] transition hover:brightness-110 active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[320px]">
           {busy?t.joining:`${t.join} · $${Number(m.betAmount).toFixed(2)}`}
         </button>
       </div>}
     </>}
-    {m.status==="READY"&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="text-sm font-black text-amber-300">{u.ready}</div><div className="mt-1 text-sm text-zinc-500">{m.serverConfig?.managerRequested?u.serverStarting:u.bothReady}</div></div>{secondsLeft!==null&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><div className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200">{formatCountdown(secondsLeft)}</div></div>}</div></div>}
+    {m.status==="READY"&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><div className="text-sm font-black text-amber-300">{u.ready}</div><div className="mt-1 text-sm text-zinc-500">{m.serverConfig?.managerRequested?u.serverStarting:u.bothReady}</div></div>{currentDeadline()&&<div className="shrink-0 text-right"><div className="text-[10px] font-black uppercase tracking-wider text-amber-400/60">{u.timeout}</div><DeadlineCountdown deadline={currentDeadline()!.at} maxSeconds={currentDeadline()!.maxSeconds} className="mt-1 font-mono text-2xl font-black tracking-wider text-amber-200" onExpire={()=>{setDeadlineExpired(true);void load()}}/></div>}</div></div>}
     {m.status==="STARTING"&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-5"><div className="font-black">{u.serverStarting}</div><div className="mt-2 text-sm text-zinc-400">{u.serverAuto}</div></div>}{m.status==="LIVE"&&<div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/[.05] p-5">
 <div className="flex flex-wrap items-center justify-between gap-3">
   <div>
@@ -146,29 +107,24 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
   <span className="status live">LIVE</span>
 </div>
 
-{secondsLeft!==null&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4">
-  <div className="flex flex-wrap items-center justify-between gap-4">
-    <div>
+{currentDeadline()&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4">
+  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-w-0 flex-1">
       <div className="text-[10px] font-black uppercase tracking-wider text-amber-400/70">
         {u.timeToConnect}
       </div>
-
-      <div className="mt-1 text-sm font-bold text-amber-300">
-        {u.connectToCs2}
-      </div>
+      <p className="mt-2 text-xs leading-5 text-zinc-400">{u.connectionRule}</p>
     </div>
 
-    <div className="text-right">
+    <div className="shrink-0 text-right sm:min-w-[150px]">
       <div className="font-mono text-3xl font-black tracking-wider text-amber-200">
-        {formatCountdown(secondsLeft)}
+        <DeadlineCountdown deadline={currentDeadline()!.at} maxSeconds={currentDeadline()!.maxSeconds} onExpire={()=>{setDeadlineExpired(true);void load()}}/>
       </div>
-
       <div className="mt-1 text-[11px] text-zinc-500">
         {u.connected || "Connected"} {m.liveState?.connectedCount??0} / {m.liveState?.connectionSlots??2}
       </div>
     </div>
   </div>
-<p className="mt-4 text-xs leading-5 text-zinc-500">{u.connectionRule}</p>
 </div>}
 
 {m.serverConfig?.localTest&&m.playerTwo&&<div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[.04] p-4">
@@ -188,11 +144,11 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
     {m.status==="FINISHED"&&<Notice title={u.confirmed}>{u.winner}: <b>{m.winner?.nickname||"—"}</b> · {u.payout} <b>${payout.toFixed(2)}</b></Notice>}
     {m.status==="CANCELLED"&&<Notice title={u.cancelled}>{u.refund}</Notice>}
     {msg&&<div aria-live="polite" className="mt-4 rounded-xl border border-white/10 bg-white/[.03] p-4 text-sm text-[var(--theme-accent)]">{msg}</div>}
-    <div className="mt-6 flex flex-wrap gap-3">{participant&&m.status==="READY"&&!m.serverConfig?.managerRequested&&<button disabled={busy} onClick={()=>action("start")} className="rounded-2xl bg-[var(--theme-accent)] px-6 py-4 font-black text-black disabled:opacity-50">{busy?"…":u.start}</button>}{participant&&["WAITING_FOR_PLAYERS","READY"].includes(m.status)&&user?.id===m.playerOneId&&<button disabled={busy} onClick={()=>setCancelOpen(true)} className="cancel-match rounded-2xl border border-red-400/20 px-5 py-3 font-bold text-red-300">{t.cancel}</button>}</div>
+    <div className="mt-6 flex flex-wrap gap-3">{participant&&m.status==="READY"&&!m.serverConfig?.managerRequested&&!deadlineExpired&&<button disabled={busy} onClick={()=>action("start")} className="rounded-2xl bg-[var(--theme-accent)] px-6 py-4 font-black text-black disabled:opacity-50">{u.start}</button>}{participant&&m.status==="WAITING_FOR_PLAYERS"&&user?.id===m.playerOneId&&<button disabled={busy} onClick={()=>setCancelOpen(true)} className="cancel-match rounded-2xl border border-red-400/20 px-5 py-3 font-bold text-red-300">{t.cancel}</button>}</div>
     <div className="mt-7 grid gap-3 sm:grid-cols-3"><Info a={u.bank} b={`$${pot.toFixed(2)}`}/><Info a={u.commission} b={`$${Number(m.commission).toFixed(2)}`}/><Info a={u.winnerGets} b={`$${payout.toFixed(2)}`}/></div>
    </div>
   </section>
-  <CenterModal open={cancelOpen} title={u.cancelMatch} onClose={()=>{if(!busy)setCancelOpen(false)}}>
+  <CenterModal open={cancelOpen} title={u.cancelMatch} className="cancel-match-modal" contentClassName="p-5 sm:p-6" onClose={()=>{if(!busy)setCancelOpen(false)}}>
     <div className="rounded-2xl border border-red-400/15 bg-red-400/[.04] p-5">
       <div className="text-xs font-black uppercase tracking-widest text-red-300">{u.confirmation}</div>
       <h3 className="mt-2 text-xl font-black">{u.cancelQuestion}</h3>
@@ -201,6 +157,47 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
     <div className="mt-5 flex gap-3"><button onClick={()=>setCancelOpen(false)} className="flex-1 rounded-2xl border border-white/10 py-3 font-bold">{u.keep}</button><button disabled={busy} onClick={async()=>{setCancelOpen(false);await action("cancel")}} className="flex-1 rounded-2xl bg-red-500/90 py-3 font-black text-white disabled:opacity-50">{busy?u.cancelling:u.yesCancel}</button></div>
   </CenterModal>
  </main></>
+}
+function DeadlineCountdown({deadline,maxSeconds,className="",onExpire}:{deadline:string;maxSeconds:number;className?:string;onExpire?:()=>void}){
+ const ref=useRef<HTMLSpanElement|null>(null);
+ const onExpireRef=useRef(onExpire);
+ const expiredRef=useRef(false);
+ useEffect(()=>{onExpireRef.current=onExpire},[onExpire]);
+ useEffect(()=>{
+   expiredRef.current=false;
+   const deadlineMs=new Date(deadline).getTime();
+   if(!Number.isFinite(deadlineMs)){if(ref.current)ref.current.textContent="--:--";return}
+   let frame=0;
+   let lastShown=-1;
+   const paint=()=>{
+     // Direct DOM painting is intentional: API polling can re-render the page,
+     // but it cannot freeze/reset this clock. `floor` + clamp also prevents 10:01/02:01.
+     const raw=Math.floor((deadlineMs-Date.now())/1000);
+     const left=Math.max(0,Math.min(maxSeconds,raw));
+     if(left!==lastShown){
+       lastShown=left;
+       if(ref.current)ref.current.textContent=formatCountdown(left);
+     }
+     if(left<=0){
+       if(!expiredRef.current){expiredRef.current=true;onExpireRef.current?.()}
+       return;
+     }
+     frame=window.requestAnimationFrame(paint);
+   };
+   paint();
+   const wake=()=>{
+     window.cancelAnimationFrame(frame);
+     frame=window.requestAnimationFrame(paint);
+   };
+   document.addEventListener("visibilitychange",wake);
+   window.addEventListener("focus",wake);
+   return()=>{
+     window.cancelAnimationFrame(frame);
+     document.removeEventListener("visibilitychange",wake);
+     window.removeEventListener("focus",wake);
+   };
+ },[deadline,maxSeconds]);
+ return <span ref={ref} className={className}>{formatCountdown(maxSeconds)}</span>;
 }
 function PlayerCard({player,avatar,crown,bet,ready,u}:{player:Player|null;avatar:string;crown?:boolean;bet:number;ready:boolean;u:any}){return <div className="rounded-2xl border border-white/7 bg-white/[.025] p-4 sm:p-5"><div className="flex items-center gap-4"><img src={avatar} alt="" className="h-16 w-16 rounded-2xl object-cover border border-white/10"/><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="truncate">{player?.nickname||u.waitingPlayer}</b>{crown&&<span title={u.creator} className="text-lg">👑</span>}</div><div className="mt-1 text-xs text-zinc-500">{player?`${u.bet} $${bet.toFixed(2)}`:u.readyConnect}</div></div></div><div className={`mt-5 inline-flex rounded-full px-3 py-1 text-[10px] font-black tracking-wider ${ready?"bg-emerald-400/10 text-emerald-300":"bg-amber-400/10 text-amber-300"}`}>{ready?"READY":u.waitingStatus}</div></div>}
 function Notice({title,children,gold}:{title:string;children:React.ReactNode;gold?:boolean}){return <div className={`mt-5 rounded-2xl border p-5 ${gold?"border-amber-400/25 bg-amber-400/[.06]":"border-[var(--theme-accent)]/20 bg-[var(--theme-accent-bg)]"}`}><div className={`flex items-center gap-2 text-sm font-black ${gold?"text-amber-300":"text-[var(--theme-accent)]"}`}>{gold&&<span>●</span>}{title}</div><p className="mt-2 text-sm leading-6 text-zinc-400">{children}</p></div>}

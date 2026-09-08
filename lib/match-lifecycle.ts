@@ -36,8 +36,18 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
         if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
         await creditWallet(tx, userId, amount, idem, "REFUND", reason, match.id);
         await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { decrement: amount } } });
-        await tx.notification.create({ data: { userId, type: "CANCELLATION", title: "Match cancelled", body: "Your stake was refunded.", payload: { matchId: match.id, reason } } });
       }
+      await tx.notification.create({
+        data: {
+          userId,
+          type: "CANCELLATION",
+          title: "Match cancelled",
+          body: reason.includes("No player connected")
+            ? "The match was cancelled because nobody connected to the CS2 server. Your stake was refunded."
+            : "The match was cancelled and your stake was refunded.",
+          payload: { matchId: match.id, reason },
+        },
+      });
     }
     return tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), startDeadlineAt: null, connectionDeadlineAt: null } });
   });
@@ -47,7 +57,7 @@ export async function runMatchWatchdog() {
   const now = new Date();
   const ready = await prisma.match.findMany({ where: { status: "READY", startDeadlineAt: { lte: now } }, select: { id: true } });
   for (const m of ready) await cancelMatchWithRefund(m.id, "START timeout expired");
-  const starting = await prisma.match.findMany({ where: { status: "STARTING", createdAt: { lte: new Date(now.getTime() - START_TIMEOUT_MS) } }, select: { id: true } });
+  const starting = await prisma.match.findMany({ where: { status: "STARTING", startDeadlineAt: { lte: now } }, select: { id: true } });
   for (const m of starting) await cancelMatchWithRefund(m.id, "CS2 server start timeout expired");
   const staleServers = await prisma.gameServer.findMany({
     where: {

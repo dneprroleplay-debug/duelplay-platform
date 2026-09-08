@@ -12,7 +12,8 @@ const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"
 
 export default function ProfilePage(){
  const {t,language}=useLanguage(); const {theme,setTheme}=useTheme(); const [data,setData]=useState<Data|null>(null); const [error,setError]=useState(""); const [authRequired,setAuthRequired]=useState(false); const [copied,setCopied]=useState(false);
- useEffect(()=>{fetch("/api/profile",{cache:"no-store"}).then(async r=>{const d=await r.json().catch(()=>({}));if(r.status===401){setAuthRequired(true);return}if(!r.ok){setError(t.profileLoadError);return}setData(d)}).catch(()=>setError(t.profileLoadError))},[t.profileLoadError]);
+ async function loadProfile(){const r=await fetch("/api/profile",{cache:"no-store"});const d=await r.json().catch(()=>({}));if(r.status===401){setAuthRequired(true);return}if(!r.ok){setError(t.profileLoadError);return}setData(d)}
+ useEffect(()=>{void loadProfile();const onWalletUpdated=()=>{void loadProfile()};window.addEventListener("duelplay:wallet-updated",onWalletUpdated);return()=>window.removeEventListener("duelplay:wallet-updated",onWalletUpdated)},[t.profileLoadError]);
  if(authRequired)return <><main className="mx-auto min-h-screen max-w-xl px-4 pb-20 pt-28"><section className="panel rounded-3xl p-8 text-center sm:p-10"><span className="pill">DUELPLAY</span><h1 className="mt-4 text-3xl font-black">{t.profile}</h1><p className="mt-3 text-zinc-500">{t.profileLoginRequired}</p><a href="/login" className="mt-6 inline-flex rounded-2xl bg-pink-400 px-6 py-3 font-black text-black hover:bg-pink-300">{t.goLogin}</a></section></main></>;
  if(!data)return <><main className="min-h-screen pt-28 text-center text-zinc-500">{error||t.loading}</main></>;
  const u=data.user; const referralCopyLabel=({RU:"Скопировать ссылку",UA:"Копіювати посилання",EN:"Copy link",PL:"Kopiuj link"} as any)[language]||"Copy link";

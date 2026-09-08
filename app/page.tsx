@@ -21,6 +21,7 @@ function HomeContent(){
   const [count,setCount]=useState(0);
   const [openMatches,setOpenMatches]=useState<any[]>([]);
   const [heroBackground,setHeroBackground]=useState("hero-01");
+  const [selectedMap,setSelectedMap]=useState("Mirage");
 
   const introParam=searchParams.get("intro");
   useEffect(()=>{
@@ -69,9 +70,9 @@ function HomeContent(){
         </div>
       </section>
 
-      <Games/>
+      <Games onSelectMap={setSelectedMap}/>
       <Live refreshKey={refreshKey} mode="waiting" showFilters/>
-      <CreateMatch onCreated={()=>setRefreshKey(v=>v+1)}/>
+      <CreateMatch selectedMap={selectedMap} onCreated={()=>setRefreshKey(v=>v+1)}/>
       <TopSkins/>
       <Cases/>
 

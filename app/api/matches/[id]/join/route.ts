@@ -13,6 +13,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const updated = await prisma.$transaction(async (tx) => {
       await assertAccountCanPlay(tx,user.id);
       const existing=await tx.transaction.findUnique({where:{idempotencyKey}});if(existing)return tx.match.findUniqueOrThrow({where:{id}});
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE`;
+      const busy=await tx.match.findFirst({where:{status:{in:["WAITING_FOR_PLAYERS","READY","STARTING","LIVE"]},OR:[{playerOneId:user.id},{playerTwoId:user.id}]},select:{id:true,status:true}});
+      if(busy) throw new Error("PLAYER_BUSY");
       const locked = await lockMatchForUpdate(tx, id);
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({ where: { id } });
@@ -33,6 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (error) {
     const msg = error instanceof Error ? error.message : "";
     if (msg === "NOT_FOUND") return NextResponse.json({ error: "Матч не найден", errorCode: "MATCH_NOT_FOUND" }, { status: 404 });
+    if (msg === "PLAYER_BUSY") return NextResponse.json({ error: "У вас уже есть активная дуэль. Сначала завершите текущую дуэль.", errorCode: "PLAYER_BUSY" }, { status: 409 });
     if (msg === "OWN_MATCH") return NextResponse.json({ error: "Нельзя присоединиться к своему матчу", errorCode: "OWN_MATCH" }, { status: 409 });
     if (msg === "FULL") return NextResponse.json({ error: "Матч уже заполнен", errorCode: "MATCH_FULL" }, { status: 409 });
     if (msg === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для входа в матч", errorCode: "INSUFFICIENT_BALANCE" }, { status: 400 });

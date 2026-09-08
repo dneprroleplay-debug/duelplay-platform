@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import Link from "next/link";
 import {useEffect,useState,useRef} from "react";
 import {useLanguage} from "../Common/LanguageContext";
@@ -23,7 +23,7 @@ export default function Header(){
  const langRef=useRef<HTMLDivElement>(null),noticeRef=useRef<HTMLDivElement>(null),profileRef=useRef<HTMLDivElement>(null);
  const noticesLoading=useRef(false);
  async function loadNotices(){if(!user){setNotices([]);setUnread(0);return}if(noticesLoading.current)return;noticesLoading.current=true;try{const r=await fetch("/api/notifications",{cache:"no-store"});if(!r.ok)return;const d=await r.json();setNotices(d.notifications??[]);setUnread(Number(d.unread||0))}catch{}finally{noticesLoading.current=false}}
- useEffect(()=>{void loadNotices();const tick=()=>{if(document.visibilityState!=="hidden")void loadNotices()};const timer=window.setInterval(tick,10000);const onVisibility=()=>{if(document.visibilityState==="visible")void loadNotices()};document.addEventListener("visibilitychange",onVisibility);return()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility)}},[user?.id]);
+ useEffect(()=>{void loadNotices();const tick=()=>{if(document.visibilityState!=="hidden")void loadNotices()};const timer=window.setInterval(tick,10000);const onVisibility=()=>{if(document.visibilityState==="visible")void loadNotices()};const onNotificationsUpdated=()=>{void loadNotices()};document.addEventListener("visibilitychange",onVisibility);window.addEventListener("duelplay:notifications-updated",onNotificationsUpdated);return()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility);window.removeEventListener("duelplay:notifications-updated",onNotificationsUpdated)}},[user?.id]);
  useEffect(()=>{const close=(e:MouseEvent)=>{const target=e.target as Node;if(langRef.current?.contains(target)||noticeRef.current?.contains(target)||profileRef.current?.contains(target))return;setLangOpen(false);setNoticeOpen(false);setProfileOpen(false)};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)}};document.addEventListener("click",close);window.addEventListener("keydown",key);return()=>{document.removeEventListener("click",close);window.removeEventListener("keydown",key)}},[]);
  async function markNotice(id:string){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});setNotices(v=>v.map(n=>n.id===id?{...n,status:"READ"}:n));setUnread(v=>Math.max(0,v-1));setNoticeOpen(false)}
  async function markAll(){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({all:true})});setNotices(v=>v.map(n=>({...n,status:"READ"})));setUnread(0);setNoticeOpen(false)}
@@ -31,6 +31,15 @@ export default function Header(){
  const noticeTitle=(n:Notice)=>{
   const p=noticePayload(n);
   const kind=p.kind;
+  if(n.type==="CANCELLATION"){
+   const reason=String(p.reason||"").toLowerCase();
+   const noConnect=reason.includes("no player connected") || reason.includes("никто не подключ") || reason.includes("no player");
+   const serverTimeout=reason.includes("server start timeout") || reason.includes("heartbeat timeout") || reason.includes("сервер") && reason.includes("таймаут");
+   if(language==="RU") return noConnect ? "Матч отменён: никто не подключился к серверу CS2 вовремя. Ставка возвращена." : serverTimeout ? "Матч отменён: сервер CS2 не запустился вовремя. Ставка возвращена." : "Матч автоматически отменён. Ставка возвращена.";
+   if(language==="UA") return noConnect ? "Матч скасовано: ніхто вчасно не підключився до сервера CS2. Ставку повернено." : serverTimeout ? "Матч скасовано: сервер CS2 не запустився вчасно. Ставку повернено." : "Матч автоматично скасовано. Ставку повернено.";
+   if(language==="EN") return noConnect ? "The match was cancelled because nobody connected to the CS2 server in time. Your stake was refunded." : serverTimeout ? "The match was cancelled because the CS2 server did not start in time. Your stake was refunded." : "The match was automatically cancelled. Your stake was refunded.";
+   return noConnect ? "Mecz anulowano, ponieważ nikt nie połączył się na czas z serwerem CS2. Stawka została zwrócona." : serverTimeout ? "Mecz anulowano, ponieważ serwer CS2 nie uruchomił się na czas. Stawka została zwrócona." : "Mecz został automatycznie anulowany. Stawka została zwrócona.";
+  }
   if(p.localTest===true){ return Number(p.payout||0)>0 ? t.testDuelWon : t.testMatchCompleted; }
   if(kind==="SUPPORT_CLOSED")return t.ticketClosed;
   if(kind==="SUPPORT_REPLY")return t.supportReply;
@@ -44,7 +53,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Обновление спора",
       PROMO_ACTIVATED:"Промокод активирован",
       ACHIEVEMENT_UNLOCKED:"Достижение разблокировано",
-      SECURITY_ALERT:"Оповещение безопасности"
+      SECURITY_ALERT:"Оповещение безопасности",
+      CANCELLATION:"Матч отменён"
     },
     UA:{
       SYSTEM:"Системне сповіщення",
@@ -55,7 +65,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Оновлення спору",
       PROMO_ACTIVATED:"Промокод активовано",
       ACHIEVEMENT_UNLOCKED:"Досягнення розблоковано",
-      SECURITY_ALERT:"Сповіщення безпеки"
+      SECURITY_ALERT:"Сповіщення безпеки",
+      CANCELLATION:"Матч скасовано"
     },
     EN:{
       SYSTEM:"System notification",
@@ -66,7 +77,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Dispute update",
       PROMO_ACTIVATED:"Promo activated",
       ACHIEVEMENT_UNLOCKED:"Achievement unlocked",
-      SECURITY_ALERT:"Security alert"
+      SECURITY_ALERT:"Security alert",
+      CANCELLATION:"Match cancelled"
     },
     PL:{
       SYSTEM:"Powiadomienie systemowe",
@@ -77,7 +89,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Aktualizacja sporu",
       PROMO_ACTIVATED:"Kod promocyjny aktywowany",
       ACHIEVEMENT_UNLOCKED:"Osiągnięcie odblokowane",
-      SECURITY_ALERT:"Alert bezpieczeństwa"
+      SECURITY_ALERT:"Alert bezpieczeństwa",
+      CANCELLATION:"Mecz anulowany"
     }
   };
 
@@ -107,7 +120,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Есть обновление по спору.",
       PROMO_ACTIVATED:"Промокод успешно активирован.",
       ACHIEVEMENT_UNLOCKED:"Новое достижение разблокировано.",
-      SECURITY_ALERT:"Обнаружено важное событие безопасности."
+      SECURITY_ALERT:"Обнаружено важное событие безопасности.",
+      CANCELLATION:"Матч автоматически отменён. Ставка возвращена."
     },
     UA:{
       SYSTEM:"Системне сповіщення DuelPlay.",
@@ -118,7 +132,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Є оновлення щодо спору.",
       PROMO_ACTIVATED:"Промокод успішно активовано.",
       ACHIEVEMENT_UNLOCKED:"Нове досягнення розблоковано.",
-      SECURITY_ALERT:"Виявлено важливу подію безпеки."
+      SECURITY_ALERT:"Виявлено важливу подію безпеки.",
+      CANCELLATION:"Матч автоматично скасовано. Ставку повернено."
     },
     EN:{
       SYSTEM:"DuelPlay system notification.",
@@ -129,7 +144,8 @@ export default function Header(){
       DISPUTE_UPDATE:"There is an update on your dispute.",
       PROMO_ACTIVATED:"The promo code was activated successfully.",
       ACHIEVEMENT_UNLOCKED:"A new achievement was unlocked.",
-      SECURITY_ALERT:"An important security event was detected."
+      SECURITY_ALERT:"An important security event was detected.",
+      CANCELLATION:"The match was automatically cancelled. Your stake was refunded."
     },
     PL:{
       SYSTEM:"Powiadomienie systemowe DuelPlay.",
@@ -140,7 +156,8 @@ export default function Header(){
       DISPUTE_UPDATE:"Dostępna jest aktualizacja sporu.",
       PROMO_ACTIVATED:"Kod promocyjny został aktywowany.",
       ACHIEVEMENT_UNLOCKED:"Odblokowano nowe osiągnięcie.",
-      SECURITY_ALERT:"Wykryto ważne zdarzenie bezpieczeństwa."
+      SECURITY_ALERT:"Wykryto ważne zdarzenie bezpieczeństwa.",
+      CANCELLATION:"Mecz został automatycznie anulowany. Stawka została zwrócona."
     }
   };
 
@@ -152,18 +169,18 @@ export default function Header(){
   PL:{notifications:"Powiadomienia",readAll:"Oznacz wszystko jako przeczytane",empty:"Brak powiadomień",profile:"Profil",wallet:"Portfel",inventory:"Ekwipunek",appearance:"Wygląd",admin:"Panel administratora",logout:t.logout}
  }[language];
  const current=FLAGS.find(x=>x.key===language)||FLAGS[0];
- const navClass="cursor-pointer rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition hover:bg-[var(--theme-accent-bg)] hover:text-[var(--theme-accent)]";
+ const navClass="cursor-pointer whitespace-nowrap rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition hover:bg-[var(--theme-accent-bg)] hover:text-[var(--theme-accent)]";
  const closeMenus=()=>{setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)};
  const goHome=(e:React.MouseEvent<HTMLAnchorElement>)=>{e.preventDefault();closeMenus();router.push(`/?intro=${Date.now()}`)};
  const links=<><Link className={navClass} href="/" onClick={goHome}>{t.home}</Link><Link className={navClass} href="/matches" onClick={closeMenus}>{t.matches}</Link><Link className={navClass} href="/live" onClick={closeMenus}><span className="inline-flex items-center gap-2"><span className="site-live-dot"/>{t.live}</span></Link><Link className={navClass} href="/cases" onClick={closeMenus}>{t.casesNav}</Link><Link className={navClass} href="/rating" onClick={closeMenus}>{t.rating}</Link><Link className={navClass} href="/profile" onClick={closeMenus}>{t.profile}</Link><Link className={navClass+" hidden lg:inline-flex"} href="/hub" onClick={closeMenus}>HUB</Link></>;
  const avatar=user?.avatarUrl||user?.steamAvatarUrl;
- const anyOpen=langOpen||noticeOpen||profileOpen;
+ const anyOpen=langOpen||noticeOpen||profileOpen||menuOpen;
  return <>
   {anyOpen&&<button aria-label="Закрыть меню" className="fixed inset-0 z-[45] cursor-default bg-transparent" onClick={closeMenus}/>}
   <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#050507]/90 backdrop-blur-xl">
    <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-    <div className="flex items-center gap-2"><button className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 md:hidden" aria-label="Menu" onClick={()=>setMenuOpen(v=>!v)}>{menuOpen?"×":"☰"}</button><Link href="/" onClick={goHome} className="flex items-center gap-2 font-black tracking-tight transition hover:opacity-90"><span className="grid h-11 w-11 shrink-0 place-items-center overflow-visible"><img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-10 w-10 object-contain"/></span><span className="hidden text-xl tracking-[-.03em] sm:block">DUEL<span className="text-[var(--theme-accent)]">PLAY</span></span></Link></div>
-    <nav className="hidden items-center gap-3 text-sm md:flex">{links}<Link href="/search" onClick={closeMenus} aria-label="Global search" className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:border-[var(--theme-accent)]/30 hover:text-[var(--theme-accent)]">⌕</Link></nav>
+    <div className="flex items-center gap-2"><button className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 xl:hidden" aria-label="Menu" onClick={e=>{e.stopPropagation();setMenuOpen(v=>!v)}}>{menuOpen?"×":"☰"}</button><Link href="/" onClick={goHome} className="flex items-center gap-2 font-black tracking-tight transition hover:opacity-90"><span className="grid h-11 w-11 shrink-0 place-items-center overflow-visible"><img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-10 w-10 object-contain"/></span><span className="hidden text-xl tracking-[-.03em] sm:block">DUEL<span className="text-[var(--theme-accent)]">PLAY</span></span></Link></div>
+    <nav className="hidden items-center gap-2 text-sm xl:flex">{links}<Link href="/search" onClick={closeMenus} aria-label="Global search" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:border-[var(--theme-accent)]/30 hover:text-[var(--theme-accent)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5" strokeLinecap="round"/></svg></Link></nav>
     <div className="flex items-center gap-2">
      <SeasonIntensityControl/><PerformanceModeControl/><div className="relative" ref={langRef}><button type="button" aria-label="Language" onClick={()=>{setLangOpen(v=>!v);setNoticeOpen(false);setProfileOpen(false)}} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 p-1.5 hover:border-[var(--theme-accent)]/30"><img src={current.src} alt={current.name} className="h-6 w-8 rounded object-cover"/></button>{langOpen&&<div className="absolute right-0 top-12 z-[60] w-44 rounded-2xl border border-white/10 bg-[#0b0b10] p-2 shadow-2xl">{FLAGS.map(x=><button key={x.key} type="button" onClick={()=>{setLanguage(x.key);closeMenus()}} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/5 ${language===x.key?"bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]":"text-zinc-300"}`}><img src={x.src} alt="" className="h-5 w-7 rounded object-cover"/><span>{x.name}</span></button>)}</div>}</div>
      {loading?<div className="h-10 w-28 animate-pulse rounded-xl border border-white/5 bg-white/[.03]"/>:user?<>
@@ -172,7 +189,7 @@ export default function Header(){
      </>:<Link href="/login" className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold hover:border-[var(--theme-accent)]/30 hover:text-[var(--theme-accent)]">{t.loginSteam}</Link>}
     </div>
    </div>
-   {menuOpen&&<div className="border-t border-white/10 bg-[#050507] px-4 py-3 md:hidden"><nav className="flex flex-col gap-1">{links}</nav>{user&&<div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-3 sm:grid-cols-4"><Link href="/search" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">⌕ Search</Link><Link href="/create" className="rounded-xl bg-[var(--theme-accent)] px-3 py-2 text-center text-sm font-black text-black">{t.createMatch}</Link><Link href="/wallet" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.wallet}</Link><Link href="/inventory" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.inventory}</Link></div>}</div>}
+   {menuOpen&&<div onClick={e=>e.stopPropagation()} className="border-t border-white/10 bg-[#050507] px-4 py-3 xl:hidden"><nav className="flex flex-col gap-1">{links}</nav>{user&&<div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-3 sm:grid-cols-4"><Link href="/search" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">Поиск</Link><Link href="/create" onClick={closeMenus} className="rounded-xl bg-[var(--theme-accent)] px-3 py-2 text-center text-sm font-black text-black">Создать дуэль</Link><Link href="/wallet" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.wallet}</Link><Link href="/inventory" onClick={closeMenus} className="rounded-xl border border-white/10 px-3 py-2 text-center text-sm">{ui.inventory}</Link></div>}</div>}
   </header>
  </>;
 }

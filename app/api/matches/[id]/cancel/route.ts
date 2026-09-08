@@ -14,8 +14,8 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       if (!match) throw new Error("NOT_FOUND");
       if (match.playerOneId !== user.id) throw new Error("FORBIDDEN");
       if (match.gameServer) throw new Error("SERVER_BUSY");
-      if (!["WAITING_FOR_PLAYERS", "READY"].includes(match.status) && !(match.status==="LIVE" && !((match.serverConfig && typeof match.serverConfig === "object" && !Array.isArray(match.serverConfig) ? match.serverConfig as Record<string, unknown> : {}).connectUrl))) throw new Error("INVALID");
-      const claim = await tx.match.updateMany({where:{id,status:{in:["WAITING_FOR_PLAYERS","READY"]}},data:{status:"CANCELLED",endedAt:new Date(),startDeadlineAt:null,connectionDeadlineAt:null}});
+      if (match.status !== "WAITING_FOR_PLAYERS") throw new Error("INVALID");
+      const claim = await tx.match.updateMany({where:{id,status:"WAITING_FOR_PLAYERS"},data:{status:"CANCELLED",endedAt:new Date(),startDeadlineAt:null,connectionDeadlineAt:null}});
       if(claim.count!==1) throw new Error("INVALID");
       const amount = Number(match.betAmount);
       const wallets = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];

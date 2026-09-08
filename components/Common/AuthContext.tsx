@@ -22,7 +22,9 @@ export function AuthProvider({children}:{children:React.ReactNode}){
   useEffect(()=>{
     void refresh();
     const onAuth=()=>{void refresh()};
+    const onWalletUpdated=()=>{void refresh()};
     window.addEventListener("duelplay:auth-changed",onAuth);
+    window.addEventListener("duelplay:wallet-updated",onWalletUpdated);
     // Keep the header balance/session state current after deposits, payouts, refunds
     // and match results without requiring a full page reload.
     const timer=window.setInterval(()=>{
@@ -34,6 +36,7 @@ export function AuthProvider({children}:{children:React.ReactNode}){
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange",onVisibility);
       window.removeEventListener("duelplay:auth-changed",onAuth);
+      window.removeEventListener("duelplay:wallet-updated",onWalletUpdated);
     };
   },[]);
   const logout=async()=>{
