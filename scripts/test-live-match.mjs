@@ -4,7 +4,7 @@ import { buildLiveMatchState } from '../lib/live-match.ts';
 const now = Date.parse('2026-09-05T20:00:00.000Z');
 const healthy = buildLiveMatchState({
   state: 'READY',
-  connectUrl: 'steam://run/730//+connect 127.0.0.1:27015',
+  connectUrl: 'steam://connect/127.0.0.1:27015',
   connectedSteamIds: ['7656111', '7656111', '7656112'],
   connectionPhaseCompleted: true,
   playerOneSteamId: 'secret-1',

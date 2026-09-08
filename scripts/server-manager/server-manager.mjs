@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -14,6 +14,9 @@ const SECRET = required('DUELPLAY_SERVER_MANAGER_SECRET');
 const GSI_TOKEN = required('CS2_GSI_TOKEN');
 const CS2_DIR = process.env.CS2_DIR || '/home/ubuntu/cs2/game';
 const CS2_SCRIPT = join(CS2_DIR, 'cs2.sh');
+const CS2_AUTO_UPDATE = !['0', 'false', 'no'].includes(String(process.env.CS2_AUTO_UPDATE ?? 'true').toLowerCase());
+const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
+const CS2_APP_ID = Number(process.env.CS2_APP_ID || 730);
 const HOST = process.env.CS2_PUBLIC_HOST || '127.0.0.1';
 const PORT = Number(process.env.CS2_PORT || 27015);
 const SERVER_ID = process.env.DUELPLAY_SERVER_ID || 'cs2-1';
@@ -29,6 +32,7 @@ for (const [name, value] of Object.entries({ MANAGER_PORT, PORT, READY_DELAY_MS,
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
 }
 if (!existsSync(CS2_SCRIPT)) throw new Error(`CS2 script not found: ${CS2_SCRIPT}`);
+if (!Number.isInteger(CS2_APP_ID) || CS2_APP_ID <= 0) throw new Error('CS2_APP_ID must be a positive integer');
 
 let current = null;
 let lastGsiAt = 0;
@@ -55,6 +59,30 @@ async function api(path, init = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!response.ok) throw new Error(`${response.status}: ${data.error || text}`);
   return data;
+}
+
+function updateCs2Server() {
+  if (!CS2_AUTO_UPDATE) {
+    console.log('[DuelPlay] CS2_AUTO_UPDATE=false; using the installed CS2 server build');
+    return;
+  }
+
+  console.log(`[DuelPlay] updating CS2 dedicated server via ${STEAMCMD_BIN} (app ${CS2_APP_ID})`);
+  const result = spawnSync(
+    STEAMCMD_BIN,
+    ['+force_install_dir', CS2_DIR, '+login', 'anonymous', '+app_update', String(CS2_APP_ID), 'validate', '+quit'],
+    { stdio: 'inherit', cwd: CS2_DIR, env: process.env }
+  );
+
+  if (result.error) {
+    throw new Error(`SteamCMD update failed to start: ${result.error.message}. Set STEAMCMD_BIN or CS2_AUTO_UPDATE=false if SteamCMD is installed elsewhere.`);
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`SteamCMD CS2 update failed with exit code ${result.status}`);
+  }
+
+  console.log('[DuelPlay] CS2 dedicated server update/validation completed');
 }
 
 function writeConfigs() {
@@ -635,6 +663,7 @@ async function loop() {
   setTimeout(loop, POLL_MS);
 }
 
+updateCs2Server();
 writeConfigs();
 void loop();
 

@@ -83,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const cfg = asRecord(match.serverConfig);
         return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt: new Date(), startDeadlineAt: null, connectionDeadlineAt: deadlineFromNow(MATCH_CONNECTION_TIMEOUT_MS),
         connectionPhaseCompleted: false,
-        serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://run/730//+connect ${host}:${port}` } } });
+        serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://connect/${host}:${port}` } } });
       });
       return NextResponse.json({ ok: true, match });
     }
