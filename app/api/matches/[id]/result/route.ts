@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (alreadyPaid) { const finished = await tx.match.findUnique({ where: { id: match.id } }); return finished!; }
       const lockedWallets = await tx.$queryRaw<Array<{ id: string; userId: string; balance: import("@prisma/client").Prisma.Decimal; lockedBalance: import("@prisma/client").Prisma.Decimal }>>`
         SELECT id, "userId", balance, "lockedBalance" FROM "Wallet"
-        WHERE "userId" IN (${winnerId}, ${loserId})
+        WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
         ORDER BY "userId"
         FOR UPDATE
       `;

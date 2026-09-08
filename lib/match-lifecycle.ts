@@ -120,7 +120,7 @@ export async function runMatchWatchdog() {
 
         const wallets = await tx.$queryRaw<Array<{ id: string; userId: string; lockedBalance: Prisma.Decimal }>>`
           SELECT id, "userId", "lockedBalance" FROM "Wallet"
-          WHERE "userId" IN (${Prisma.join([winnerId, loserId])})
+          WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
           ORDER BY "userId"
           FOR UPDATE
         `;

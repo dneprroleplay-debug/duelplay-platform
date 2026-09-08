@@ -632,6 +632,9 @@ async function loop() {
             connected[0],
             'connection timeout: opponent did not connect'
           );
+          // reportWinner may cause the CS2 process to exit and the exit handler
+          // clears `current`. Never dereference the match after that transition.
+          if (!current || current.id !== matchId) return;
         } else {
           console.log('[DuelPlay] connection timeout: nobody connected, refunding stakes');
 
@@ -652,6 +655,7 @@ async function loop() {
         }
       }
 
+      if (!current) return;
       try {
         const state = await api(`/api/matches/${current.id}`);
         if (['FINISHED', 'CANCELLED'].includes(state.match?.status)) command('quit');
