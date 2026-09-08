@@ -40,9 +40,11 @@ let resultSent = false;
 let serverReadyAt = 0;
 let connectedSteamIds = [];
 let connectionPhaseCompleted = false;
+let duelRulesAppliedAfterConnect = false;
 let lastHeartbeatSentAt = 0;
 let readyTimer = null;
 let startupDeadlineTimer = null;
+let warmupGuardTimer = null;
 let shuttingDown = false;
 let lastLogFile = "";
 let lastLogSize = 0;
@@ -124,10 +126,10 @@ function writeConfigs() {
     'mp_weapons_allow_zeus 0',
     'mp_t_default_primary weapon_awp',
     'mp_ct_default_primary weapon_awp',
-    'mp_t_default_secondary ""',
-    'mp_ct_default_secondary ""',
-    'mp_t_default_grenades ""',
-    'mp_ct_default_grenades ""',
+    'mp_t_default_secondary 0',
+    'mp_ct_default_secondary 0',
+    'mp_t_default_grenades 0',
+    'mp_ct_default_grenades 0',
     'mp_free_armor 2',
     'mp_death_drop_gun 0',
     'mp_death_drop_grenade 0',
@@ -146,8 +148,10 @@ function command(text) {
 function clearCurrentTimers() {
   if (readyTimer) clearTimeout(readyTimer);
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
+  if (warmupGuardTimer) clearInterval(warmupGuardTimer);
   readyTimer = null;
   startupDeadlineTimer = null;
+  warmupGuardTimer = null;
 }
 
 function isPortAvailable(port) {
@@ -201,6 +205,7 @@ function mapCode(name) {
 function applyDuelRules(mode, weaponModifier) {
   command('mp_warmup_online_enabled 0');
   command('mp_warmuptime 0');
+  command('mp_warmup_pausetimer 0');
   command('mp_warmup_end');
   command('mp_autoteambalance 0');
   command('mp_limitteams 0');
@@ -219,10 +224,10 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_weapons_allow_zeus 0');
     command('mp_t_default_primary weapon_awp');
     command('mp_ct_default_primary weapon_awp');
-    command('mp_t_default_secondary ""');
-    command('mp_ct_default_secondary ""');
-    command('mp_t_default_grenades ""');
-    command('mp_ct_default_grenades ""');
+    command('mp_t_default_secondary 0');
+    command('mp_ct_default_secondary 0');
+    command('mp_t_default_grenades 0');
+    command('mp_ct_default_grenades 0');
     command('mp_free_armor 2');
     command('mp_death_drop_gun 0');
     command('mp_death_drop_grenade 0');
@@ -280,6 +285,42 @@ function canonicalPlayerSteamId(value) {
   return null;
 }
 
+
+function finalizePlayerLoadoutAfterConnect() {
+  if (!current || duelRulesAppliedAfterConnect) return;
+  duelRulesAppliedAfterConnect = true;
+  command('mp_warmup_online_enabled 0');
+  command('mp_warmuptime 0');
+  command('mp_warmup_pausetimer 0');
+  command('mp_warmup_end');
+  if (current.weaponModifier === 'AWP_ONLY' || current.mode === 'AWP_ONLY') {
+    command('exec duelplay_awp');
+    command('mp_t_default_primary weapon_awp');
+    command('mp_ct_default_primary weapon_awp');
+    command('mp_t_default_secondary 0');
+    command('mp_ct_default_secondary 0');
+    command('mp_t_default_grenades 0');
+    command('mp_ct_default_grenades 0');
+    command('mp_buy_allow_guns 0');
+    command('mp_buy_allow_grenades 0');
+    command('mp_warmup_end');
+    command('mp_restartgame 1');
+    setTimeout(() => {
+      if (!current) return;
+      command('exec duelplay_awp');
+      command('mp_t_default_primary weapon_awp');
+      command('mp_ct_default_primary weapon_awp');
+      command('mp_t_default_secondary 0');
+      command('mp_ct_default_secondary 0');
+      command('mp_t_default_grenades 0');
+      command('mp_ct_default_grenades 0');
+      command('mp_buy_allow_guns 0');
+      command('mp_buy_allow_grenades 0');
+      command('mp_warmup_end');
+    }, 2500);
+  }
+}
+
 function observeServerLine(text) {
   if (!current || resultSent) return;
 
@@ -304,6 +345,10 @@ function observeServerLine(text) {
 
       // Force the next manager tick to send the new count immediately.
       lastHeartbeatSentAt = 0;
+      if (connectedSteamIds.length >= 2) {
+        connectionPhaseCompleted = true;
+        finalizePlayerLoadoutAfterConnect();
+      }
     }
   }
 
@@ -329,6 +374,7 @@ function observeServerLine(text) {
       console.log(
         `[DuelPlay] server log player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
       );
+      if (connectedSteamIds.length >= 2) finalizePlayerLoadoutAfterConnect();
     }
   }
 
@@ -368,7 +414,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', '+map', mapCode(match.mapName),
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_end',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end',
     ...(awpOnly ? ['+exec', 'duelplay_awp'] : [])
   ];
   const portAvailable = await isPortAvailable(runtimePort);
@@ -405,6 +451,7 @@ async function claimAndStart(match) {
   serverReadyAt = 0;
   connectedSteamIds = [];
   connectionPhaseCompleted = false;
+  duelRulesAppliedAfterConnect = false;
   lastHeartbeatSentAt = 0;
 
   child.stdout.on('data', (chunk) => {
@@ -466,14 +513,19 @@ async function claimAndStart(match) {
       command('mp_warmuptime 0');
       command('mp_warmup_end');
       if (current.weaponModifier === 'AWP_ONLY' || current.mode === 'AWP_ONLY') {
-        // Restart the empty server after the final AWP rules are applied, then
-        // re-apply the config once the new round is live. Players are not given
-        // the connection URL until this sequence is complete.
-        command('mp_restartgame 1');
-        await new Promise(resolve => setTimeout(resolve, 1200));
+        // Do not restart an empty server here: a restart can recreate warmup.
+        // Apply the AWP loadout first, then end any warmup that the map/gamemode
+        // created before players are allowed to enter.
         command('exec duelplay_awp');
+        command('mp_t_default_primary weapon_awp');
+        command('mp_ct_default_primary weapon_awp');
+        command('mp_t_default_secondary 0');
+        command('mp_ct_default_secondary 0');
+        command('mp_t_default_grenades 0');
+        command('mp_ct_default_grenades 0');
         command('mp_warmup_online_enabled 0');
         command('mp_warmuptime 0');
+        command('mp_warmup_pausetimer 0');
         command('mp_warmup_end');
       }
       command('mp_match_can_clinch 1');
@@ -491,6 +543,19 @@ async function claimAndStart(match) {
       connectedSteamIds = [];
       connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
+      if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+      let warmupGuardTicks = 0;
+      warmupGuardTimer = setInterval(() => {
+        if (!current || current.id !== match.id || warmupGuardTicks++ >= 12) {
+          if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+          warmupGuardTimer = null;
+          return;
+        }
+        command('mp_warmup_online_enabled 0');
+        command('mp_warmuptime 0');
+        command('mp_warmup_pausetimer 0');
+        command('mp_warmup_end');
+      }, 500);
       console.log(`[DuelPlay] server ready: steam://connect/${runtimeHost}:${runtimePort}`);
     } catch (error) {
       console.error('[DuelPlay] server failed to become ready', error);

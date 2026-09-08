@@ -7,7 +7,7 @@ const claim=fs.readFileSync('app/api/server-manager/claim/route.ts','utf8');
 const manager=fs.readFileSync('scripts/server-manager/server-manager.mjs','utf8');
 
 assert.match(page,/setInterval\(tick,1000\)/,'match page polls every second');
-assert.match(page,/fetch\(`\/api\/matches\/\$\{id\}\?t=\$\{Date\.now\(\)\}`/,'match polling bypasses stale cache');
+assert.ok(page.includes("Math.random().toString(36).slice(2)"), 'match polling uses a unique no-cache query');
 assert.match(page,/path==="join"&&d\?\.playerOne&&d\?\.playerTwo/,'join immediately renders both hydrated players');
 assert.match(join,/include:\s*\{\s*playerOne:/,'join response contains player relations');
 assert.match(claim,/weaponModifier:\s*match\.weaponModifier/,'manager receives weapon modifier');
@@ -30,3 +30,11 @@ assert.match(manager, /action: 'connection-timeout'/,'technical timeout uses ser
 assert.match(manager, /mp_restartgame 1/,'AWP server restarts empty round after rules are applied');
 assert.match(manager, /mp_t_default_primary weapon_awp/,'AWP mode sets deterministic default primary');
 console.log('Live UI polling, Steam launch and AWP enforcement checks passed.');
+
+const presence = fs.readFileSync('app/api/matches/[id]/presence/route.ts','utf8');
+assert.match(page,/loadPresence\(\)/,'match page has dedicated presence polling');
+assert.match(page,/setInterval\(tick,1000\)/,'presence polling runs every second');
+assert.match(presence,/playerTwo:/,'presence endpoint returns the second player immediately');
+assert.match(presence,/resolveConnectionTimeout/,'presence endpoint resolves an expired one-player connection phase');
+assert.match(presence,/cancelMatchWithRefund/,'presence endpoint refunds an expired zero-player connection phase');
+console.log('Presence and server-side deadline regression checks passed.');
