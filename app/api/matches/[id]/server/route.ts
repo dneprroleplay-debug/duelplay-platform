@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { isServerManagerRequest } from "@/app/api/server-manager/auth";
 import { creditWallet } from "@/lib/wallet";
-import { lockMatchForUpdate } from "@/lib/match-lifecycle";
+import { lockMatchForUpdate, resolveConnectionTimeout, cancelMatchWithRefund } from "@/lib/match-lifecycle";
 import { deadlineFromNow, MATCH_CONNECTION_TIMEOUT_MS } from "@/lib/match-timers";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -150,7 +150,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         });
       });
 
+      const due = await prisma.match.findUnique({
+        where: { id },
+        select: { status: true, connectionDeadlineAt: true, connectionPhaseCompleted: true, serverConfig: true },
+      });
+      if (due?.status === "LIVE" && !due.connectionPhaseCompleted && due.connectionDeadlineAt && due.connectionDeadlineAt.getTime() <= Date.now()) {
+        const cfg = due.serverConfig && typeof due.serverConfig === "object" && !Array.isArray(due.serverConfig) ? due.serverConfig as Record<string, unknown> : {};
+        const ids = Array.isArray(cfg.connectedSteamIds) ? [...new Set(cfg.connectedSteamIds.map(String).filter(Boolean))] : [];
+        if (ids.length === 1) {
+          const resolved = await resolveConnectionTimeout(id, ids[0]);
+          if (resolved?.status === "FINISHED") {
+            await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+          }
+        } else if (ids.length === 0) {
+          await cancelMatchWithRefund(id, "No player connected within 10 minutes");
+          await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        }
+      }
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "connection-timeout") {
+      const winnerSteamId = String(body.connectedSteamId ?? "").trim();
+      if (!winnerSteamId) return NextResponse.json({ error: "Connected player is required" }, { status: 400 });
+      const result = await resolveConnectionTimeout(id, winnerSteamId);
+      if (result?.status === "FINISHED") {
+        if (result.gameServer) {
+          await prisma.gameServer.updateMany({ where: { id: result.gameServer.id, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        }
+        return NextResponse.json({ ok: true, match: result });
+      }
+      return NextResponse.json({ error: "Connection timeout could not be resolved" }, { status: 409 });
     }
 
     if (action === "failed") {

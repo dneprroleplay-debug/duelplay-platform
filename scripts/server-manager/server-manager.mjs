@@ -23,7 +23,7 @@ const SERVER_ID = process.env.DUELPLAY_SERVER_ID || 'cs2-1';
 const MANAGER_PORT = Number(process.env.DUELPLAY_MANAGER_PORT || 3010);
 const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
-const HEARTBEAT_MS = 10000;
+const HEARTBEAT_MS = 1000;
 const CONNECT_TIMEOUT_MS = Number(process.env.DUELPLAY_CONNECTION_TIMEOUT_MS || 10 * 60 * 1000);
 const SERVER_START_TIMEOUT_MS = Number(process.env.DUELPLAY_SERVER_START_TIMEOUT_MS || 2 * 60 * 1000);
 const PORT_PROBE_TIMEOUT_MS = Number(process.env.DUELPLAY_PORT_PROBE_TIMEOUT_MS || 1500);
@@ -97,12 +97,40 @@ function writeConfigs() {
     'mp_limitteams 0',
     'sv_visiblemaxplayers 2',
     'mp_warmup_end',
+    'mp_warmup_online_enabled 0',
+    'mp_warmuptime 0',
     'mp_match_can_clinch 1',
     'mp_match_end_restart 0',
     'log on',
     'sv_logecho 1',
     'sv_logfile 1',
     'mp_logmessages 1',
+    ''
+  ].join('\n'));
+  writeFileSync(join(cfgDir, 'duelplay_awp.cfg'), [
+    '// DuelPlay AWP ONLY rules',
+    'mp_warmup_end',
+    'mp_warmup_online_enabled 0',
+    'mp_warmuptime 0',
+    'mp_buytime 0',
+    'mp_buy_anywhere 0',
+    'mp_buy_allow_guns 0',
+    'mp_buy_allow_grenades 0',
+    'mp_weapons_allow_map_placed 0',
+    'mp_weapons_allow_pistols 0',
+    'mp_weapons_allow_smgs 0',
+    'mp_weapons_allow_rifles 0',
+    'mp_weapons_allow_heavy 0',
+    'mp_weapons_allow_zeus 0',
+    'mp_t_default_primary weapon_awp',
+    'mp_ct_default_primary weapon_awp',
+    'mp_t_default_secondary ""',
+    'mp_ct_default_secondary ""',
+    'mp_t_default_grenades ""',
+    'mp_ct_default_grenades ""',
+    'mp_free_armor 2',
+    'mp_death_drop_gun 0',
+    'mp_death_drop_grenade 0',
     ''
   ].join('\n'));
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
@@ -171,6 +199,9 @@ function mapCode(name) {
 }
 
 function applyDuelRules(mode, weaponModifier) {
+  command('mp_warmup_online_enabled 0');
+  command('mp_warmuptime 0');
+  command('mp_warmup_end');
   command('mp_autoteambalance 0');
   command('mp_limitteams 0');
   command('mp_weapons_allow_map_placed 0');
@@ -178,8 +209,14 @@ function applyDuelRules(mode, weaponModifier) {
   command('mp_buy_anywhere 0');
 
   if (weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY') {
+    command('exec duelplay_awp');
     command('mp_buy_allow_guns 0');
     command('mp_buy_allow_grenades 0');
+    command('mp_weapons_allow_pistols 0');
+    command('mp_weapons_allow_smgs 0');
+    command('mp_weapons_allow_rifles 0');
+    command('mp_weapons_allow_heavy 0');
+    command('mp_weapons_allow_zeus 0');
     command('mp_t_default_primary weapon_awp');
     command('mp_ct_default_primary weapon_awp');
     command('mp_t_default_secondary ""');
@@ -187,6 +224,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_t_default_grenades ""');
     command('mp_ct_default_grenades ""');
     command('mp_free_armor 2');
+    command('mp_death_drop_gun 0');
+    command('mp_death_drop_grenade 0');
   } else {
     command('mp_buy_allow_guns 255');
     command('mp_buy_allow_grenades 1');
@@ -324,11 +363,13 @@ async function claimAndStart(match) {
   });
   const runtimeHost = claimed.host || HOST;
   const runtimePort = Number(claimed.port || PORT);
+  const awpOnly = claimed.weaponModifier === 'AWP_ONLY' || claimed.mode === 'AWP_ONLY' || match.weaponModifier === 'AWP_ONLY' || match.mode === 'AWP_ONLY';
   const args = [
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', '+map', mapCode(match.mapName),
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0'
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_end',
+    ...(awpOnly ? ['+exec', 'duelplay_awp'] : [])
   ];
   const portAvailable = await isPortAvailable(runtimePort);
   if (!portAvailable) {
@@ -421,11 +462,19 @@ async function claimAndStart(match) {
       command('mp_autoteambalance 0');
       command('mp_limitteams 0');
       applyDuelRules(current.mode, current.weaponModifier);
+      command('mp_warmup_online_enabled 0');
+      command('mp_warmuptime 0');
+      command('mp_warmup_end');
       if (current.weaponModifier === 'AWP_ONLY' || current.mode === 'AWP_ONLY') {
-        // Default weapon cvars are applied on spawn. Restart the empty server
-        // once, before the connection button is exposed, so the first player
-        // cannot spawn with the standard pistol loadout.
+        // Restart the empty server after the final AWP rules are applied, then
+        // re-apply the config once the new round is live. Players are not given
+        // the connection URL until this sequence is complete.
         command('mp_restartgame 1');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        command('exec duelplay_awp');
+        command('mp_warmup_online_enabled 0');
+        command('mp_warmuptime 0');
+        command('mp_warmup_end');
       }
       command('mp_match_can_clinch 1');
       command('mp_match_end_restart 0');
@@ -661,12 +710,20 @@ async function loop() {
         if (connected.length === 1) {
           const timedOutMatchId = current.id;
           console.log(`[DuelPlay] connection timeout: ${connected[0]} connected, awarding technical win`);
-          await reportWinner(
-            connected[0],
-            'connection timeout: opponent did not connect'
-          );
-          // reportWinner may cause the CS2 process to exit and the exit handler
-          // clears `current`. Never dereference the match after that transition.
+          try {
+            await api(`/api/matches/${timedOutMatchId}/server`, {
+              method: 'POST',
+              body: JSON.stringify({
+                action: 'connection-timeout',
+                serverId: current.serverId,
+                connectedSteamId: connected[0]
+              })
+            });
+            command('quit');
+          } catch (error) {
+            console.error('[DuelPlay] technical win API failed', error);
+            resultSent = false;
+          }
           if (!current || current.id !== timedOutMatchId) return;
         } else {
           console.log('[DuelPlay] connection timeout: nobody connected, refunding stakes');

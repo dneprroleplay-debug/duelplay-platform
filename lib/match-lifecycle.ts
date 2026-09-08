@@ -53,6 +53,59 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
   });
 }
 
+export async function resolveConnectionTimeout(matchId: string, connectedSteamId: string) {
+  return prisma.$transaction(async tx => {
+    const locked = await lockMatchForUpdate(tx, matchId);
+    if (!locked) return null;
+    const full = await tx.match.findUnique({
+      where: { id: matchId },
+      include: { playerOne: { select: { steamId: true } }, playerTwo: { select: { steamId: true } }, gameServer: true },
+    });
+    if (!full || full.status !== "LIVE" || full.connectionPhaseCompleted || !full.playerTwoId) return null;
+    const freshCfg = full.serverConfig && typeof full.serverConfig === "object" && !Array.isArray(full.serverConfig) ? full.serverConfig as Record<string, unknown> : {};
+    const freshIds = Array.isArray(freshCfg.connectedSteamIds) ? [...new Set(freshCfg.connectedSteamIds.map(String).filter(Boolean))] : [];
+    if (freshIds.length !== 1 || freshIds[0] !== String(connectedSteamId).trim()) return null;
+    const winnerId = freshIds[0] === full.playerOne.steamId ? full.playerOneId : freshIds[0] === full.playerTwo?.steamId ? full.playerTwoId : null;
+    if (!winnerId) return null;
+    const loserId = winnerId === full.playerOneId ? full.playerTwoId : full.playerOneId;
+    const pot = Number(full.betAmount) * 2;
+    const fee = Number(full.commission);
+    const payout = Number((pot - fee).toFixed(4));
+    const wallets = await tx.$queryRaw<Array<{ id: string; userId: string; lockedBalance: Prisma.Decimal }>>`
+      SELECT id, "userId", "lockedBalance" FROM "Wallet"
+      WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
+      ORDER BY "userId" FOR UPDATE
+    `;
+    const w = wallets.find(row => row.userId === winnerId);
+    const l = wallets.find(row => row.userId === loserId);
+    if (!w || !l) throw new Error("WALLET");
+    const idem = `forfeit:${full.id}`;
+    const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
+    if (!existing) {
+      const stake = Number(full.betAmount);
+      if (Number(w.lockedBalance) < stake || Number(l.lockedBalance) < stake) throw new Error("LOCKED_STAKE");
+      await creditWallet(tx, winnerId, payout, idem, "MATCH_WIN", "Technical win: opponent did not connect", full.id);
+      await tx.wallet.update({ where: { id: w.id }, data: { lockedBalance: { decrement: stake } } });
+      await tx.wallet.update({ where: { id: l.id }, data: { lockedBalance: { decrement: stake } } });
+      await awardXp(tx, winnerId, 100); await awardXp(tx, loserId, 25);
+      await updateMatchProgress(tx, winnerId, true); await updateMatchProgress(tx, loserId, false);
+      await updateRatingAfterDuel(tx, winnerId, loserId);
+      await recordMatchStats(tx, full.id, winnerId, { kills: 1, deaths: 0, mapName: full.mapName });
+      await recordMatchStats(tx, full.id, loserId, { kills: 0, deaths: 1, mapName: full.mapName });
+      const winnerUser = await tx.user.findUnique({ where: { id: winnerId }, select: { referredById: true } });
+      const referralRate = await getPlatformNumber("REFERRAL_COMMISSION", 25) / 100;
+      const referralAmount = Number((fee * referralRate * await referralMultiplier(tx)).toFixed(4));
+      if (winnerUser?.referredById && referralAmount > 0) await creditWallet(tx, winnerUser.referredById, referralAmount, `referral:${full.id}:${winnerUser.referredById}`, "REFERRAL", "Referral commission from technical win", full.id);
+      await tx.user.update({ where: { id: winnerId }, data: { reputation: { increment: 15 } } });
+      await tx.user.update({ where: { id: loserId }, data: { reputation: { decrement: 10 } } });
+      await recalculateTrust(tx, winnerId); await recalculateTrust(tx, loserId);
+      await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "Technical win", body: "You won because the opponent did not connect.", payload: { matchId: full.id } } });
+      await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "Match finished", body: "You lost by forfeit after the connection timeout.", payload: { matchId: full.id } } });
+    }
+    return tx.match.update({ where: { id: full.id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), connectionPhaseCompleted: true, connectionDeadlineAt: null, serverConfig: { ...freshCfg, state: "FINISHED", resultSource: "CS2_SERVER" } } });
+  });
+}
+
 export async function runMatchWatchdog() {
   const now = new Date();
   const ready = await prisma.match.findMany({ where: { status: "READY", startDeadlineAt: { lte: now } }, select: { id: true } });
@@ -81,83 +134,12 @@ export async function runMatchWatchdog() {
     await prisma.gameServer.updateMany({ where: { id: server.id, matchId: server.matchId }, data: { status: "ERROR", matchId: null, processId: null, stoppedAt: now, lastHeartbeat: null } });
   }
 
-  const live = await prisma.match.findMany({ where: { status: "LIVE", connectionDeadlineAt: { lte: now }, connectionPhaseCompleted: false }, select: { id: true, playerOneId: true, playerTwoId: true, serverConfig: true } });
+  const live = await prisma.match.findMany({ where: { status: "LIVE", connectionDeadlineAt: { lte: now }, connectionPhaseCompleted: false }, select: { id: true, serverConfig: true } });
   for (const m of live) {
     const cfg = m.serverConfig && typeof m.serverConfig === "object" && !Array.isArray(m.serverConfig) ? m.serverConfig as Record<string, unknown> : {};
-    const ids = Array.isArray(cfg.connectedSteamIds)
-      ? cfg.connectedSteamIds.map(String).filter(Boolean)
-      : [];
-    if (ids.length === 0) {
-      await cancelMatchWithRefund(m.id, "No player connected within 10 minutes");
-    } else if (ids.length === 1) {
-      await prisma.$transaction(async tx => {
-        const locked = await lockMatchForUpdate(tx, m.id);
-        if (!locked) return;
-        const full = await tx.match.findUnique({
-          where: { id: m.id },
-          include: { playerOne: { select: { steamId: true } }, playerTwo: { select: { steamId: true } } },
-        });
-        if (!full || full.status !== "LIVE" || full.connectionPhaseCompleted || !full.playerTwoId) return;
-
-        const freshCfg = full.serverConfig && typeof full.serverConfig === "object" && !Array.isArray(full.serverConfig)
-          ? full.serverConfig as Record<string, unknown>
-          : {};
-        const freshIds = Array.isArray(freshCfg.connectedSteamIds)
-          ? [...new Set(freshCfg.connectedSteamIds.map(String).filter(Boolean))]
-          : [];
-        if (freshIds.length !== 1) return;
-
-        const winnerId = freshIds[0] === full.playerOne.steamId
-          ? full.playerOneId
-          : freshIds[0] === full.playerTwo?.steamId
-            ? full.playerTwoId
-            : null;
-        if (!winnerId) return;
-        const loserId = winnerId === full.playerOneId ? full.playerTwoId : full.playerOneId;
-        const pot = Number(full.betAmount) * 2;
-        const fee = Number(full.commission);
-        const payout = Number((pot - fee).toFixed(4));
-
-        const wallets = await tx.$queryRaw<Array<{ id: string; userId: string; lockedBalance: Prisma.Decimal }>>`
-          SELECT id, "userId", "lockedBalance" FROM "Wallet"
-          WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
-          ORDER BY "userId"
-          FOR UPDATE
-        `;
-        const w = wallets.find(row => row.userId === winnerId);
-        const l = wallets.find(row => row.userId === loserId);
-        if (!w || !l) throw new Error("WALLET");
-        const idem = `forfeit:${full.id}`;
-        const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
-        if (!existing) {
-          const stake = Number(full.betAmount);
-          if (Number(w.lockedBalance) < stake || Number(l.lockedBalance) < stake) throw new Error("LOCKED_STAKE");
-          await creditWallet(tx, winnerId, payout, idem, "MATCH_WIN", "Technical win: opponent did not connect", full.id);
-          await tx.wallet.update({ where: { id: w.id }, data: { lockedBalance: { decrement: stake } } });
-          await tx.wallet.update({ where: { id: l.id }, data: { lockedBalance: { decrement: stake } } });
-          await awardXp(tx,winnerId,100);
-          await awardXp(tx,loserId,25);
-          await updateMatchProgress(tx,winnerId,true);
-          await updateMatchProgress(tx,loserId,false);
-          await updateRatingAfterDuel(tx,winnerId,loserId);
-          await recordMatchStats(tx, full.id, winnerId, { kills: 1, deaths: 0, mapName: full.mapName });
-          await recordMatchStats(tx, full.id, loserId, { kills: 0, deaths: 1, mapName: full.mapName });
-          const winnerUser = await tx.user.findUnique({ where: { id: winnerId }, select: { referredById: true } });
-          const referralRate = await getPlatformNumber("REFERRAL_COMMISSION", 25) / 100;
-          const referralAmount = Number((fee * referralRate * await referralMultiplier(tx)).toFixed(4));
-          if (winnerUser?.referredById && referralAmount > 0) {
-            await creditWallet(tx, winnerUser.referredById, referralAmount, `referral:${full.id}:${winnerUser.referredById}`, "REFERRAL", "Referral commission from technical win", full.id);
-          }
-          await tx.user.update({ where: { id: winnerId }, data: { reputation: { increment: 15 } } });
-          await tx.user.update({ where: { id: loserId }, data: { reputation: { decrement: 10 } } });
-          await recalculateTrust(tx, winnerId);
-          await recalculateTrust(tx, loserId);
-          await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "Technical win", body: "You won because the opponent did not connect.", payload: { matchId: full.id } } });
-          await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "Match finished", body: "You lost by forfeit after the connection timeout.", payload: { matchId: full.id } } });
-        }
-        await tx.match.update({ where: { id: full.id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), connectionPhaseCompleted: true, connectionDeadlineAt: null } });
-      });
-    }
+    const ids = Array.isArray(cfg.connectedSteamIds) ? [...new Set(cfg.connectedSteamIds.map(String).filter(Boolean))] : [];
+    if (ids.length === 0) await cancelMatchWithRefund(m.id, "No player connected within 10 minutes");
+    else if (ids.length === 1) await resolveConnectionTimeout(m.id, ids[0]);
   }
   return { readyCancelled: ready.length, liveProcessed: live.length, staleServersProcessed: staleServers.length };
 }
