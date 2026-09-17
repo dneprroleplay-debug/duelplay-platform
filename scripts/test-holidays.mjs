@@ -1,0 +1,10 @@
+import { strict as assert } from 'node:assert';
+const mod=await import('../lib/holidays.ts');
+assert.equal(mod.holidayIsActive(10,31,3,new Date('2026-10-31T12:00:00Z')),true);
+assert.equal(mod.holidayIsActive(10,31,3,new Date('2026-11-03T00:00:00Z')),false);
+assert.equal(mod.holidayIsActive(12,25,7,new Date('2026-12-31T00:00:00Z')),true);
+assert.equal(mod.holidayIsActive(12,25,7,new Date('2027-01-01T00:00:00Z')),false);
+assert.throws(()=>mod.validateHolidayTemplate({slug:'bad slug',name:'x',theme:'x',month:1,day:1}),/INVALID_SLUG/);
+assert.throws(()=>mod.validateHolidayTemplate({slug:'x',name:'x',theme:'x',month:13,day:1}),/INVALID_DATE/);
+assert.throws(()=>mod.validateHolidayTemplate({slug:'x',name:'x',theme:'x',month:1,day:1,eventPass:false,premiumPass:true}),/PREMIUM_REQUIRES_PASS/);
+console.log('holiday policy: PASS');

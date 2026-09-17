@@ -1,0 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const roots=['app','components'];
+const words=/\b(the|and|or|your|you|player|players|match|matches|settings|season|current|scheduled|control|platform|create|delete|disable|activate|open|close|save|loading|error|success|home|wallet|profile|admin|support|friends|rivals|cases|inventory|events|economy|content|overview|background|hero|feature|flags|enabled|disabled|maintenance|performance|analytics|search|find|clan|ticket|message|send|reply|new|all|none|standard|personal|global|join|withdraw|deposit|balance|report|duel|system|social|rank|history|round|prize|available|status|game|server|privacy|visibility|description|question|payment|account|security|general|category|premium|free|reward|claim|item|stored|back|test|win|finish|local|friend|challenge|community|team|manage|select|choose|add|remove|restore|photo|image|file|only|maximum|valid|until|next|soon|real|skill|cash)\b/i;
+function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name); if(e.isDirectory()) walk(p); else if(/\.tsx$/.test(e.name)) scan(p)}}
+function scan(file){const s=fs.readFileSync(file,'utf8'); const hits=new Set(); for(const m of s.matchAll(/>([^<{\n][^<]{1,140})</g)){const t=m[1].trim(); if(words.test(t)) hits.add(t)} for(const m of s.matchAll(/placeholder\s*=\s*["']([^"']+)["']/g)){if(words.test(m[1])) hits.add(`placeholder: ${m[1]}`)} if(hits.size){console.log(`\n${file}`); for(const h of hits) console.log(`  ${h}`)}}
+for(const r of roots) walk(r);

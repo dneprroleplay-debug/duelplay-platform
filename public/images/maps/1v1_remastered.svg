@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+<defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#08090d"/><stop offset="1" stop-color="#16131c"/></linearGradient></defs>
+<rect width="1280" height="720" fill="url(#g)"/><rect x="40" y="40" width="1200" height="640" rx="40" fill="none" stroke="#ff8c3a" stroke-opacity=".45" stroke-width="4"/>
+<g fill="none" stroke="#ff8c3a" stroke-opacity=".23" stroke-width="6"><path d="M130 150h1020v420H130z"/><path d="M640 150v420"/><path d="M210 235h330v250H210z"/><path d="M740 235h330v250H740z"/><path d="M280 315h180v90H280z"/><path d="M820 315h180v90H820z"/></g>
+<g fill="#ff8c3a" fill-opacity=".12"><circle cx="640" cy="360" r="100"/><rect x="245" y="285" width="70" height="150" rx="14"/><rect x="965" y="285" width="70" height="150" rx="14"/></g>
+<text x="88" y="110" fill="#ff8c3a" font-family="Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="8">DUELPLAY · CS2 · 1V1</text>
+<text x="88" y="605" fill="#fff" font-family="Arial, sans-serif" font-size="64" font-weight="900">1V1 REMASTERED</text>
+<text x="92" y="652" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="26">Classic Arena</text></svg>

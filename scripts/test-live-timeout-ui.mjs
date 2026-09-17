@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const page = fs.readFileSync('app/matches/[id]/page.tsx', 'utf8');
+const timers = fs.readFileSync('lib/match-timers.ts', 'utf8');
+const lifecycle = fs.readFileSync('lib/match-lifecycle.ts', 'utf8');
+const serverRoute = fs.readFileSync('app/api/matches/[id]/server/route.ts', 'utf8');
+assert.ok(timers.includes('MATCH_LIVE_TIMEOUT_MS = positiveMs("DUELPLAY_LIVE_TIMEOUT_MS", 5 * 60 * 1000)'), 'FAIL: backend LIVE deadline must default to 5 minutes');
+assert.ok(!page.includes('maxSeconds:600'), 'FAIL: match UI must not expose a 10-minute timer');
+assert.ok(page.includes('maxSeconds:300'), 'FAIL: LIVE UI timeout must be 5 minutes');
+assert.ok(!page.includes('+10*60*1000'), 'FAIL: match page must not contain a 10-minute fallback deadline');
+assert.ok(page.includes('+5*60*1000'), 'FAIL: LIVE fallback deadline must be 5 minutes');
+assert.ok(!page.includes('window.location.reload()'), 'FAIL: match page must not force a full reload on lifecycle changes');
+assert.ok(lifecycle.includes('No player connected within 5 minutes'), 'FAIL: lifecycle timeout reason must be 5 minutes');
+assert.ok(serverRoute.includes('No player connected within 5 minutes'), 'FAIL: server route timeout reason must be 5 minutes');
+assert.ok(serverRoute.includes('liveDeadlineAt'), 'FAIL: server route must use the single LIVE deadline');
+console.log('LIVE timeout + match page regression: PASS');

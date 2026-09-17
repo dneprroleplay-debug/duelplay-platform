@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+const src = await import('../lib/cosmetic-shop.ts');
+assert.equal(src.normalizeCosmeticType('avatar'),'AVATAR');
+assert.throws(()=>src.normalizeCosmeticType('WEAPON_DAMAGE'),/INVALID_COSMETIC_TYPE/);
+assert.equal(src.validateCosmeticPrice('12.34567'),12.3457);
+assert.throws(()=>src.validateCosmeticPrice(0),/INVALID_COSMETIC_PRICE/);
+assert.throws(()=>src.validateCosmeticMetadata({damage:10}),/GAMEPLAY_COSMETIC_FORBIDDEN/);
+assert.equal(src.scopedShopIdempotencyKey('u1','k'), 'shop:u1:k');
+assert.notEqual(src.scopedShopIdempotencyKey('u1','k'),src.scopedShopIdempotencyKey('u2','k'));
+console.log('cosmetic-shop: PASS');
