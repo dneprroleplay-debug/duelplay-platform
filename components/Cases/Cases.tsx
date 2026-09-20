@@ -40,7 +40,7 @@ export default function Cases(){
    }).catch(()=>{});
    return()=>{cancelled=true};
  },[]);
- const copy=(key:string)=>CASE_COPY[language]?.[key]||CASE_COPY.EN[key];
+ const copy=(key:string,fallback?:DuelCase)=>CASE_COPY[language]?.[key]||CASE_COPY.EN[key]||[fallback?.name||key,fallback?.description||""];
  const rarity=(value:string)=>RARITY[language]?.[value]||value;
  useEffect(()=>{
    if(rollTarget===null||!viewportRef.current||!trackRef.current)return;
@@ -97,8 +97,8 @@ export default function Cases(){
    }catch(e){setError(e instanceof Error?e.message:t.caseOpenError);setSpinning(false)}finally{setOpening(false)}
  }
  if(!cases.length)return null;
- return <section id="cases" className="mx-auto max-w-7xl px-4 py-12 sm:px-6"><div className="panel rounded-3xl p-7 sm:p-9"><div className="flex flex-wrap items-end justify-between gap-4"><div className="w-full text-center"><span className="pill">{t.casesBadge}</span><h2 className="mt-3 text-3xl font-black">{t.casesTitle}</h2><p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-zinc-500">{t.casesText}</p></div><Link href="/inventory" className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold hover:border-[var(--theme-accent)]/40">{t.myInventory} →</Link></div><div className="mt-7 grid gap-4 md:grid-cols-3">{cases.map(box=><CaseCard key={box.id} box={box} copy={copy(box.slug)} rarity={rarity} openText={t.caseOpen} onOpen={()=>selectCase(box)} t={t}/>)}</div></div>
- <CenterModal open={Boolean(selected)} title={selected?copy(selected.slug)[0]:t.case} onClose={close} fullscreen className="bg-[#050507]" contentClassName="h-[calc(100dvh-73px)] overflow-auto p-0">
+ return <section id="cases" className="mx-auto max-w-7xl px-4 py-12 sm:px-6"><div className="panel rounded-3xl p-7 sm:p-9"><div className="flex flex-wrap items-end justify-between gap-4"><div className="w-full text-center"><span className="pill">{t.casesBadge}</span><h2 className="mt-3 text-3xl font-black">{t.casesTitle}</h2><p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-zinc-500">{t.casesText}</p></div><Link href="/inventory" className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold hover:border-[var(--theme-accent)]/40">{t.myInventory} →</Link></div><div className="mt-7 grid gap-4 md:grid-cols-3">{cases.map(box=><CaseCard key={box.id} box={box} copy={copy(box.slug,box)} rarity={rarity} openText={t.caseOpen} onOpen={()=>selectCase(box)} t={t}/>)}</div></div>
+ <CenterModal open={Boolean(selected)} title={selected?copy(selected.slug,selected)[0]:t.case} onClose={close} fullscreen className="bg-[#050507]" contentClassName="h-[calc(100dvh-73px)] overflow-auto p-0">
    {selected&&<div className="min-h-full pb-10">{won?<WinCard won={won} onClose={close} t={t} rarity={rarity}/>:<>
     <div className="px-5 pt-7 text-center sm:px-10"><div className="text-base font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">{t.rouletteTitle}</div></div>
     <div ref={viewportRef} className="roulette-fullscreen roulette-fullscreen-v2 mt-7"><div className="roulette-pointer roulette-pointer-glow"/><div ref={trackRef} className="roulette-track roulette-track-full">{roll.map(item=><div key={item.key} className="roulette-item roulette-item-large"><img src={item.imageUrl} alt=""/><div className="mt-2 truncate text-sm font-black">{item.name}</div><div className="mt-1 text-xs text-[var(--theme-accent)]">${item.value.toFixed(2)}</div></div>)}</div></div>
