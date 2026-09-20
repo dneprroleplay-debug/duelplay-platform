@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl \
+  && apt-get install -y --no-install-recommends openssl curl \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm ci --include=dev
