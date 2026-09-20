@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { calculateProfileCompletion, PROFILE_COMPLETION_REWARD_KEY } from "@/lib/profile-completion";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -32,6 +33,12 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
+  try {
+    await prisma.$transaction(tx => enforceRateLimit(tx, user.id, "PROFILE_PATCH", 30, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много изменений профиля. Попробуйте позже." }, { status: 429 });
+    throw error;
+  }
   let body: { nickname?: unknown; avatarUrl?: unknown; themePreference?: unknown; profileVisibility?: unknown; showStatsPublic?: unknown; allowChallenges?: unknown; allowMessages?: unknown };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 }); }
   if (typeof body.nickname === "string") {

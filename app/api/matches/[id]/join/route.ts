@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { debitWallet } from "@/lib/wallet";
+import { debitWallet, lockWallet } from "@/lib/wallet";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { assertAccountCanPlay } from "@/lib/anti-fraud";
+import { enforceRateLimit } from "@/lib/rate-limit";
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Войдите, чтобы присоединиться", errorCode: "AUTH_REQUIRED" }, { status: 401 });
-    const { id } = await params; const body = await request.json().catch(()=>({})); const idempotencyKey=String(request.headers.get("idempotency-key")||body.idempotencyKey||`join:${id}:${user.id}`);
+    const { id } = await params; const body = await request.json().catch(()=>({})); const clientIdempotencyKey=String(request.headers.get("idempotency-key")||body.idempotencyKey||`join:${id}`).trim(); if(!clientIdempotencyKey||clientIdempotencyKey.length>200)return NextResponse.json({error:"Invalid idempotency key",errorCode:"INVALID_IDEMPOTENCY_KEY"},{status:400}); const idempotencyKey=`match-join:${user.id}:${id}:${clientIdempotencyKey}`;
     const updated = await prisma.$transaction(async (tx) => {
       await assertAccountCanPlay(tx,user.id);
+      await enforceRateLimit(tx,user.id,"MATCH_JOIN",20,60_000);
       const existing=await tx.transaction.findUnique({where:{idempotencyKey}});if(existing)return tx.match.findUniqueOrThrow({where:{id}});
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE`;
       const busy=await tx.match.findFirst({where:{status:{in:["WAITING_FOR_PLAYERS","READY","STARTING","LIVE"]},OR:[{playerOneId:user.id},{playerTwoId:user.id}]},select:{id:true,status:true}});
@@ -24,10 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (match.playerTwoId || match.status !== "WAITING_FOR_PLAYERS") throw new Error("FULL");
       const amount = Number(match.betAmount);
       const debit = await debitWallet(tx,user.id,amount,idempotencyKey,"MATCH_BET",`Ставка на матч ${match.id.slice(0, 8)}`,match.id);
-      const walletRows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Wallet" WHERE "userId" = ${user.id}::uuid FOR UPDATE`;
-      const wallet = walletRows[0];
-      if (!wallet) throw new Error("INSUFFICIENT_BALANCE");
-      await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { increment: amount } } });
+      await lockWallet(tx,user.id,amount,`match-stake:${idempotencyKey}`,"MATCH_STAKE",match.id,`Ставка зарезервирована · ${match.id.slice(0,8)}`);
       const ready = await tx.match.update({ where: { id }, data: { playerTwoId: user.id, status: "READY", startDeadlineAt: deadlineFromNow(MATCH_START_TIMEOUT_MS), connectionPhaseCompleted:false }, include: { playerOne: { select: { id:true, nickname:true, avatarUrl:true, steamAvatarUrl:true } }, playerTwo: { select: { id:true, nickname:true, avatarUrl:true, steamAvatarUrl:true } } } });
       await tx.notification.createMany({data:[{userId:match.playerOneId,type:"MATCH_READY",title:"Match Ready",body:"Both players are ready. Press START to launch the duel.",payload:{matchId:id}},{userId:user.id,type:"MATCH_READY",title:"Match Ready",body:"Both players are ready. Press START to launch the duel.",payload:{matchId:id}}]});
       return ready;

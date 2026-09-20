@@ -33,7 +33,7 @@ export async function POST(r: NextRequest) {
   try {
     if (action === "premium") {
       if (!event.premiumPass) return NextResponse.json({ error: "Premium pass is not available" }, { status: 409 });
-      const idem = String(r.headers.get("idempotency-key") || `eventpass:${eventId}:${me.id}:premium`);
+      const clientKey = String(r.headers.get("idempotency-key") || `premium:${eventId}`).trim(); if(!clientKey || clientKey.length>200) return NextResponse.json({error:"Invalid idempotency key"},{status:400}); const idem = `eventpass:${me.id}:${eventId}:${clientKey}`;
       const pass = await prisma.$transaction(async tx => {
         const current = await tx.eventPass.upsert({ where: { eventId_userId: { eventId, userId: me.id } }, update: {}, create: { eventId, userId: me.id } });
         if (current.premium) return current;
@@ -44,7 +44,7 @@ export async function POST(r: NextRequest) {
     }
     if (action === "claim") {
       const level = Math.max(1, Math.floor(Number(b.level || 0)));
-      const idem = String(r.headers.get("idempotency-key") || `eventpass:${eventId}:${me.id}:claim:${level}`);
+      const clientKey = String(r.headers.get("idempotency-key") || `claim:${eventId}:${level}`).trim(); if(!clientKey || clientKey.length>200) return NextResponse.json({error:"Invalid idempotency key"},{status:400}); const idem = `eventpass:${me.id}:${eventId}:${clientKey}`;
       const out = await prisma.$transaction(async tx => {
         const current = await tx.eventPass.upsert({ where: { eventId_userId: { eventId, userId: me.id } }, update: {}, create: { eventId, userId: me.id } });
         if (current.level < level) throw new Error("LEVEL_LOCKED");

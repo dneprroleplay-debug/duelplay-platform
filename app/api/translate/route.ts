@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { translateTexts, DeepLTarget } from "@/lib/deepl";
+import { prisma } from "@/lib/prisma";
+import { enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
 
 const LANGUAGE_MAP: Record<string, DeepLTarget> = {
   UA: "UK",
@@ -16,6 +19,8 @@ const MAX_TEXT_LENGTH = 500;
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "TRANSLATE_API", 30, 10 * 60_000));
     const body = await request.json().catch(() => null);
 
     const target = LANGUAGE_MAP[String(body?.target || "").toUpperCase()];

@@ -1,8 +1,9 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel, recordMatchStats } from "@/lib/progression";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
+import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { recalculateTrust } from "@/lib/trust";
 
 function record(value: unknown): Record<string, unknown> {
@@ -43,19 +44,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const pot = amount * 2;
       const fee = Number(match.commission);
       const payout = Number((pot - fee).toFixed(4));
-      const lockedWallets = await tx.$queryRaw<Array<{ id: string; userId: string; balance: import("@prisma/client").Prisma.Decimal; lockedBalance: import("@prisma/client").Prisma.Decimal }>>`
-        SELECT id, "userId", balance, "lockedBalance" FROM "Wallet"
-        WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid) ORDER BY "userId" FOR UPDATE
-      `;
-      const winnerWallet = lockedWallets.find(w => w.userId === winnerId);
-      const loserWallet = lockedWallets.find(w => w.userId === loserId);
-      if (!winnerWallet || !loserWallet) throw new Error("WALLET");
-      if (Number(winnerWallet.lockedBalance) < amount || Number(loserWallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
+      const wallets = await tx.wallet.findMany({ where: { userId: { in: [winnerId, loserId] } }, select: { userId: true } });
+      if (wallets.length !== 2) throw new Error("WALLET");
       const winKey = `local-test:${match.id}:win`;
-      const reward = await creditWallet(tx, winnerId, payout, winKey, "MATCH_WIN", `LOCAL TEST В· РїРѕР±РµРґР° В· $${payout.toFixed(2)}`, match.id);
-      await tx.wallet.update({ where: { id: winnerWallet.id }, data: { lockedBalance: { decrement: amount } } });
-      await tx.wallet.update({ where: { id: loserWallet.id }, data: { lockedBalance: { decrement: amount } } });
-      if (!reward.idempotent) await tx.transaction.create({ data: { walletId: loserWallet.id, type: "COMMISSION", status: "COMPLETED", amount: 0, balanceBefore: Number(loserWallet.balance), balanceAfter: Number(loserWallet.balance), referenceId: match.id, description: "LOCAL TEST В· loss" } });
+      const reward = await creditWallet(tx, winnerId, payout, winKey, "MATCH_WIN", `LOCAL TEST · победа · $${payout.toFixed(2)}`, match.id);
+      if (!reward.idempotent) {
+        await releaseWalletHold(tx, winnerId, amount, `match-stake-release:local-test:${match.id}:${winnerId}`, "MATCH_STAKE", match.id, "CONSUMED", "Local test result");
+        await releaseWalletHold(tx, loserId, amount, `match-stake-release:local-test:${match.id}:${loserId}`, "MATCH_STAKE", match.id, "CONSUMED", "Local test result");
+        await recordPlatformLedgerEntry(tx, { type: "MATCH_COMMISSION", amount: fee, referenceType: "MATCH", referenceId: match.id, description: "Match commission · local test" });
+      }
       await tx.user.update({ where: { id: winnerId }, data: { reputation: { increment: 15 } } });
       await tx.user.update({ where: { id: loserId }, data: { reputation: { decrement: 10 } } });
       await recalculateTrust(tx, winnerId);

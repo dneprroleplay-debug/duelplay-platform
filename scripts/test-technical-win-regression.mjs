@@ -5,8 +5,8 @@ const lifecycle = fs.readFileSync('lib/match-lifecycle.ts', 'utf8');
 const manager = fs.readFileSync('scripts/server-manager/server-manager.mjs', 'utf8');
 
 const checks = [
-  ['result wallet UUID casts', result.includes('WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)')],
-  ['watchdog wallet UUID casts', lifecycle.includes('WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)')],
+  ['result locks the match server-side', result.includes('lockMatchForUpdate(tx, id)')],
+  ['watchdog locks the match before settlement', lifecycle.includes('lockMatchForUpdate(tx, matchId)')],
   ['manager null guard after technical result', manager.includes('if (!current || current.id !== timedOutMatchId) return;')],
   ['manager state-poll null guard', manager.includes('if (!current) return;\n      try {\n        const state = await api(`/api/matches/${current.id}`);')],
 ];

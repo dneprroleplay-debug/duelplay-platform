@@ -5,6 +5,9 @@ export type PlatformSettingKey =
   | "MAX_STAKE"
   | "MIN_DEPOSIT"
   | "MIN_WITHDRAWAL"
+  | "MAX_WITHDRAWAL"
+  | "DAILY_WITHDRAWAL_LIMIT"
+  | "KYC_REQUIRED_FOR_WITHDRAWALS"
   | "XP_MULTIPLIER"
   | "REPUTATION_MULTIPLIER";
 
@@ -17,6 +20,9 @@ export const PLATFORM_SETTING_RULES: Record<PlatformSettingKey, Rule> = {
   MAX_STAKE: { min: 0.01, max: 100000, step: 0.01 },
   MIN_DEPOSIT: { min: 0.01, max: 100000, step: 0.01 },
   MIN_WITHDRAWAL: { min: 0.01, max: 100000, step: 0.01 },
+  MAX_WITHDRAWAL: { min: 0.01, max: 1000000, step: 0.01 },
+  DAILY_WITHDRAWAL_LIMIT: { min: 0.01, max: 1000000, step: 0.01 },
+  KYC_REQUIRED_FOR_WITHDRAWALS: { min: 0, max: 1, step: 1 },
   XP_MULTIPLIER: { min: 0, max: 100, step: 0.1 },
   REPUTATION_MULTIPLIER: { min: 0, max: 100, step: 0.1 },
 };

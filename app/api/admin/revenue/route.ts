@@ -30,27 +30,48 @@ export async function GET(request: Request) {
     const to = parseDate(url.searchParams.get("to"), now);
     if (!from || !to || from > to) return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
 
-    const rows = await prisma.transaction.findMany({
-      where: { status: "COMPLETED", createdAt: { gte: from, lte: to } },
-      select: { type: true, amount: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
-    });
+    const [rows, platformRows] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { status: "COMPLETED", createdAt: { gte: from, lte: to } },
+        select: { type: true, amount: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.platformLedgerEntry.findMany({
+        where: { currency: "USD", createdAt: { gte: from, lte: to } },
+        select: { type: true, amount: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
     const byType = amountByType(rows);
-    const revenue = REVENUE_TYPES.reduce((sum, type) => sum + (byType[type] ?? 0), 0);
+    const platformByType = amountByType(platformRows);
+    const platformRevenueTypes = ["MATCH_COMMISSION", "PAYMENT_FEE", "WITHDRAWAL_FEE"] as const;
+    const platformRevenue = platformRevenueTypes.reduce((sum, type) => sum + (platformByType[type] ?? 0), 0);
+    const manualAdjustments = platformRows
+      .filter(row => row.type === "MANUAL_ADJUSTMENT")
+      .reduce((sum, row) => sum + Number(row.amount), 0);
+    const revenue = REVENUE_TYPES.reduce((sum, type) => sum + (byType[type] ?? 0), 0) + platformRevenue;
     const expenses = EXPENSE_TYPES.reduce((sum, type) => sum + (byType[type] ?? 0), 0);
 
-    const days = new Map<string, { revenue: number; expenses: number; transactions: number }>();
+    const days = new Map<string, { revenue: number; expenses: number; transactions: number; platformLedgerEntries: number; manualAdjustments: number }>();
     for (const row of rows) {
       const key = row.createdAt.toISOString().slice(0, 10);
-      const bucket = days.get(key) ?? { revenue: 0, expenses: 0, transactions: 0 };
+      const bucket = days.get(key) ?? { revenue: 0, expenses: 0, transactions: 0, platformLedgerEntries: 0, manualAdjustments: 0 };
       if ((REVENUE_TYPES as readonly string[]).includes(row.type)) bucket.revenue += Math.max(0, Number(row.amount));
       if ((EXPENSE_TYPES as readonly string[]).includes(row.type)) bucket.expenses += Math.max(0, Number(row.amount));
       bucket.transactions += 1;
       days.set(key, bucket);
     }
+    for (const row of platformRows) {
+      const key = row.createdAt.toISOString().slice(0, 10);
+      const bucket = days.get(key) ?? { revenue: 0, expenses: 0, transactions: 0, platformLedgerEntries: 0, manualAdjustments: 0 };
+      if ((platformRevenueTypes as readonly string[]).includes(row.type)) bucket.revenue += Math.max(0, Number(row.amount));
+      if (row.type === "MANUAL_ADJUSTMENT") bucket.manualAdjustments += Number(row.amount);
+      bucket.platformLedgerEntries += 1;
+      days.set(key, bucket);
+    }
 
     const categories = {
-      commission: byType.COMMISSION ?? 0,
+      commission: (byType.COMMISSION ?? 0) + (platformByType.MATCH_COMMISSION ?? 0),
       cases: byType.CASE_OPEN ?? 0,
       cosmetics: byType.COSMETIC_PURCHASE ?? 0,
       prime: byType.PRIME_PURCHASE ?? 0,
@@ -60,6 +81,9 @@ export async function GET(request: Request) {
       referralPayouts: byType.REFERRAL ?? 0,
       referralRacePrizes: byType.REFERRAL_RACE_PRIZE ?? 0,
       tournamentPrizes: byType.TOURNAMENT_PRIZE ?? 0,
+      paymentFees: platformByType.PAYMENT_FEE ?? 0,
+      withdrawalFees: platformByType.WITHDRAWAL_FEE ?? 0,
+      manualAdjustments,
     };
 
     return NextResponse.json({
@@ -68,11 +92,15 @@ export async function GET(request: Request) {
       admin: { id: me.id, role: me.role },
       categories,
       byType: Object.fromEntries(ALL_TYPES.map(type => [type, byType[type] ?? 0])),
-      daily: [...days.entries()].map(([date, value]) => ({ date, ...value, netRevenue: value.revenue - value.expenses })),
+      platformLedgerByType: Object.fromEntries(platformRevenueTypes.map(type => [type, platformByType[type] ?? 0])),
+      daily: [...days.entries()].map(([date, value]) => ({ date, ...value, netRevenue: value.revenue - value.expenses + value.manualAdjustments })),
       revenue,
       expenses,
-      netRevenue: revenue - expenses,
+      platformRevenue,
+      manualAdjustments,
+      netRevenue: revenue - expenses + manualAdjustments,
       transactionCount: rows.length,
+      platformLedgerCount: platformRows.length,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "FORBIDDEN") return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });

@@ -37,8 +37,8 @@ const checks = [
     header.includes('Никто не подключился к серверу CS2 за 5 минут. Ставка возвращена.'),
   ],
   [
-    'connection timeout is 5 minutes by default',
-    timers.includes('MATCH_LIVE_TIMEOUT_MS = positiveMs("DUELPLAY_LIVE_TIMEOUT_MS", 5 * 60 * 1000)'),
+    'connection timeout remains 5 minutes by default',
+    timers.includes('MATCH_CONNECTION_TIMEOUT_MS = positiveMs("DUELPLAY_CONNECTION_TIMEOUT_MS", 5 * 60 * 1000)'),
   ],
 ];
 

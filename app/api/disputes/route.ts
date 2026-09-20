@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { requireAdmin, audit } from "@/lib/admin";
+import { requireAdmin, audit, auditRequest } from "@/lib/admin";
 import { isModeratorRole } from "@/lib/role-policy";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
+import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const DECISIONS = ["DRAW", "WINNER_PLAYER_ONE", "WINNER_PLAYER_TWO", "CANCELLED_REFUND"] as const;
 const EVIDENCE_TYPES = ["IMAGE", "VIDEO", "LOG_FILE", "DEMO_REPLAY"] as const;
@@ -33,6 +35,12 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    await prisma.$transaction(tx => enforceRateLimit(tx, me.id, "DISPUTE_CREATE", 10, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много обращений по спорам. Попробуйте позже." }, { status: 429 });
+    throw error;
+  }
   const body = await request.json().catch(() => ({}));
   const matchId = String(body.matchId || "").trim();
   const reason = String(body.reason || "").trim();
@@ -56,7 +64,7 @@ export async function POST(request: NextRequest) {
       await tx.match.update({ where: { id: matchId }, data: { status: "DISPUTED" } });
       return created;
     });
-    await audit(me.id, "CREATE_DISPUTE", "DISPUTE", dispute.id, { matchId });
+    await auditRequest(request, me.id, "CREATE_DISPUTE", "DISPUTE", dispute.id, { matchId });
     return NextResponse.json(dispute, { status: 201 });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
@@ -78,7 +86,13 @@ export async function PATCH(request: NextRequest) {
   if (action === "evidence") {
     const me = await getCurrentUser();
     if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const id = String(body.id || "");
+    try {
+      await prisma.$transaction(tx => enforceRateLimit(tx, me.id, "DISPUTE_EVIDENCE", 30, 10 * 60_000));
+    } catch (error) {
+      if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много файловых операций. Попробуйте позже." }, { status: 429 });
+      throw error;
+    }
+    const id = String(body.id || "").trim();
     const fileUrl = String(body.fileUrl || "").trim();
     const type = String(body.type || "IMAGE");
     if (!id || !fileUrl || fileUrl.length > 2048 || !isEvidenceType(type)) return NextResponse.json({ error: "Invalid evidence" }, { status: 400 });
@@ -94,6 +108,12 @@ export async function PATCH(request: NextRequest) {
   }
 
   const me = await requireAdmin(2);
+  try {
+    await prisma.$transaction(tx => enforceRateLimit(tx, me.id, "DISPUTE_ADMIN_RESOLVE", 30, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много административных операций со спорами." }, { status: 429 });
+    throw error;
+  }
   const id = String(body.id || "");
   const decisionValue = String(body.decision || "");
   if (!id || !isDecision(decisionValue)) return NextResponse.json({ error: "Invalid dispute decision" }, { status: 400 });
@@ -115,11 +135,8 @@ export async function PATCH(request: NextRequest) {
       const p1 = String(match.playerOneId), p2 = String(match.playerTwoId || "");
       if (!p2) throw new Error("INVALID_PLAYERS");
 
-      const wallets = await tx.$queryRaw<Array<{ id: string; userId: string; lockedBalance: any }>>`
-        SELECT id, "userId", "lockedBalance" FROM "Wallet" WHERE "userId" IN (${p1}, ${p2}) FOR UPDATE
-      `;
-      const w1 = wallets.find(w => w.userId === p1), w2 = wallets.find(w => w.userId === p2);
-      if (!w1 || !w2 || Number(w1.lockedBalance) < stake || Number(w2.lockedBalance) < stake) throw new Error("LOCKED_STAKE");
+      const wallets = await tx.wallet.findMany({ where: { userId: { in: [p1, p2] } }, select: { userId: true } });
+      if (wallets.length !== 2) throw new Error("WALLET");
 
       const winnerId = decisionValue === "WINNER_PLAYER_ONE" ? p1 : decisionValue === "WINNER_PLAYER_TWO" ? p2 : null;
       const loserId = winnerId ? (winnerId === p1 ? p2 : p1) : null;
@@ -127,17 +144,17 @@ export async function PATCH(request: NextRequest) {
         const payout = Math.max(0, Number((stake * 2 - Number(match.commission)).toFixed(4)));
         const credited = await creditWallet(tx, winnerId, payout, `dispute-win:${id}`, "MATCH_WIN", "Dispute resolution payout", match.id);
         if (!credited.idempotent) {
-          await tx.wallet.update({ where: { id: w1.id }, data: { lockedBalance: { decrement: stake } } });
-          await tx.wallet.update({ where: { id: w2.id }, data: { lockedBalance: { decrement: stake } } });
+          await releaseWalletHold(tx, p1, stake, `match-stake-release:dispute:${id}:${p1}`, "MATCH_STAKE", match.id, "CONSUMED", "Dispute resolution payout");
+          await releaseWalletHold(tx, p2, stake, `match-stake-release:dispute:${id}:${p2}`, "MATCH_STAKE", match.id, "CONSUMED", "Dispute resolution payout");
+          await recordPlatformLedgerEntry(tx, { type: "MATCH_COMMISSION", amount: Number(match.commission), referenceType: "MATCH", referenceId: match.id, description: "Match commission · dispute resolution" });
           await awardXp(tx, winnerId, 100); await awardXp(tx, loserId!, 25);
           await updateMatchProgress(tx, winnerId, true); await updateMatchProgress(tx, loserId!, false);
           await updateRatingAfterDuel(tx, winnerId, loserId!);
         }
       } else {
         for (const userId of [p1, p2]) {
-          const wallet = userId === p1 ? w1 : w2;
-          const credited = await creditWallet(tx, userId, stake, `dispute-refund:${id}:${userId}`, "REFUND", "Dispute resolution refund", match.id);
-          if (!credited.idempotent) await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { decrement: stake } } });
+          await creditWallet(tx, userId, stake, `dispute-refund:${id}:${userId}`, "REFUND", "Dispute resolution refund", match.id);
+          await releaseWalletHold(tx, userId, stake, `match-stake-release:dispute-refund:${id}:${userId}`, "MATCH_STAKE", match.id, "RELEASED", "Dispute resolution refund");
         }
       }
 
@@ -145,11 +162,11 @@ export async function PATCH(request: NextRequest) {
       const updatedDispute = await tx.dispute.update({ where: { id }, data: { adminDecision: decisionValue, status: "RESOLVED_BY_ADMIN", adminNotes: String(body.notes || "").slice(0, 2000), resolvedAt: new Date() } });
       return { dispute: updatedDispute, match: updatedMatch, idempotent: false };
     });
-    if (!result.idempotent) await audit(me.id, "RESOLVE_DISPUTE", "DISPUTE", id, { decision: decisionValue });
+    if (!result.idempotent) await auditRequest(request, me.id, "RESOLVE_DISPUTE", "DISPUTE", id, { decision: decisionValue });
     return NextResponse.json(result);
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
-    const map: Record<string, [string, number]> = { NOT_FOUND: ["Dispute not found", 404], MATCH_STATE: ["Match is not awaiting dispute resolution", 409], LOCKED_STAKE: ["Locked stake is unavailable", 409], INVALID_STAKE: ["Invalid match stake", 409], INVALID_PLAYERS: ["Match has invalid players", 409] };
+    const map: Record<string, [string, number]> = { NOT_FOUND: ["Dispute not found", 404], MATCH_STATE: ["Match is not awaiting dispute resolution", 409], LOCKED_STAKE: ["Locked stake is unavailable", 409], INVALID_STAKE: ["Invalid match stake", 409], INVALID_PLAYERS: ["Match has invalid players", 409], WALLET: ["Player wallet not found", 500] };
     if (map[code]) return NextResponse.json({ error: map[code][0] }, { status: map[code][1] });
     console.error(error); return NextResponse.json({ error: "Failed to resolve dispute" }, { status: 500 });
   }

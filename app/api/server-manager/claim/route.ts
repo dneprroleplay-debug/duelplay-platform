@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
 import { prisma } from "@/lib/prisma";
 import { isServerManagerRequest } from "../auth";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { getDuelMap } from "@/lib/duel-maps";
 
 export async function POST(request: NextRequest) {
+  try {
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "SERVER_MANAGER_CLAIM", 60, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    throw error;
+  }
+
   if (!isServerManagerRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json();
   const matchId = String(body.matchId ?? "");

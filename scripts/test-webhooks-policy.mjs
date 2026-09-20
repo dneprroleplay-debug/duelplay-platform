@@ -11,7 +11,7 @@ const checks=[
   ['payload size guard', /MAX_PAYLOAD_BYTES/.test(route) && /413/.test(route)],
   ['JSON validation', /Invalid JSON/.test(route) && /Invalid payload/.test(route)],
   ['event id extraction', /x-event-id/.test(route) && /event_id/.test(route)],
-  ['idempotency lookup', /findUnique\(\{ where: \{ externalId \} \}\)/.test(route)],
+  ['idempotency lookup', /findUnique\(\{ where: \{ provider_externalId: \{ provider, externalId \} \} \}\)/.test(route)],
   ['persisted RECEIVED state', /status:\s*"RECEIVED"/.test(route)],
   ['concurrent duplicate protection', /P2002/.test(route)],
 ];

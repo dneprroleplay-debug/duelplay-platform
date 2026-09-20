@@ -19,8 +19,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   });
   if (!match) return NextResponse.json({ error: "Матч не найден" }, { status: 404 });
 
-  // The browser countdown is only a display. The LIVE deadline itself is authoritative
-  // on the server, so resolve an expired LIVE phase during the next poll.
+  // The browser countdown is only a display. The deadline itself is authoritative
+  // on the server, so resolve an expired connection phase during the next poll.
   if (
     match.status === "LIVE" &&
     !match.connectionPhaseCompleted &&

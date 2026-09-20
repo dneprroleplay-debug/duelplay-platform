@@ -1,4 +1,4 @@
-﻿import { PrismaClient } from "@prisma/client";
+﻿﻿import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../lib/auth";
 const prisma = new PrismaClient();
 async function main() {
@@ -18,7 +18,7 @@ async function main() {
   await prisma.siteSettings.upsert({ where: { key: "backgroundTheme" }, update: {}, create: { key: "backgroundTheme", value: { id: "stars" }, description: "Background atmosphere" } });
   await prisma.siteSettings.upsert({ where: { key: "heroBackground" }, update: {}, create: { key: "heroBackground", value: { id: "hero-01" }, description: "Homepage hero background" } });
   for (const [key,value,minValue,maxValue,step] of [
-    ["COMMISSION_RATE",10,0,50,0.5],["REFERRAL_COMMISSION",25,0,50,0.5],["MIN_STAKE",3,0,100000,0.5],["MAX_STAKE",10000,0,100000,0.5],["MIN_DEPOSIT",5,0,100000,0.5],["MIN_WITHDRAWAL",5,0,100000,0.5],["XP_MULTIPLIER",1,0,100,0.5],["REPUTATION_MULTIPLIER",1,0,100,0.5]
+    ["COMMISSION_RATE",10,0,50,0.5],["REFERRAL_COMMISSION",25,0,50,0.5],["MIN_STAKE",3,0,100000,0.5],["MAX_STAKE",10000,0,100000,0.5],["MIN_DEPOSIT",5,0,100000,0.5],["MIN_WITHDRAWAL",5,0,100000,0.5],["MAX_WITHDRAWAL",10000,0.01,1000000,0.01],["DAILY_WITHDRAWAL_LIMIT",10000,0.01,1000000,0.01],["KYC_REQUIRED_FOR_WITHDRAWALS",0,0,1,1],["XP_MULTIPLIER",1,0,100,0.5],["REPUTATION_MULTIPLIER",1,0,100,0.5]
   ] as const) await prisma.platformSetting.upsert({where:{key},update:{},create:{key,value,minValue,maxValue,step}});
   for (const key of ["DUELS","CASES","TOURNAMENTS","DUELPASS","PRIME","REFERRALS","PROMOS","STEAM_TRADE","MAINTENANCE_MODE"]) await prisma.featureFlag.upsert({where:{key},update:{},create:{key,enabled:!["TOURNAMENTS","DUELPASS","PRIME","STEAM_TRADE"].includes(key)}});
   for (const u of [test,rival]) await prisma.playerStats.upsert({where:{userId:u.id},update:{},create:{userId:u.id}});

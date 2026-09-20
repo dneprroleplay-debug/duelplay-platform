@@ -5,7 +5,7 @@
  */
 export const CORE_DOMAIN_RELATIONSHIPS = {
   identity: ['User', 'UserSession', 'UserDevice'],
-  finance: ['Wallet', 'Transaction', 'Deposit', 'Withdrawal'],
+  finance: ['Wallet', 'Transaction', 'WalletHold', 'Deposit', 'Withdrawal', 'KycVerification', 'PaymentReconciliation', 'PlatformLedgerEntry'],
   gameplay: ['Game', 'Match', 'MatchPlayerStat', 'GameServer'],
   progression: ['PlayerStats', 'UserAchievement', 'UserMission', 'UserLoginReward'],
   events: ['Event', 'EventPass', 'EventMissionProgress', 'Season', 'DuelPass'],

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { isServerManagerRequest } from "@/app/api/server-manager/auth";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { lockMatchForUpdate, resolveConnectionTimeout, cancelMatchWithRefund } from "@/lib/match-lifecycle";
 import { deadlineFromNow, MATCH_LIVE_TIMEOUT_MS } from "@/lib/match-timers";
+import { enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
@@ -16,28 +18,12 @@ async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.Match
     const idem = `refund:${match.id}:${uid}`;
     const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
 
-    const rows = await tx.$queryRaw<Array<{ id: string; lockedBalance: Prisma.Decimal }>>`
-      SELECT id, "lockedBalance" FROM "Wallet" WHERE "userId" = ${uid}::uuid FOR UPDATE
-    `;
-    const wallet = rows[0];
+    const wallet = await tx.wallet.findUnique({ where: { userId: uid }, select: { id: true } });
     if (!wallet) throw new Error("WALLET");
 
     if (!existing) {
-      if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
-
-      await creditWallet(
-      tx,
-      uid,
-      amount,
-      idem,
-      "REFUND",
-      reason,
-      match.id,
-    );
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { lockedBalance: { decrement: amount } },
-      });
+      await creditWallet(tx, uid, amount, idem, "REFUND", reason, match.id);
+      await releaseWalletHold(tx, uid, amount, `match-stake-release:server-refund:${match.id}:${uid}`, "MATCH_STAKE", match.id, "RELEASED", reason);
     }
 
     await tx.notification.create({
@@ -64,6 +50,13 @@ async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.Match
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "SERVER_MANAGER_STATE", 300, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Server manager rate limit exceeded" }, { status: 429 });
+    throw error;
+  }
   if (!isServerManagerRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const body = await request.json();
@@ -78,8 +71,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         if (!match || !match.gameServer || match.gameServer.id !== serverId) throw new Error("NOT_FOUND");
         if (!["READY","STARTING"].includes(match.status)) throw new Error("INVALID_STATUS");
         const port = Number(body.port ?? match.gameServer.port);
-        const startedAt = new Date();
         const host = String(body.host ?? match.gameServer.host);
+        const startedAt = new Date();
         await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId: Number.isInteger(body.processId) ? Number(body.processId) : null, startedAt, lastHeartbeat: startedAt } });
         const cfg = asRecord(match.serverConfig);
         return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt, startDeadlineAt: null, connectionDeadlineAt: null,

@@ -11,6 +11,7 @@ const required = (name) => {
 };
 const API = required('DUELPLAY_API_URL').replace(/\/$/, '');
 const SECRET = required('DUELPLAY_SERVER_MANAGER_SECRET');
+const RESULT_SECRET = required('CS2_RESULT_SECRET');
 const GSI_TOKEN = required('CS2_GSI_TOKEN');
 const CS2_DIR = process.env.CS2_DIR || '/home/ubuntu/cs2/game';
 const CS2_SCRIPT = join(CS2_DIR, 'cs2.sh');
@@ -320,26 +321,14 @@ function applyDuelRules(mode, weaponModifier) {
   command('mp_warmup_online_enabled 0'); command('mp_warmuptime 0'); command('mp_warmup_pausetimer 0'); command('mp_warmup_end');
   command('mp_autoteambalance 0'); command('mp_limitteams 0'); command('mp_buytime 0'); command('mp_buy_anywhere 0');
   command('mp_damage_headshot_only 0');
-  if (weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY') {
-    command('exec duelplay_grenade');
-    command('duelplay_grenade_only 1');
-  }
-  else if (weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY') {
-    command('duelplay_grenade_only 0');
-    command('exec duelplay_awp');
-  }
-  else if (weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY') {
-    command('duelplay_grenade_only 0');
-    command('exec duelplay_deagle');
-  }
-  else if (weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY') {
-    command('duelplay_grenade_only 0');
-    command('exec duelplay_knife');
-  }
-  else if (weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY') {
-    command('duelplay_grenade_only 0'); command('exec duelplay_headshot'); command('mp_damage_headshot_only 1'); }
+  const grenadeOnly = weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY';
+  command(`duelplay_grenade_only ${grenadeOnly ? 1 : 0}`);
+  if (grenadeOnly) command('exec duelplay_grenade');
+  else if (weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY') command('exec duelplay_awp');
+  else if (weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY') command('exec duelplay_deagle');
+  else if (weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY') command('exec duelplay_knife');
+  else if (weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY') { command('exec duelplay_headshot'); command('mp_damage_headshot_only 1'); }
   else if (weaponModifier === 'RANDOM_WEAPON' || mode === 'RANDOM_WEAPON') {
-    command('duelplay_grenade_only 0');
     const random = current?.randomWeapon || randomWeaponForDuel();
     if (current) current.randomWeapon = random;
     command('mp_weapons_allow_map_placed 0'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
@@ -351,11 +340,9 @@ function applyDuelRules(mode, weaponModifier) {
     }
     command('mp_t_default_melee 0'); command('mp_ct_default_melee 0'); command('mp_t_default_grenades 0'); command('mp_ct_default_grenades 0'); command('mp_death_drop_gun 0'); command('mp_death_drop_grenade 0');
   } else if (mode === 'FIRST_TO_10') {
-    command('duelplay_grenade_only 0');
     command('exec duelplay_first_to_10'); command('mp_maxrounds 19'); command('mp_match_can_clinch 1'); command('mp_match_end_restart 0'); command('mp_halftime 0');
     command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 255'); command('mp_buy_allow_grenades 1');
   } else {
-    command('duelplay_grenade_only 0');
     command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 255'); command('mp_buy_allow_grenades 1');
     command('mp_weapons_allow_pistols 1'); command('mp_weapons_allow_smgs 1'); command('mp_weapons_allow_rifles 1'); command('mp_weapons_allow_heavy 1'); command('mp_weapons_allow_zeus 1');
     command('mp_match_can_clinch 1'); command('mp_match_end_restart 0');
@@ -718,7 +705,7 @@ async function reportWinner(winnerSteamId, reason) {
   try {
     const response = await fetch(`${API}/api/matches/${current.id}/result`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-cs2-result-secret': SECRET },
+      headers: { 'content-type': 'application/json', 'x-cs2-result-secret': RESULT_SECRET },
       body: JSON.stringify({ winnerSteamId: canonical, source: 'CS2_GSI', reason })
     });
     if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);

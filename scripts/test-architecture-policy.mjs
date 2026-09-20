@@ -5,7 +5,7 @@ const root = process.cwd();
 const schema = fs.readFileSync(`${root}/prisma/schema.prisma`, 'utf8');
 const policy = fs.readFileSync(`${root}/lib/architecture-policy.ts`, 'utf8');
 
-for (const model of ['User','Wallet','Match','PlayerStats','Event','AuditLog','Game','Transaction','MatchPlayerStat','GameServer','EventPass','EventMissionProgress','Season','DuelPass','FeatureFlag','PlatformSetting','WebhookEvent']) {
+for (const model of ['User','Wallet','Match','PlayerStats','Event','AuditLog','Game','Transaction','WalletHold','Deposit','Withdrawal','KycVerification','PaymentReconciliation','PlatformLedgerEntry','MatchPlayerStat','GameServer','EventPass','EventMissionProgress','Season','DuelPass','FeatureFlag','PlatformSetting','WebhookEvent']) {
   assert.match(schema, new RegExp(`model ${model}\\s*\\{`), `${model} must exist in the canonical schema`);
 }
 
@@ -26,6 +26,7 @@ for (const relation of [
   'transactions.*Transaction',
   'deposits.*Deposit',
   'withdrawals.*Withdrawal',
+  'holds.*WalletHold',
 ]) assert.match(schema, new RegExp(relation, 's'), `Wallet relationship missing: ${relation}`);
 
 for (const relation of [

@@ -44,3 +44,12 @@ export async function enforceRateLimit(
 export function isRateLimitError(error: unknown) {
   return error instanceof Error && error.message === "RATE_LIMITED";
 }
+
+export async function enforceIpRateLimit(tx: Prisma.TransactionClient, ipAddress: string, eventType: string, limit: number, windowMs = 60_000) {
+  if (!ipAddress || !eventType || !Number.isInteger(limit) || limit < 1 || !Number.isFinite(windowMs) || windowMs <= 0) throw new Error("INVALID_RATE_LIMIT");
+  const since = new Date(Date.now() - windowMs);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${ipAddress}:${eventType}`}, 0))`;
+  const count = await tx.securityEvent.count({ where: { userId: null, eventType, ipAddress, createdAt: { gte: since } } });
+  if (count >= limit) throw new Error("RATE_LIMITED");
+  await tx.securityEvent.create({ data: { userId: null, eventType, severity: "INFO", ipAddress, metadata: { windowMs, limit } } });
+}

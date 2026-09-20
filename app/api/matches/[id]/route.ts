@@ -13,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     where: { id },
     include: {
       game: true,
-      gameServer: { select: { lastHeartbeat: true, status: true, host: true, port: true } },
+      gameServer: { select: { lastHeartbeat: true, status: true } },
       playerOne: { select: { id: true, nickname: true, avatarUrl: true } },
       playerTwo: { select: { id: true, nickname: true, avatarUrl: true } },
       winner: { select: { id: true, nickname: true } },
@@ -24,8 +24,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!match) return NextResponse.json({ error: "Матч не найден" }, { status: 404 });
 
   // The match page polls this endpoint every second. Resolve an expired
-  // LIVE timeout here so the technical-win/refund lifecycle does not
-  // depend on a separate connection timer.
+  // connection phase here so the technical-win/refund lifecycle does not
+  // depend on the legacy presence endpoint or a separate watchdog tick.
   if (
     match.status === "LIVE" &&
     !match.connectionPhaseCompleted &&
@@ -59,7 +59,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       where: { id },
       include: {
         game: true,
-        gameServer: { select: { lastHeartbeat: true, status: true, host: true, port: true } },
+        gameServer: { select: { lastHeartbeat: true, status: true } },
         playerOne: { select: { id: true, nickname: true, avatarUrl: true } },
         playerTwo: { select: { id: true, nickname: true, avatarUrl: true } },
         winner: { select: { id: true, nickname: true } },

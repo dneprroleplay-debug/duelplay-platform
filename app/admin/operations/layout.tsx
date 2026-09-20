@@ -1,9 +1,13 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { getCurrentUser } from "@/lib/current-user";
+import { requireAdmin } from "@/lib/admin";
 
 export default async function SuperadminOperationsLayout({ children }: { children: ReactNode }) {
-  const me = await getCurrentUser();
-  if (!me || me.role !== "SUPERADMIN") redirect("/admin");
-  return children;
+  try {
+    await requireAdmin(5);
+    return children;
+  } catch (error) {
+    if (error instanceof Error && error.message === "FORBIDDEN") redirect("/admin");
+    redirect("/admin");
+  }
 }

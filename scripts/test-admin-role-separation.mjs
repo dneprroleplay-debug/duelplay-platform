@@ -8,7 +8,7 @@ const api = fs.readFileSync(path.join(root,"app","api","admin","route.ts"),"utf8
 
 const checks = [
   ["Control Center link is SUPERADMIN-only in UI", admin.includes('d.me.level>=5&&<a href="/admin/operations"')],
-  ["Operations route has server-side SUPERADMIN guard", layout.includes('me.role !== "SUPERADMIN"') && layout.includes('redirect("/admin")')],
+  ["Operations route has server-side SUPERADMIN guard", layout.includes('await requireAdmin(5)') && layout.includes('redirect("/admin")')],
   ["Platform settings API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","platform-settings","route.ts"),"utf8").includes('requireAdmin(5)')],
   ["Feature flags API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","feature-flags","route.ts"),"utf8").includes('requireAdmin(5)')],
   ["Site settings mutation API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","site-settings","route.ts"),"utf8").includes('requireAdmin(5)')],

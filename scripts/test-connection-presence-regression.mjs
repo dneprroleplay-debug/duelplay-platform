@@ -8,7 +8,7 @@ const matchRoute = fs.readFileSync("app/api/matches/[id]/route.ts", "utf8");
 const checks = [
   [route.includes("participantSteamIds = new Set"), "server route normalizes participant Steam IDs before presence filtering"],
   [route.includes("validConnectedSteamIds"), "server route filters connected IDs to real participants"],
-  [matchRoute.includes("playerTwo: {select") || matchRoute.includes("playerTwo:{select"), "match API returns player two from the database"],
+  [matchRoute.includes("playerTwo: { select:"), "match API returns player two from the database"],
   [matchRoute.includes('Cache-Control') && matchRoute.includes('no-store'), "match API disables response caching"],
   [page.includes("const loadInFlight=useRef(false)"), "match polling has an in-flight guard"],
   [page.includes("if(!id||loadInFlight.current)return"), "a slow request cannot be aborted by the next polling tick"],
@@ -17,9 +17,8 @@ const checks = [
   [!page.includes("loadPresence") && !page.includes("setPresence"), "stale presence response cannot overwrite match state"],
   [page.includes("m.liveState?.connectedCount"), "live connection count comes from the same authoritative match response"],
   [page.includes("const previousSnapshot=useRef"), "authoritative match snapshot is tracked across refreshes"],
-  [page.includes("window.location.reload()"), "page reload fallback is wired for authoritative lifecycle changes"],
-  [page.includes("previous.playerTwoId!==nextSnapshot.playerTwoId"), "player two changes trigger automatic page refresh"],
-  [page.includes("previous.startDeadlineAt!==nextSnapshot.startDeadlineAt") && page.includes("previous.liveDeadlineAt!==nextSnapshot.liveDeadlineAt"), "countdown/deadline changes trigger automatic page refresh"],
+  [page.includes("The fresh API snapshot above is authoritative"), "authoritative API snapshot drives lifecycle state"],
+  [!page.includes("window.location.reload()"), "match page does not force full browser reloads on refresh"],
 ];
 
 for (const [ok, label] of checks) {

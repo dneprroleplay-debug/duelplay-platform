@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { debitWallet } from "@/lib/wallet";
+import { debitWallet, lockWallet } from "@/lib/wallet";
 import { getFeatureFlag, getPlatformNumber } from "@/lib/platform-settings";
 import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { DUEL_MODE_IDS, isDuelMode, type DuelModeId } from "@/lib/duel-modes";
@@ -208,10 +208,15 @@ export async function POST(request: NextRequest) {
         const debit = await debitWallet(tx, me.id, amount, `match:${candidate.id}:player2`, "MATCH_BET", `Ставка на CS2 · ${candidate.mapName || "Duel"}`, candidate.id);
         if (debit.idempotent) throw new Error("ALREADY_JOINED");
 
-        const walletRows = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Wallet" WHERE "userId" = ${me.id}::uuid FOR UPDATE`;
-        const wallet = walletRows[0];
-        if (!wallet) throw new Error("WALLET_NOT_FOUND");
-        await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { increment: amount } } });
+        await lockWallet(
+          tx,
+          me.id,
+          amount,
+          `match-stake:matchmaking:${candidate.id}:${me.id}`,
+          "MATCH_STAKE",
+          candidate.id,
+          `Ставка зарезервирована · ${candidate.id.slice(0, 8)}`,
+        );
 
         await tx.notification.create({
           data: {

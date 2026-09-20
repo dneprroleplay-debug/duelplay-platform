@@ -1,0 +1,4 @@
+import { Prisma, PlatformLedgerType } from "@prisma/client";
+type Tx = Prisma.TransactionClient; type MoneyInput = number | string | Prisma.Decimal;
+function money(value:MoneyInput, allowNegative=false){const d=value instanceof Prisma.Decimal?value:new Prisma.Decimal(String(value));if(!d.isFinite()||d.eq(0)||(allowNegative?false:d.lt(0)))throw new Error("INVALID_AMOUNT");return d.toDecimalPlaces(4);}
+export async function recordPlatformLedgerEntry(tx:Tx,input:{type:PlatformLedgerType;amount:MoneyInput;referenceType?:string;referenceId?:string;externalReference?:string;description?:string;metadata?:Prisma.InputJsonValue}){const amount=money(input.amount,input.type==="MANUAL_ADJUSTMENT");return tx.platformLedgerEntry.create({data:{type:input.type,currency:"USD",amount,referenceType:input.referenceType,referenceId:input.referenceId,externalReference:input.externalReference,description:input.description,metadata:input.metadata}});}

@@ -27,7 +27,7 @@ const failures=[];
 for(const rel of critical){
   const s=fs.readFileSync(path.join(root,rel),'utf8');
   if(!/requireAdmin/.test(s)) failures.push(`${rel}: missing requireAdmin`);
-  if(!/audit\(/.test(s)) failures.push(`${rel}: missing audit`);
+  if(!/audit(?:Request)?\(/.test(s)) failures.push(`${rel}: missing audit`);
 }
 const admin=fs.readFileSync(path.join(root,'lib/admin.ts'),'utf8');
 if(!/prisma\.auditLog\.create/.test(admin)) failures.push('lib/admin.ts: audit does not persist AuditLog');

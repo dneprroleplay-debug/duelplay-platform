@@ -64,7 +64,12 @@ enum GameServerStatus {
 enum TransactionType {
   DEPOSIT
   WITHDRAW
+  WITHDRAWAL_RESERVE
+  WITHDRAWAL_RELEASE
+  WITHDRAWAL_COMPLETED
   MATCH_BET
+  MATCH_STAKE_LOCK
+  MATCH_STAKE_RELEASE
   TOURNAMENT_ENTRY
   MATCH_WIN
   REFUND
@@ -87,6 +92,38 @@ enum TransactionStatus {
   COMPLETED
   FAILED
   REVERSED
+}
+
+enum WalletHoldType {
+  MATCH_STAKE
+  WITHDRAWAL
+}
+
+enum WalletHoldStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ReconciliationStatus {
+  RUNNING
+  COMPLETED
+  WITH_DISCREPANCY
+  FAILED
+}
+
+enum PlatformLedgerType {
+  MATCH_COMMISSION
+  PAYMENT_FEE
+  WITHDRAWAL_FEE
+  MANUAL_ADJUSTMENT
 }
 
 enum PaymentProvider {
@@ -327,6 +364,7 @@ model User {
   referrals            User[]            @relation("UserReferrals")
   referralRaceSettlements ReferralRaceSettlement[]
   wallet               Wallet?
+  kycVerification      KycVerification?
   sessions             UserSession[]
   devices              UserDevice[]
   auditLogs            AuditLog[]
@@ -393,7 +431,8 @@ model User {
 model Wallet {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId        String        @unique @db.Uuid
-  balance       Decimal       @db.Decimal(20, 4) @default(500.0000)
+  currency      String        @default("USD") @db.Char(3)
+  balance       Decimal       @db.Decimal(20, 4) @default(0.0000)
   lockedBalance Decimal       @db.Decimal(20, 4) @default(0.0000)
   bonusBalance  Decimal       @db.Decimal(20, 4) @default(0.0000)
   createdAt     DateTime      @default(now())
@@ -403,69 +442,165 @@ model Wallet {
   transactions  Transaction[]
   deposits      Deposit[]
   withdrawals   Withdrawal[]
+  holds         WalletHold[]
+
+  @@index([currency])
 }
 
 model Transaction {
-  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  walletId        String            @db.Uuid
-  type            TransactionType
-  status          TransactionStatus @default(PENDING)
-  amount          Decimal           @db.Decimal(20, 4)
-  balanceBefore   Decimal           @db.Decimal(20, 4)
-  balanceAfter    Decimal           @db.Decimal(20, 4)
-  referenceId     String?           @db.Uuid
-  idempotencyKey  String?           @unique
-  description     String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId            String            @db.Uuid
+  type                TransactionType
+  status              TransactionStatus @default(PENDING)
+  currency            String            @default("USD") @db.Char(3)
+  amount              Decimal           @db.Decimal(20, 4)
+  balanceBefore       Decimal           @db.Decimal(20, 4)
+  balanceAfter        Decimal           @db.Decimal(20, 4)
+  lockedBalanceBefore Decimal           @db.Decimal(20, 4) @default(0.0000)
+  lockedBalanceAfter  Decimal           @db.Decimal(20, 4) @default(0.0000)
+  referenceType       String?           @db.VarChar(64)
+  referenceId         String?           @db.Uuid
+  idempotencyKey      String?           @unique
+  description         String?
+  metadata            Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
-  wallet          Wallet            @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  wallet              Wallet            @relation(fields: [walletId], references: [id], onDelete: Restrict)
 
   @@index([walletId])
   @@index([type])
   @@index([status])
+  @@index([referenceType, referenceId])
   @@index([referenceId])
   @@index([createdAt])
 }
 
-model Deposit {
-  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  walletId        String        @db.Uuid
-  provider        PaymentProvider
-  providerTxId    String        @unique
-  amount          Decimal       @db.Decimal(20, 4)
-  fee             Decimal       @db.Decimal(20, 4) @default(0.0000)
-  status          DepositStatus @default(PENDING)
-  paymentDetails  Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+model WalletHold {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId       String           @db.Uuid
+  type           WalletHoldType
+  status         WalletHoldStatus @default(ACTIVE)
+  amount         Decimal          @db.Decimal(20, 4)
+  currency       String           @default("USD") @db.Char(3)
+  referenceType  String?          @db.VarChar(64)
+  referenceId    String?          @db.Uuid
+  idempotencyKey String           @unique
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  releasedAt     DateTime?
 
-  wallet          Wallet        @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  wallet         Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, status])
+  @@index([type, status])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+}
+
+model Deposit {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId          String        @db.Uuid
+  provider          PaymentProvider
+  providerTxId      String        @unique
+  providerReference String?       @db.VarChar(255)
+  currency          String        @default("USD") @db.Char(3)
+  amount            Decimal       @db.Decimal(20, 4)
+  fee               Decimal       @db.Decimal(20, 4) @default(0.0000)
+  status            DepositStatus @default(PENDING)
+  paymentDetails    Json?
+  failureReason     String?       @db.VarChar(500)
+  expiresAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  wallet            Wallet        @relation(fields: [walletId], references: [id], onDelete: Restrict)
 
   @@index([walletId])
   @@index([status])
+  @@index([provider, providerReference])
   @@index([createdAt])
 }
 
 model Withdrawal {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  walletId        String           @db.Uuid
-  provider        PaymentProvider
-  destination     String
-  amount          Decimal          @db.Decimal(20, 4)
-  fee             Decimal          @db.Decimal(20, 4) @default(0.0000)
-  status          WithdrawalStatus @default(PENDING)
-  reviewReason    String?
-  idempotencyKey  String? @unique
-  reviewedAt      DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId          String           @db.Uuid
+  provider          PaymentProvider
+  providerReference String?          @db.VarChar(255)
+  providerTxId      String?          @unique
+  currency          String           @default("USD") @db.Char(3)
+  destination       String
+  amount            Decimal          @db.Decimal(20, 4)
+  fee               Decimal          @db.Decimal(20, 4) @default(0.0000)
+  status            WithdrawalStatus @default(PENDING)
+  reviewReason      String?
+  failureReason    String?           @db.VarChar(500)
+  idempotencyKey    String?          @unique
+  reviewedAt        DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
-  wallet          Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  wallet            Wallet           @relation(fields: [walletId], references: [id], onDelete: Restrict)
 
   @@index([walletId])
   @@index([status])
+  @@index([provider, providerReference])
   @@index([createdAt])
+}
+
+model KycVerification {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String     @unique @db.Uuid
+  status         KycStatus  @default(NOT_STARTED)
+  provider       String?    @db.VarChar(64)
+  providerCaseId String?    @unique @db.VarChar(255)
+  rejectionReason String?   @db.VarChar(500)
+  metadata       Json?
+  submittedAt    DateTime?
+  verifiedAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt])
+}
+
+model PaymentReconciliation {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider         PaymentProvider
+  periodStart      DateTime
+  periodEnd        DateTime
+  status           ReconciliationStatus @default(RUNNING)
+  totalDeposits    Decimal              @db.Decimal(20, 4) @default(0.0000)
+  totalWithdrawals Decimal              @db.Decimal(20, 4) @default(0.0000)
+  mismatchAmount   Decimal              @db.Decimal(20, 4) @default(0.0000)
+  details          Json?
+  createdAt        DateTime             @default(now())
+  completedAt      DateTime?
+
+  @@index([provider, createdAt])
+  @@index([provider, periodStart, periodEnd])
+  @@unique([provider, periodStart, periodEnd])
+}
+
+model PlatformLedgerEntry {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type              PlatformLedgerType
+  currency          String            @default("USD") @db.Char(3)
+  amount            Decimal           @db.Decimal(20, 4)
+  referenceType     String?           @db.VarChar(64)
+  referenceId       String?           @db.Uuid
+  externalReference String?           @db.VarChar(255)
+  description       String?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+
+  @@index([type, createdAt])
+  @@index([referenceType, referenceId])
+  @@index([currency, createdAt])
 }
 
 model Game {
@@ -605,7 +740,8 @@ model UserSession {
   isRevoked    Boolean  @default(false)
   expiresAt    DateTime
   createdAt    DateTime @default(now())
-  lastActiveAt DateTime @default(now()) @updatedAt
+  lastActiveAt         DateTime @default(now()) @updatedAt
+  adminMfaVerifiedAt   DateTime?
 
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -652,6 +788,9 @@ model AuditLog {
   targetId   String?
   ipAddress  String
   userAgent  String
+  requestId  String?  @db.VarChar(128)
+  result     String?  @db.VarChar(32)
+  reason     String?  @db.VarChar(1000)
   payload    Json?
   createdAt  DateTime @default(now())
 
@@ -660,6 +799,8 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@index([targetType, targetId])
+  @@index([requestId])
+  @@index([result])
   @@index([createdAt])
 }
 
@@ -1562,20 +1703,23 @@ model UserMute {
 }
 
 model WebhookEvent {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  provider    String
-  eventType   String
-  externalId  String? @unique
-  payload     Json
-  status      String @default("RECEIVED")
-  createdAt   DateTime @default(now())
-  processedAt DateTime?
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider     String
+  eventType    String
+  externalId   String   @db.VarChar(255)
+  payload      Json
+  status       String   @default("RECEIVED")
+  attempts     Int      @default(0)
+  errorMessage String?  @db.VarChar(500)
+  createdAt    DateTime @default(now())
+  processedAt  DateTime?
+
+  @@unique([provider, externalId])
   @@index([provider,eventType,createdAt])
+  @@index([provider,status,createdAt])
 }
 
 
-// Persistent DeepL translation memory. One source phrase is translated once
-// per target language and reused by every visitor.
 model TranslationCache {
   id          String   @id @default(cuid())
   target      String   @db.VarChar(5)

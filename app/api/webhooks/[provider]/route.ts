@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
 const secrets: Record<string, string | undefined> = {
@@ -57,17 +57,15 @@ export async function POST(
   }
 
   const eventType = String(payload.event ?? payload.type ?? "unknown").trim().slice(0, 255) || "unknown";
-  const externalId = getExternalId(request, payload);
+  const externalId = getExternalId(request, payload) || createHash("sha256").update(raw, "utf8").digest("hex");
 
   try {
-    if (externalId) {
-      const existing = await prisma.webhookEvent.findUnique({ where: { externalId } });
-      if (existing) {
-        return NextResponse.json({ ok: true, idempotent: true, id: existing.id });
-      }
+    const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider, externalId } } });
+    if (existing?.status === "PROCESSED") {
+      return NextResponse.json({ ok: true, idempotent: true, id: existing.id });
     }
 
-    const row = await prisma.webhookEvent.create({
+    const row = existing ?? await prisma.webhookEvent.create({
       data: {
         provider,
         eventType,
@@ -76,6 +74,10 @@ export async function POST(
         status: "RECEIVED",
       },
     });
+
+    if (existing) {
+      await prisma.webhookEvent.update({ where: { id: existing.id }, data: { status: "RECEIVED", attempts: { increment: 1 }, errorMessage: null, payload, eventType } });
+    }
 
     // Steam Trade provider callbacks are applied atomically to both the trade
     // and inventory item. The signed webhook is the only external path allowed
@@ -115,7 +117,7 @@ export async function POST(
     // A concurrent delivery can win the unique externalId race. Treat it as the
     // same webhook instead of surfacing a 500 to the provider.
     if (externalId && error?.code === "P2002") {
-      const existing = await prisma.webhookEvent.findUnique({ where: { externalId } });
+      const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider, externalId } } });
       if (existing) return NextResponse.json({ ok: true, idempotent: true, id: existing.id });
     }
     return NextResponse.json({ error: "Webhook persistence failed" }, { status: 500 });

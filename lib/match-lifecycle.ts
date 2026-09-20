@@ -2,9 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel, recordMatchStats } from "@/lib/progression";
 import { recalculateTrust } from "@/lib/trust";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { getPlatformNumber } from "@/lib/platform-settings";
 import { referralMultiplier } from "@/lib/promotions";
+import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { MATCH_START_TIMEOUT_MS, MATCH_LIVE_TIMEOUT_MS, MATCH_HEARTBEAT_TIMEOUT_MS } from "@/lib/match-timers";
 
 const START_TIMEOUT_MS = MATCH_START_TIMEOUT_MS;
@@ -42,15 +43,14 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
     const amount = Number(match.betAmount);
     const ids = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];
     for (const userId of ids) {
-      const walletRows = await tx.$queryRaw<Array<{ id: string; lockedBalance: Prisma.Decimal }>>`SELECT id, "lockedBalance" FROM "Wallet" WHERE "userId" = ${userId}::uuid FOR UPDATE`;
-      const wallet = walletRows[0];
+      const wallet = await tx.wallet.findUnique({ where: { userId }, select: { id: true } });
       if (!wallet) throw new Error("WALLET");
-      const idem = `refund:${match.id}:${userId}`;
-      const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
+      const refundKey = `refund:${match.id}:${userId}`;
+      const releaseKey = `match-stake-release:refund:${match.id}:${userId}`;
+      const existing = await tx.transaction.findUnique({ where: { idempotencyKey: refundKey } });
       if (!existing) {
-        if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
-        await creditWallet(tx, userId, amount, idem, "REFUND", reason, match.id);
-        await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { decrement: amount } } });
+        await creditWallet(tx, userId, amount, refundKey, "REFUND", reason, match.id);
+        await releaseWalletHold(tx, userId, amount, releaseKey, "MATCH_STAKE", match.id, "RELEASED", reason);
       }
       await tx.notification.create({
         data: {
@@ -100,22 +100,16 @@ export async function resolveConnectionTimeout(matchId: string, connectedSteamId
     const pot = Number(full.betAmount) * 2;
     const fee = Number(full.commission);
     const payout = Number((pot - fee).toFixed(4));
-    const wallets = await tx.$queryRaw<Array<{ id: string; userId: string; lockedBalance: Prisma.Decimal }>>`
-      SELECT id, "userId", "lockedBalance" FROM "Wallet"
-      WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
-      ORDER BY "userId" FOR UPDATE
-    `;
-    const w = wallets.find(row => row.userId === winnerId);
-    const l = wallets.find(row => row.userId === loserId);
-    if (!w || !l) throw new Error("WALLET");
+    const wallets = await tx.wallet.findMany({ where: { userId: { in: [winnerId, loserId] } }, select: { userId: true } });
+    if (wallets.length !== 2) throw new Error("WALLET");
     const idem = `forfeit:${full.id}`;
     const existing = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
     if (!existing) {
       const stake = Number(full.betAmount);
-      if (Number(w.lockedBalance) < stake || Number(l.lockedBalance) < stake) throw new Error("LOCKED_STAKE");
       await creditWallet(tx, winnerId, payout, idem, "MATCH_WIN", "Technical win: opponent did not connect", full.id);
-      await tx.wallet.update({ where: { id: w.id }, data: { lockedBalance: { decrement: stake } } });
-      await tx.wallet.update({ where: { id: l.id }, data: { lockedBalance: { decrement: stake } } });
+      await releaseWalletHold(tx, winnerId, stake, `match-stake-release:forfeit:${full.id}:${winnerId}`, "MATCH_STAKE", full.id, "CONSUMED", "Technical win settlement");
+      await releaseWalletHold(tx, loserId, stake, `match-stake-release:forfeit:${full.id}:${loserId}`, "MATCH_STAKE", full.id, "CONSUMED", "Technical loss settlement");
+      await recordPlatformLedgerEntry(tx, { type: "MATCH_COMMISSION", amount: fee, referenceType: "MATCH", referenceId: full.id, description: "Match commission · technical win" });
       await awardXp(tx, winnerId, 100); await awardXp(tx, loserId, 25);
       await updateMatchProgress(tx, winnerId, true); await updateMatchProgress(tx, loserId, false);
       await updateRatingAfterDuel(tx, winnerId, loserId);

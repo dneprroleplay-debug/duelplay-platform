@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -20,13 +20,13 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       const amount = Number(match.betAmount);
       const wallets = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];
       for (const userId of [...new Set(wallets)]) {
-        const wallet = await tx.wallet.findUnique({ where: { userId } }); if (!wallet) throw new Error("WALLET");
-        if (Number(wallet.lockedBalance) < amount) throw new Error("LOCKED_STAKE");
+        const wallet = await tx.wallet.findUnique({ where: { userId }, select: { id: true } }); if (!wallet) throw new Error("WALLET");
         const idem = `refund:${match.id}:${userId}`;
+        const releaseKey = `match-stake-release:manual-cancel:${match.id}:${userId}`;
         const existingRefund = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
         if (!existingRefund) {
-          const credited = await creditWallet(tx,userId,amount,idem,"REFUND","Возврат ставки при отмене матча",match.id);
-          if (!credited.idempotent) await tx.wallet.update({ where: { id: wallet.id }, data: { lockedBalance: { decrement: amount } } });
+          await creditWallet(tx,userId,amount,idem,"REFUND","Возврат ставки при отмене матча",match.id);
+          await releaseWalletHold(tx,userId,amount,releaseKey,"MATCH_STAKE",match.id,"RELEASED","Возврат ставки при отмене матча");
         }
       }
       await tx.notification.createMany({data:[...new Set([match.playerOneId,match.playerTwoId].filter(Boolean) as string[])].map(userId=>({userId,type:"CANCELLATION",title:"Match cancelled",body:"Your stake was refunded.",payload:{matchId:id}}))});

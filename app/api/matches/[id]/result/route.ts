@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getPlatformNumber } from "@/lib/platform-settings";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel, recordMatchStats } from "@/lib/progression";
 import { referralMultiplier } from "@/lib/promotions";
 import { recalculateTrust } from "@/lib/trust";
-import { creditWallet } from "@/lib/wallet";
+import { creditWallet, releaseWalletHold } from "@/lib/wallet";
+import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { evaluateAndUnlockAchievements } from "@/lib/achievements";
+import { prisma } from "@/lib/prisma";
+import { enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
+import { secureSecretEqual } from "@/lib/secure-secret";
 
 function authorized(request: Request) {
-  const secret = process.env.CS2_RESULT_SECRET || process.env.DUELPLAY_SERVER_MANAGER_SECRET;
-  return Boolean(secret && request.headers.get("x-cs2-result-secret") === secret);
+  const secret = process.env.CS2_RESULT_SECRET?.trim();
+  return secureSecretEqual(request.headers.get("x-cs2-result-secret"), secret);
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -18,6 +22,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "CS2_RESULT_API", 120, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много запросов результата CS2." }, { status: 429 });
+    throw error;
+  }
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized referee request" }, { status: 401 });
   try {
     const { id } = await params;
@@ -54,23 +65,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const resultIdempotency = `match-win:${match.id}`;
       const alreadyPaid = await tx.transaction.findUnique({ where: { idempotencyKey: resultIdempotency } });
       if (alreadyPaid) { const finished = await tx.match.findUnique({ where: { id: match.id } }); return finished!; }
-      const lockedWallets = await tx.$queryRaw<Array<{ id: string; userId: string; balance: import("@prisma/client").Prisma.Decimal; lockedBalance: import("@prisma/client").Prisma.Decimal }>>`
-        SELECT id, "userId", balance, "lockedBalance" FROM "Wallet"
-        WHERE "userId" IN (${winnerId}::uuid, ${loserId}::uuid)
-        ORDER BY "userId"
-        FOR UPDATE
-      `;
-      const winnerWallet = lockedWallets.find(w => w.userId === winnerId);
-      const loserWallet = lockedWallets.find(w => w.userId === loserId);
-      if (!winnerWallet || !loserWallet) throw new Error("WALLET");
+      const wallets = await tx.wallet.findMany({ where: { userId: { in: [winnerId, loserId] } }, select: { userId: true } });
+      if (wallets.length !== 2) throw new Error("WALLET");
 
-      const lb = Number(loserWallet.balance);
       const stake = Number(match.betAmount);
-      if (Number(winnerWallet.lockedBalance) < stake || Number(loserWallet.lockedBalance) < stake) throw new Error("LOCKED_STAKE");
       await creditWallet(tx, winnerId, payout, resultIdempotency, "MATCH_WIN", `CS2 referee result · $${payout.toFixed(2)}`, match.id);
-      await tx.wallet.update({ where: { id: winnerWallet.id }, data: { lockedBalance: { decrement: stake } } });
-      await tx.wallet.update({ where: { id: loserWallet.id }, data: { lockedBalance: { decrement: stake } } });
-      await tx.transaction.create({ data: { walletId: loserWallet.id, type: "COMMISSION", status: "COMPLETED", amount: 0, balanceBefore: lb, balanceAfter: lb, referenceId: match.id, description: "CS2 referee result · loss" } });
+      await releaseWalletHold(tx, winnerId, stake, `match-stake-release:result:${match.id}:${winnerId}`, "MATCH_STAKE", match.id, "CONSUMED", "CS2 referee result");
+      await releaseWalletHold(tx, loserId, stake, `match-stake-release:result:${match.id}:${loserId}`, "MATCH_STAKE", match.id, "CONSUMED", "CS2 referee result");
+      await recordPlatformLedgerEntry(tx, { type: "MATCH_COMMISSION", amount: fee, referenceType: "MATCH", referenceId: match.id, description: "Match commission · CS2 referee result" });
       const referrer = await tx.user.findUnique({where:{id:winnerId},select:{referredById:true}});
       const referralRate = await getPlatformNumber("REFERRAL_COMMISSION",25)/100;
       const referralAmount = Number((fee * referralRate * await referralMultiplier(tx)).toFixed(4));

@@ -37,7 +37,7 @@ export async function POST(r: NextRequest) {
   if (!pass) return NextResponse.json({ error: "No active pass" }, { status: 404 });
   try {
     if (action === "premium") {
-      const idem = String(r.headers.get("idempotency-key") || `duelpass:${pass.id}:${me.id}:premium`);
+      const clientKey = String(r.headers.get("idempotency-key") || `premium:${pass.id}`).trim(); if(!clientKey || clientKey.length>200) return NextResponse.json({error:"Invalid idempotency key"},{status:400}); const idem = `duelpass:${me.id}:${pass.id}:${clientKey}`;
       const out = await prisma.$transaction(async tx => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:duelpass'))`;
         const current = await tx.duelPassProgress.upsert({ where: { passId_userId: { passId: pass.id, userId: me.id } }, update: {}, create: { passId: pass.id, userId: me.id, level: 1, xp: 0 } });
@@ -51,7 +51,7 @@ export async function POST(r: NextRequest) {
       const requestedLevel = Number(b.level);
       if (!Number.isInteger(requestedLevel) || requestedLevel < 1 || requestedLevel > pass.maxLevel) throw new Error("INVALID_LEVEL");
       const level = requestedLevel;
-      const idem = String(r.headers.get("idempotency-key") || `duelpass:${pass.id}:${me.id}:claim:${level}`);
+      const clientKey = String(r.headers.get("idempotency-key") || `claim:${pass.id}:${level}`).trim(); if(!clientKey || clientKey.length>200) return NextResponse.json({error:"Invalid idempotency key"},{status:400}); const idem = `duelpass:${me.id}:${pass.id}:${clientKey}`;
       const out = await prisma.$transaction(async tx => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:duelpass'))`;
         const current = await tx.duelPassProgress.upsert({ where: { passId_userId: { passId: pass.id, userId: me.id } }, update: {}, create: { passId: pass.id, userId: me.id, level: 1, xp: 0 } });

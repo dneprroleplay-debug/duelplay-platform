@@ -4,7 +4,7 @@ import { getDuelMap } from "@/lib/duel-maps";
 import { MatchMode } from "@prisma/client";
 import { getCurrentUser } from "@/lib/current-user";
 import { getPlatformNumber } from "@/lib/platform-settings";
-import { debitWallet } from "@/lib/wallet";
+import { debitWallet, lockWallet } from "@/lib/wallet";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { assertAbuseGuard } from "@/lib/anti-fraud";
 import { isDuelMode, normalizeModeWeaponModifier } from "@/lib/duel-modes";
@@ -156,23 +156,29 @@ export async function PATCH(r: NextRequest) {
       if (existing) throw new Error("BUSY");
 
       const stake = Number(row.stake);
-  if (!Number.isFinite(stake) || stake < 0) throw new Error("FUNDS");
-      if (stake > 0) {
-        const senderDebit = await debitWallet(tx, row.senderId, stake, `challenge:${row.id}:sender`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
-        const receiverDebit = await debitWallet(tx, row.receiverId, stake, `challenge:${row.id}:receiver`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
-        if (senderDebit.idempotent || receiverDebit.idempotent) throw new Error("CLAIMED");
-        await tx.wallet.update({ where: { id: senderDebit.transaction.walletId }, data: { lockedBalance: { increment: stake } } });
-        await tx.wallet.update({ where: { id: receiverDebit.transaction.walletId }, data: { lockedBalance: { increment: stake } } });
-      }
+      if (!Number.isFinite(stake) || stake < 0) throw new Error("FUNDS");
 
       const game = await tx.game.findUnique({ where: { slug: "cs2" } });
       if (!game) throw new Error("GAME");
       const commissionRate = await getPlatformNumber("COMMISSION_RATE", 10);
+
+      if (stake > 0) {
+        const senderDebit = await debitWallet(tx, row.senderId, stake, `challenge:${row.id}:sender`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
+        const receiverDebit = await debitWallet(tx, row.receiverId, stake, `challenge:${row.id}:receiver`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
+        if (senderDebit.idempotent || receiverDebit.idempotent) throw new Error("CLAIMED");
+      }
+
       const match = await tx.match.create({ data: {
         gameId: game.id, playerOneId: row.senderId, playerTwoId: row.receiverId, mode: row.mode as MatchMode, format: row.format,
         weaponModifier: row.weaponModifier, mapName: row.mapName || "Mirage", betAmount: stake,
         commission: Number((stake * 2 * (commissionRate / 100)).toFixed(4)), status: "READY", startDeadlineAt: new Date(Date.now() + 120000),
       } });
+
+      if (stake > 0) {
+        await lockWallet(tx, row.senderId, stake, `challenge-stake:${row.id}:sender`, "MATCH_STAKE", match.id, `Challenge stake reserved · ${row.id}`);
+        await lockWallet(tx, row.receiverId, stake, `challenge-stake:${row.id}:receiver`, "MATCH_STAKE", match.id, `Challenge stake reserved · ${row.id}`);
+      }
+
       await tx.challenge.update({ where: { id: row.id }, data: { matchId: match.id } });
       await tx.notification.create({ data: { userId: row.senderId, type: "CHALLENGE_ACCEPTED", title: "Challenge accepted", body: `${me.nickname} accepted your duel.`, payload: { challengeId: id, matchId: match.id } } });
       return { status: "ACCEPTED", match };

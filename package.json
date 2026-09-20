@@ -19,11 +19,16 @@
     "qa:local": "node scripts/qa-local.mjs",
     "qa:syntax": "node scripts/qa-syntax.mjs",
     "qa:routes": "node scripts/qa-local.mjs",
-    "qa:architecture": "node scripts/test-architecture-policy.mjs"
+    "qa:architecture": "node scripts/test-architecture-policy.mjs",
+    "qa:finance": "node scripts/test-finance-architecture.mjs",
+    "backup:postgres:r2": "bash scripts/backup-postgres-to-r2.sh",
+    "restore:test:postgres:r2": "bash scripts/restore-test-postgres-from-r2.sh",
+    "prod:validate-env": "node scripts/validate-production-env.mjs",
+    "qa:api-security": "node scripts/test-api-security.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
-    "next": "16.2.9",
+    "next": "^16.3.3",
     "prisma": "^6.19.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -34,10 +39,13 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "^16.3.3",
+    "prisma": "6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
-    "typescript": "^5",
-    "prisma": "6.19.3"
+    "typescript": "^5"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

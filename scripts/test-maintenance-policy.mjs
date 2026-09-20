@@ -6,7 +6,7 @@ const route = read('app/api/maintenance/route.ts');
 const gate = read('components/Common/MaintenanceGate.tsx');
 const policy = read('lib/maintenance.ts');
 const checks = [
- ['PATCH requires SUPERADMIN', route.includes('me.role !== "SUPERADMIN"')],
+ ['PATCH requires SUPERADMIN + MFA', route.includes('requireAdmin(5)')],
  ['PATCH rejects non-boolean enabled', route.includes('typeof (body as Record<string, unknown>).enabled !== "boolean"')],
  ['GET is no-store', route.includes('Cache-Control') && route.includes('no-store')],
  ['GET exposes admin bypass', route.includes('hasAdminLevel(me.role, 1)')],

@@ -3,12 +3,17 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { validatePlatformSettingValue, validatePlatformSettingRelationships, PLATFORM_SETTING_RULES } from "@/lib/platform-setting-policy";
 import { grantDepositBonus } from "@/lib/promotions";
-import { requireAdmin, adminLevel, audit } from "@/lib/admin";
+import { requireAdmin, adminLevel, auditRequest } from "@/lib/admin";
+import { getCurrentAdminSession, ADMIN_INVITE_PREFIX, newAdminInviteToken } from "@/lib/admin-auth";
+import { hashToken, hashPassword } from "@/lib/auth";
 import { THEMES, themeById } from "@/lib/themes";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
-import { creditWallet, debitWallet } from "@/lib/wallet";
+import { creditWallet, debitWallet, releaseWalletHold } from "@/lib/wallet";
+import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
 import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
+import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
 
 const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
 function protectedOwner(u:{steamId:string|null;nickname:string;role:string}){
@@ -32,9 +37,21 @@ async function hydrateTickets<T extends {messages?: Array<{senderId:string}>}>(t
  return tickets.map(t=>({...t,messages:(t.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))})) as any;
 }
 
-export async function GET(){
+export async function GET(request:NextRequest){
   try{
-    const me=await requireAdmin(1);
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "ADMIN_DASHBOARD_GET", 120, 10 * 60_000));
+    const session=await getCurrentAdminSession();
+    const account=session?.user;
+    if(!account) return NextResponse.json({error:"Требуется вход администратора",errorCode:"ADMIN_LOGIN_REQUIRED"},{status:401});
+    if(adminLevel(account.role)<1) return NextResponse.json({error:"Недостаточно прав"},{status:403});
+    if(!account.twoFactorEnabled){
+      return NextResponse.json({mfaRequired:true,mfaSetupRequired:true,me:{nickname:account.nickname,role:account.role,level:adminLevel(account.role)}});
+    }
+    if(!session?.adminMfaVerifiedAt || Date.now()-session.adminMfaVerifiedAt.getTime()>8*60*60*1000){
+      return NextResponse.json({mfaRequired:true,mfaSetupRequired:false,me:{nickname:account.nickname,role:account.role,level:adminLevel(account.role)}});
+    }
+    const me=account;
     const [users,matches,transactions,disputes,fraud,tickets,settings,topSkins,servers,logs,avatarPresets,platformSettings,featureFlags,creatorPayouts,withdrawals,deposits,onlineSessions]=await Promise.all([
       prisma.user.findMany({orderBy:{createdAt:"desc"},take:100,select:{id:true,nickname:true,email:true,role:true,status:true,createdAt:true,steamId:true,wallet:{select:{balance:true,lockedBalance:true}}}}),
       prisma.match.findMany({orderBy:{createdAt:"desc"},take:100,include:{playerOne:{select:{nickname:true}},playerTwo:{select:{nickname:true}},game:{select:{title:true}}}}),
@@ -57,7 +74,14 @@ export async function GET(){
     const row=settings.find(x=>x.key==="standardTheme");
     const standard=typeof row?.value==="object"&&row?.value&&"id" in row.value?String((row.value as {id?:unknown}).id):"STANDARD";
     const level=adminLevel(me.role);
-    const userRows=users.map(u=>({...u,balance:Number(u.wallet?.balance??0),lockedBalance:Number(u.wallet?.lockedBalance??0),wallet:undefined}));
+    const userRows=users.map(u=>({
+      ...u,
+      email: level >= 3 ? u.email : null,
+      steamId: level >= 3 ? u.steamId : null,
+      balance: level >= 3 ? Number(u.wallet?.balance??0) : 0,
+      lockedBalance: level >= 3 ? Number(u.wallet?.lockedBalance??0) : 0,
+      wallet: undefined,
+    }));
     const bgRow=settings.find(x=>x.key==="backgroundTheme");
     const background=typeof bgRow?.value==="object"&&bgRow?.value&&"id" in bgRow.value?String((bgRow.value as {id?:unknown}).id):"stars";
     const heroRow=settings.find(x=>x.key==="heroBackground");
@@ -68,15 +92,20 @@ export async function GET(){
     return NextResponse.json({me:{nickname:me.nickname,role:me.role,level},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:level>=5?platformSettings:[],featureFlags:level>=5?featureFlags:[],creatorPayouts:level>=3?creatorPayouts:[],withdrawals:level>=3?withdrawals:[],deposits:level>=3?deposits:[],dashboard,users:level>=2?userRows:[],matches:level>=2?matches:[],transactions:level>=3?transactions:[],disputes:level>=2?disputes:[],fraud:level>=2?fraud:[],tickets:level>=2?await hydrateTickets(tickets):[],topSkins:level>=3?topSkins:[],servers:level>=3?servers:[],logs:level>=3?logs:[],avatarPresets:level>=3?avatarPresets:[]});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
+    if(e instanceof Error&&e.message==="ADMIN_MFA_SETUP_REQUIRED")return NextResponse.json({error:"Требуется настроить MFA администратора",errorCode:e.message},{status:403});
+    if(e instanceof Error&&e.message==="ADMIN_MFA_REQUIRED")return NextResponse.json({error:"Требуется подтверждение MFA администратора",errorCode:e.message},{status:403});
     console.error(e);return NextResponse.json({error:"Не удалось загрузить админку"},{status:500});
   }
 }
 
 export async function PATCH(request:NextRequest){
   try{
+    const ip = getClientIp(request);
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "ADMIN_ACTION", 60, 10 * 60_000));
     const me=await requireAdmin(1);
     const body=await request.json();
     const action=String(body.action||"");
+    await prisma.$transaction(tx=>enforceRateLimit(tx,me.id,"ADMIN_ACTION",30,60_000));
 
     if(action==="resolveDispute"){
       if(adminLevel(me.role)<2)return NextResponse.json({error:"Недостаточно прав"},{status:403});
@@ -106,7 +135,9 @@ export async function PATCH(request:NextRequest){
             if(Number(wallet.lockedBalance)<stake)throw new Error("LOCKED_STAKE");
             const idem=`dispute-refund:${dispute.id}:${userId}`;
             const credited=await creditWallet(tx,userId,stake,idem,"REFUND","Dispute resolved: refund",match.id);
-            if(!credited.idempotent)await tx.wallet.update({where:{id:wallet.id},data:{lockedBalance:{decrement:stake}}});
+            if(!credited.idempotent){
+              await releaseWalletHold(tx,userId,stake,`match-stake-release:dispute-refund:${dispute.id}:${userId}`,"MATCH_STAKE",match.id,"RELEASED","Dispute resolved: refund");
+            }
           }
         }else{
           const walletRows=await tx.$queryRaw<Array<{id:string,userId:string,balance:any,lockedBalance:any}>>`SELECT id, "userId", balance, "lockedBalance" FROM "Wallet" WHERE "userId" IN (${winnerId}::uuid, ${loserId!}::uuid) FOR UPDATE`;
@@ -118,8 +149,9 @@ export async function PATCH(request:NextRequest){
           const idem=`dispute-win:${dispute.id}`;
           const credited=await creditWallet(tx,winnerId,payout,idem,"MATCH_WIN","Dispute resolved: player win",match.id);
           if(!credited.idempotent){
-            await tx.wallet.update({where:{id:winnerWallet.id},data:{lockedBalance:{decrement:stake}}});
-            await tx.wallet.update({where:{id:loserWallet.id},data:{lockedBalance:{decrement:stake}}});
+            await releaseWalletHold(tx,winnerId,stake,`match-stake-release:dispute:${dispute.id}:${winnerId}`,"MATCH_STAKE",match.id,"CONSUMED","Dispute resolved: player win");
+            await releaseWalletHold(tx,loserId!,stake,`match-stake-release:dispute:${dispute.id}:${loserId}`,"MATCH_STAKE",match.id,"CONSUMED","Dispute resolved: player win");
+            await recordPlatformLedgerEntry(tx,{type:"MATCH_COMMISSION",amount:Number(match.commission),referenceType:"MATCH",referenceId:match.id,description:"Match commission · dispute resolution"});
             await awardXp(tx,winnerId,100);
             await awardXp(tx,loserId!,25);
             await updateMatchProgress(tx,winnerId,true);
@@ -142,7 +174,7 @@ export async function PATCH(request:NextRequest){
           where:{id:dispute.id},
           data:{status:"RESOLVED_BY_ADMIN",adminDecision:decision,adminNotes:String(body.notes||"").slice(0,2000),resolvedAt:now}
         });
-        await audit(me.id,"RESOLVE_DISPUTE","DISPUTE",dispute.id,{decision,matchId:match.id,winnerId,loserId});
+        await auditRequest(request, me.id,"RESOLVE_DISPUTE","DISPUTE",dispute.id,{decision,matchId:match.id,winnerId,loserId});
         return {dispute:d,match:updated};
       });
       if(!result)return NextResponse.json({error:"Спор не найден"},{status:404});
@@ -164,7 +196,7 @@ export async function PATCH(request:NextRequest){
         const updated=await tx.userSession.updateMany({where:{userId:target.id,isRevoked:false},data:{isRevoked:true}});
         return {count:updated.count,scope:"USER" as const,userId:target.id,nickname:target.nickname};
       });
-      await audit(me.id,action==="revokeAllSessions"?"REVOKE_ALL_SESSIONS":"REVOKE_USER_SESSIONS",action==="revokeAllSessions"?"PLATFORM":"USER",action==="revokeAllSessions"?undefined:userId,result);
+      await auditRequest(request, me.id,action==="revokeAllSessions"?"REVOKE_ALL_SESSIONS":"REVOKE_USER_SESSIONS",action==="revokeAllSessions"?"PLATFORM":"USER",action==="revokeAllSessions"?undefined:userId,result);
       return NextResponse.json({ok:true,...result});
     }
 
@@ -180,7 +212,7 @@ export async function PATCH(request:NextRequest){
       const rule=PLATFORM_SETTING_RULES[key as keyof typeof PLATFORM_SETTING_RULES];
       const old=await prisma.platformSetting.findUnique({where:{key}});
       const row=await prisma.platformSetting.upsert({where:{key},update:{value:validation.value,minValue:rule.min,maxValue:rule.max,step:rule.step,updatedBy:me.id},create:{key,value:validation.value,minValue:rule.min,maxValue:rule.max,step:rule.step,updatedBy:me.id}});
-      await audit(me.id,"CHANGE_PLATFORM_SETTING","PLATFORM_SETTING",row.id,{key,old:old?.value?.toString()??null,new:validation.value});
+      await auditRequest(request, me.id,"CHANGE_PLATFORM_SETTING","PLATFORM_SETTING",row.id,{key,old:old?.value?.toString()??null,new:validation.value});
       return NextResponse.json({ok:true,row});
     }
     if(action==="featureFlag"){
@@ -188,7 +220,7 @@ export async function PATCH(request:NextRequest){
       const validation=validateFeatureFlagPayload(body);
       if(!validation.ok)return NextResponse.json({error:"Некорректный feature flag",errorCode:validation.error},{status:400});
       const row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
-      await audit(me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row.id,{key:validation.key,enabled:validation.enabled});
+      await auditRequest(request, me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row.id,{key:validation.key,enabled:validation.enabled});
       return NextResponse.json({ok:true,row});
     }
 
@@ -197,7 +229,7 @@ export async function PATCH(request:NextRequest){
       const theme=String(body.theme||"");
       if(!THEMES.some(t=>t.id===theme))return NextResponse.json({error:"Неизвестная тема"},{status:400});
       await prisma.siteSettings.upsert({where:{key:"standardTheme"},update:{value:{id:theme},updatedBy:me.id},create:{key:"standardTheme",value:{id:theme},updatedBy:me.id,description:"Стандартная тема сайта"}});
-      await audit(me.id,"CHANGE_STANDARD_THEME","SITE_SETTINGS",undefined,{theme});
+      await auditRequest(request, me.id,"CHANGE_STANDARD_THEME","SITE_SETTINGS",undefined,{theme});
       return NextResponse.json({ok:true,theme});
     }
 
@@ -207,7 +239,7 @@ export async function PATCH(request:NextRequest){
       const allowed=["stars","blue-nebula","green-aurora","purple-galaxy","gold-space"];
       if(!allowed.includes(background))return NextResponse.json({error:"Неизвестный фон"},{status:400});
       await prisma.siteSettings.upsert({where:{key:"backgroundTheme"},update:{value:{id:background},updatedBy:me.id},create:{key:"backgroundTheme",value:{id:background},updatedBy:me.id,description:"Фоновая атмосфера сайта"}});
-      await audit(me.id,"CHANGE_BACKGROUND_THEME","SITE_SETTINGS",undefined,{background});
+      await auditRequest(request, me.id,"CHANGE_BACKGROUND_THEME","SITE_SETTINGS",undefined,{background});
       return NextResponse.json({ok:true,background});
     }
 
@@ -217,7 +249,7 @@ export async function PATCH(request:NextRequest){
       const allowed=Array.from({length:10},(_,i)=>`hero-${String(i+1).padStart(2,"0")}`);
       if(!allowed.includes(hero))return NextResponse.json({error:"Неизвестная главная картинка"},{status:400});
       await prisma.siteSettings.upsert({where:{key:"heroBackground"},update:{value:{id:hero},updatedBy:me.id},create:{key:"heroBackground",value:{id:hero},updatedBy:me.id,description:"Главная картинка DuelPlay"}});
-      await audit(me.id,"CHANGE_HERO_BACKGROUND","SITE_SETTINGS",undefined,{hero});
+      await auditRequest(request, me.id,"CHANGE_HERO_BACKGROUND","SITE_SETTINGS",undefined,{hero});
       return NextResponse.json({ok:true,hero});
     }
 
@@ -232,7 +264,7 @@ export async function PATCH(request:NextRequest){
       else ids=[target];
       if(!ids.length)return NextResponse.json({error:"Получатели не найдены"},{status:404});
       await prisma.notification.createMany({data:ids.map(userId=>({userId,type:"SYSTEM",status:"UNREAD",title,body:message,payload:{sentBy:me.nickname}}))});
-      await audit(me.id,"SEND_SYSTEM_NOTIFICATION","NOTIFICATION",undefined,{target,count:ids.length,title});
+      await auditRequest(request, me.id,"SEND_SYSTEM_NOTIFICATION","NOTIFICATION",undefined,{target,count:ids.length,title});
       return NextResponse.json({ok:true,count:ids.length});
     }
 
@@ -243,7 +275,7 @@ export async function PATCH(request:NextRequest){
       if(!name||!imageData.startsWith("data:image/"))return NextResponse.json({error:"Нужны название и изображение"},{status:400});
       if(imageData.length>3_000_000)return NextResponse.json({error:"Изображение слишком большое"},{status:400});
       const skin=await prisma.topSkin.create({data:{name,imageData,submittedBy:me.nickname,sortOrder:0}});
-      await audit(me.id,"ADD_TOP_SKIN","TOP_SKIN",skin.id,{name});
+      await auditRequest(request, me.id,"ADD_TOP_SKIN","TOP_SKIN",skin.id,{name});
       return NextResponse.json({ok:true,skin});
     }
 
@@ -251,7 +283,7 @@ export async function PATCH(request:NextRequest){
       if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.id||"");
       await prisma.topSkin.delete({where:{id}});
-      await audit(me.id,"DELETE_TOP_SKIN","TOP_SKIN",id);
+      await auditRequest(request, me.id,"DELETE_TOP_SKIN","TOP_SKIN",id);
       return NextResponse.json({ok:true});
     }
 
@@ -261,11 +293,11 @@ export async function PATCH(request:NextRequest){
       if(!name||!imageData.startsWith("data:image/"))return NextResponse.json({error:"Нужны название и изображение"},{status:400});
       if(imageData.length>3_000_000)return NextResponse.json({error:"Изображение слишком большое"},{status:400});
       const avatar=await prisma.avatarPreset.create({data:{name,imageData,submittedBy:me.nickname,sortOrder:0}});
-      await audit(me.id,"ADD_AVATAR_PRESET","AVATAR_PRESET",avatar.id,{name}); return NextResponse.json({ok:true,avatar});
+      await auditRequest(request, me.id,"ADD_AVATAR_PRESET","AVATAR_PRESET",avatar.id,{name}); return NextResponse.json({ok:true,avatar});
     }
     if(action==="avatarPresetDelete"){
       if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
-      const id=String(body.id||""); await prisma.avatarPreset.delete({where:{id}}); await audit(me.id,"DELETE_AVATAR_PRESET","AVATAR_PRESET",id); return NextResponse.json({ok:true});
+      const id=String(body.id||""); await prisma.avatarPreset.delete({where:{id}}); await auditRequest(request, me.id,"DELETE_AVATAR_PRESET","AVATAR_PRESET",id); return NextResponse.json({ok:true});
     }
 
     if(action==="fraudReview"){
@@ -283,7 +315,7 @@ export async function PATCH(request:NextRequest){
         if(status==="FALSE_POSITIVE_CLEARED"&&user.status==="SUSPENDED")await tx.user.update({where:{id:user.id},data:{status:"ACTIVE"}});
         return updated;
       });
-      await audit(me.id,"REVIEW_FRAUD_CASE","FRAUD_CASE",id,{status});
+      await auditRequest(request, me.id,"REVIEW_FRAUD_CASE","FRAUD_CASE",id,{status});
       return NextResponse.json({ok:true,fraudCase:result});
     }
 
@@ -294,17 +326,57 @@ export async function PATCH(request:NextRequest){
       if(target&&protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
       if(!["PENDING","ACTIVE","SUSPENDED","BANNED","DEACTIVATED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});
       const u=await prisma.user.update({where:{id},data:{status:status as never},select:{id:true,nickname:true,status:true}});
-      await audit(me.id,"CHANGE_USER_STATUS","USER",id,{status});return NextResponse.json({ok:true,user:u});
+      await auditRequest(request, me.id,"CHANGE_USER_STATUS","USER",id,{status});return NextResponse.json({ok:true,user:u});
     }
 
     if(action==="userRole"){
       if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const id=String(body.userId),role=String(body.role);
-      const target=await prisma.user.findUnique({where:{id},select:{steamId:true,nickname:true,role:true}});
-      if(target&&protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
+      const target=await prisma.user.findUnique({where:{id},select:{id:true,steamId:true,nickname:true,role:true,passwordHash:true,status:true}});
+      if(!target)return NextResponse.json({error:"Пользователь не найден"},{status:404});
+      if(protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
       if(!["USER","SUPPORT","MODERATOR","ADMIN","SUPERADMIN"].includes(role))return NextResponse.json({error:"Неверная роль"},{status:400});
-      const u=await prisma.user.update({where:{id},data:{role:role as never},select:{id:true,nickname:true,role:true}});
-      await audit(me.id,"CHANGE_USER_ROLE","USER",id,{role});return NextResponse.json({ok:true,user:u});
+      const isAdminRole=adminLevel(role)>=1;
+      const wasAdmin=adminLevel(target.role)>=1;
+      let adminInviteUrl:string|undefined;
+      await prisma.$transaction(async tx=>{
+        if(!isAdminRole){
+          await tx.user.update({where:{id},data:{role:role as never,passwordHash:null}});
+          await tx.userSession.updateMany({where:{userId:id,isRevoked:false},data:{isRevoked:true}});
+          return;
+        }
+        let inviteToken:string|undefined;
+        const needsInvite=!wasAdmin || !target.passwordHash;
+        if(needsInvite){
+          inviteToken=newAdminInviteToken();
+          await tx.userSession.updateMany({where:{userId:id,isRevoked:false,ipAddress:"ADMIN_INVITE"},data:{isRevoked:true}});
+          await tx.userSession.create({data:{userId:id,token:`${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,ipAddress:"ADMIN_INVITE",userAgent:"admin-role-invite",expiresAt:new Date(Date.now()+30*60_000)}});
+          adminInviteUrl=new URL(`/admin/setup?token=${inviteToken}`,request.url).toString();
+        }
+        await tx.user.update({where:{id},data:{role:role as never,passwordHash:needsInvite?null:undefined}});
+      });
+      await auditRequest(request, me.id,"CHANGE_USER_ROLE","USER",id,{role,adminInviteIssued:Boolean(adminInviteUrl)});
+      return NextResponse.json({ok:true,user:{id,nickname:target.nickname,role},adminInviteUrl});
+    }
+
+    if(action==="issueAdminInvite"){
+      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
+      const id=String(body.userId);
+      const target=await prisma.user.findUnique({where:{id},select:{id:true,steamId:true,nickname:true,role:true,status:true}});
+      if(!target)return NextResponse.json({error:"Пользователь не найден"},{status:404});
+      if(protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
+      if(adminLevel(target.role)<1)return NextResponse.json({error:"Сначала выдайте пользователю административную роль."},{status:400});
+      if(target.status!=="ACTIVE")return NextResponse.json({error:"Пользователь неактивен"},{status:400});
+      const inviteToken=newAdminInviteToken();
+      await prisma.$transaction(async tx=>{
+        await tx.user.update({where:{id},data:{passwordHash:null}});
+        await tx.userSession.updateMany({where:{userId:id,isRevoked:false},data:{isRevoked:true}});
+        await tx.userSession.updateMany({where:{userId:id,isRevoked:false,ipAddress:"ADMIN_INVITE"},data:{isRevoked:true}});
+        await tx.userSession.create({data:{userId:id,token:`${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,ipAddress:"ADMIN_INVITE",userAgent:"admin-password-reset",expiresAt:new Date(Date.now()+30*60_000)}});
+      });
+      const adminInviteUrl=new URL(`/admin/setup?token=${inviteToken}`,request.url).toString();
+      await auditRequest(request, me.id,"ISSUE_ADMIN_PASSWORD_INVITE","USER",id,{role:target.role});
+      return NextResponse.json({ok:true,adminInviteUrl});
     }
 
     if(action==="walletAdjust"){
@@ -341,7 +413,7 @@ export async function PATCH(request:NextRequest){
         if(credited.idempotent) throw new Error("IDEMPOTENCY_CONFLICT");
         return {balance:Number(credited.transaction.balanceAfter),ownerNickname:null};
       });
-      await audit(me.id,"WALLET_ADJUST","USER",id,{amount,reason});
+      await auditRequest(request, me.id,"WALLET_ADJUST","USER",id,{amount,reason});
       return NextResponse.json({ok:true,balance:result.balance.toFixed(4),ownerNickname:result.ownerNickname});
     }
 
@@ -349,10 +421,10 @@ export async function PATCH(request:NextRequest){
       if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.id||""),status=String(body.status||"");
       if(!["PROCESSING","COMPLETED","FAILED","REJECTED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});
-      const row=await prisma.$transaction(async tx=>{const w=await tx.withdrawal.findUnique({where:{id}});if(!w)throw new Error("NOT_FOUND");if(["COMPLETED","REJECTED","FAILED"].includes(w.status))return w;const walletRows=await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${w.walletId} FOR UPDATE`;const wallet=walletRows[0];if(!wallet)throw new Error("WALLET");const amount=Number(w.amount),locked=Number(wallet.lockedBalance);if(!Number.isFinite(amount)||amount<=0||locked+1e-9<amount)throw new Error("LOCKED_STAKE");const updated=await tx.withdrawal.update({where:{id},data:{status:status as never,reviewReason:String(body.reason||"")}});if(["REJECTED","FAILED"].includes(status)){const owner=await tx.wallet.findUniqueOrThrow({where:{id:w.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,amount,`withdraw-refund:${w.id}`,"REFUND",`Withdrawal ${status.toLowerCase()} refund`,w.id);await tx.wallet.update({where:{id:w.walletId},data:{lockedBalance:{decrement:amount}}});}else if(status==="COMPLETED"){await tx.wallet.update({where:{id:w.walletId},data:{lockedBalance:{decrement:amount}}});}return updated;});await audit(me.id,"WITHDRAWAL_STATUS","WITHDRAWAL",id,{status});return NextResponse.json(row);
+      const row=await prisma.$transaction(async tx=>{const w=await tx.withdrawal.findUnique({where:{id}});if(!w)throw new Error("NOT_FOUND");if(["COMPLETED","REJECTED","FAILED"].includes(w.status))return w;const wallet=await tx.wallet.findUnique({where:{id:w.walletId},select:{id:true,userId:true}});if(!wallet)throw new Error("WALLET");const amount=Number(w.amount);if(!Number.isFinite(amount)||amount<=0)throw new Error("INVALID_AMOUNT");const updated=await tx.withdrawal.update({where:{id},data:{status:status as never,reviewReason:String(body.reason||"").slice(0,1000)}});if(["REJECTED","FAILED"].includes(status)){await creditWallet(tx,wallet.userId,amount,`withdraw-refund:${w.id}`,"REFUND",`Withdrawal ${status.toLowerCase()} refund`,w.id);await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:${status}`,"WITHDRAWAL",w.id,"RELEASED",`Withdrawal ${status.toLowerCase()} — hold released`);}else if(status==="COMPLETED"){await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:COMPLETED`,"WITHDRAWAL",w.id,"CONSUMED","Withdrawal completed — hold consumed");}return updated;});await auditRequest(request, me.id,"WITHDRAWAL_STATUS","WITHDRAWAL",id,{status});return NextResponse.json(row);
     }
     if(action==="depositStatus"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});const id=String(body.id||""),status=String(body.status||"");if(!["PROCESSING","COMPLETED","FAILED","EXPIRED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(d.status==="COMPLETED")return d;const updated=await tx.deposit.update({where:{id},data:{status:status as never}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await audit(me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
+      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});const id=String(body.id||""),status=String(body.status||"");if(!["PROCESSING","COMPLETED","FAILED","EXPIRED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(d.status==="COMPLETED")return d;const updated=await tx.deposit.update({where:{id},data:{status:status as never}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await auditRequest(request, me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
     }
 
     if(action==="supportReply"){
@@ -364,7 +436,7 @@ export async function PATCH(request:NextRequest){
       await prisma.ticketMessage.create({data:{ticketId,senderId:me.id,message}});
       await prisma.supportTicket.update({where:{id:ticketId},data:{status:"WAITING_ON_USER",assignedToId:me.id}});
       await prisma.notification.create({data:{userId:ticket.userId,type:"SYSTEM",status:"UNREAD",title:"Ответ поддержки",body:message,payload:{ticketId,kind:"SUPPORT_REPLY",subject:ticket.subject}}});
-      await audit(me.id,"SUPPORT_REPLY","SUPPORT_TICKET",ticketId,{});
+      await auditRequest(request, me.id,"SUPPORT_REPLY","SUPPORT_TICKET",ticketId,{});
       return NextResponse.json({ok:true});
     }
     if(action==="supportDelete"){
@@ -374,7 +446,7 @@ export async function PATCH(request:NextRequest){
       const ticket=await prisma.supportTicket.findUnique({where:{id:ticketId},select:{id:true,subject:true}});
       if(!ticket)return NextResponse.json({error:"Обращение не найдено"},{status:404});
       await prisma.supportTicket.delete({where:{id:ticketId}});
-      await audit(me.id,"DELETE_SUPPORT_TICKET","SUPPORT_TICKET",ticketId,{subject:ticket.subject});
+      await auditRequest(request, me.id,"DELETE_SUPPORT_TICKET","SUPPORT_TICKET",ticketId,{subject:ticket.subject});
       return NextResponse.json({ok:true});
     }
 
@@ -389,7 +461,7 @@ export async function PATCH(request:NextRequest){
       if(["RESOLVED","CLOSED"].includes(status) && !["RESOLVED","CLOSED"].includes(ticket.status)){
         await prisma.notification.create({data:{userId:ticket.userId,type:"SYSTEM",status:"UNREAD",title:"Обращение закрыто",body:`Обращение «${ticket.subject}» закрыто поддержкой.`,payload:{ticketId,status,kind:"SUPPORT_CLOSED",subject:ticket.subject}}});
       }
-      await audit(me.id,"SUPPORT_STATUS","SUPPORT_TICKET",ticketId,{status});
+      await auditRequest(request, me.id,"SUPPORT_STATUS","SUPPORT_TICKET",ticketId,{status});
       return NextResponse.json({ok:true,ticket:updatedTicket});
     }
 
@@ -431,12 +503,14 @@ export async function PATCH(request:NextRequest){
         }
       });
 
-      await audit(me.id,"CANCEL_MATCH","MATCH",id,{reason:"ADMIN_MANUAL_CANCEL"});
+      await auditRequest(request, me.id,"CANCEL_MATCH","MATCH",id,{reason:"ADMIN_MANUAL_CANCEL"});
       return NextResponse.json({ok:true});
     }
 return NextResponse.json({error:"Неизвестное действие"},{status:400});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
+    if(e instanceof Error&&e.message==="ADMIN_MFA_SETUP_REQUIRED")return NextResponse.json({error:"Требуется настроить MFA администратора",errorCode:e.message},{status:403});
+    if(e instanceof Error&&e.message==="ADMIN_MFA_REQUIRED")return NextResponse.json({error:"Требуется подтверждение MFA администратора",errorCode:e.message},{status:403});
     if(e instanceof Error&&e.message==="WALLET")return NextResponse.json({error:"Кошелёк не найден"},{status:404});
     if(e instanceof Error&&e.message==="INSUFFICIENT_BALANCE")return NextResponse.json({error:"У игрока недостаточно доступных средств"},{status:400});
     if(e instanceof Error&&e.message==="OWNER_TARGET")return NextResponse.json({error:"Защищённый аккаунт владельца нельзя изменить"},{status:403});

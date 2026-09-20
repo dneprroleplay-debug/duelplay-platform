@@ -5,7 +5,7 @@ const header = fs.readFileSync("components/Header/Header.tsx", "utf8");
 
 const checks = [
   ["READY countdown uses persisted startDeadlineAt", page.includes('m.status==="READY" && m.startDeadlineAt')],
-  ["LIVE countdown uses persisted liveDeadlineAt", page.includes('m.liveDeadlineAt')],
+  ["LIVE countdown uses persisted connectionDeadlineAt", page.includes('m.connectionDeadlineAt')],
   ["Countdown has a 1-second interval", page.includes('window.setInterval(update,1000)')],
   ["START label never becomes ellipsis", page.includes('{u.start}</button>') && !page.includes('{busy?"…":u.start}')],
   ["START is disabled at zero", page.includes('disabled={busy||secondsLeft===0}')],

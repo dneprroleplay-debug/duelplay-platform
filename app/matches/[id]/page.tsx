@@ -57,9 +57,9 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  function currentDeadline(){
    if(!m)return null;
    if(m.status==="READY"&&m.startDeadlineAt)return {at:m.startDeadlineAt,maxSeconds:120};
-   if(m.status==="LIVE"){
-     if(m.liveDeadlineAt)return {at:m.liveDeadlineAt,maxSeconds:300};
-     if(m.startedAt)return {at:new Date(new Date(m.startedAt).getTime()+5*60*1000).toISOString(),maxSeconds:300};
+   if(m.status==="LIVE" && m.liveState?.connectionPhaseCompleted!==true){
+     if(m.liveDeadlineAt)return {at:m.liveDeadlineAt,maxSeconds:300,kind:"connection" as const};
+     if(m.startedAt)return {at:new Date(new Date(m.startedAt).getTime()+5*60*1000).toISOString(),maxSeconds:300,kind:"connection" as const};
    }
    return null;
  }

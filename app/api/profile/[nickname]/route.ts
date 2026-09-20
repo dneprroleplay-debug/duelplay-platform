@@ -7,7 +7,7 @@ export async function GET(_:Request,{params}:{params:Promise<{nickname:string}>}
  const viewer=await getCurrentUser();
  if(!viewer) return NextResponse.json({error:"Войдите в аккаунт"},{status:401});
  const {nickname}=await params;
- const u=await prisma.user.findUnique({where:{nickname},select:{id:true,nickname:true,avatarUrl:true,steamAvatarUrl:true,level:true,xp:true,reputation:true,createdAt:true,profileVisibility:true,showStatsPublic:true,allowChallenges:true,allowMessages:true,achievements:{include:{achievement:true}},matchesAsPlayerOne:{select:{id:true,status:true,mapName:true,winnerId:true,createdAt:true,betAmount:true}},matchesAsPlayerTwo:{select:{id:true,status:true,mapName:true,winnerId:true,createdAt:true,betAmount:true}}}});
+ const u=await prisma.user.findUnique({where:{nickname},select:{id:true,nickname:true,avatarUrl:true,steamAvatarUrl:true,level:true,xp:true,reputation:true,createdAt:true,profileVisibility:true,showStatsPublic:true,allowChallenges:true,allowMessages:true,achievements:{include:{achievement:true}},matchesAsPlayerOne:{select:{id:true,status:true,mapName:true,winnerId:true,createdAt:true}},matchesAsPlayerTwo:{select:{id:true,status:true,mapName:true,winnerId:true,createdAt:true}}}});
  if(!u)return NextResponse.json({error:"Profile not found"},{status:404});
  const [stats,matchStats,clanMemberships,friendsSent,friendsReceived,rivals,rivalOf,collections,me]=await Promise.all([
   prisma.playerStats.findUnique({where:{userId:u.id}}),
