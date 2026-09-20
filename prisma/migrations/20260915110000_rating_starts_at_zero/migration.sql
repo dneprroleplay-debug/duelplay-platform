@@ -1,1 +1,0 @@
-ALTER TABLE "PlayerStats" ALTER COLUMN "rating" SET DEFAULT 0;
