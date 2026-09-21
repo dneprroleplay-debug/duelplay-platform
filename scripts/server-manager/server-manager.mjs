@@ -122,10 +122,10 @@ function writeConfigs() {
     'mp_limitteams 0',
     'sv_visiblemaxplayers 2',
     'mp_freezetime 5',
-    'mp_roundtime 5',
-    'mp_roundtime_defuse 5',
-    'mp_roundtime_hostage 5',
-    'mp_buytime 0',
+    'mp_roundtime 2',
+    'mp_roundtime_defuse 2',
+    'mp_roundtime_hostage 2',
+    'mp_buytime 5',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
     'mp_buy_anywhere 1',
@@ -405,6 +405,9 @@ function applyDuelRules(mode, weaponModifier) {
   command('mp_autoteambalance 0');
   command('mp_limitteams 0');
   command('mp_freezetime 5');
+  command('mp_roundtime 2');
+  command('mp_roundtime_defuse 2');
+  command('mp_roundtime_hostage 2');
   command('mp_buy_during_immunity 0');
   command('duelplay_grenade_only 0');
 
@@ -643,9 +646,9 @@ function buildMatchMapConfig(mode, weaponModifier) {
   const lines = [
     '// DuelPlay per-match map rules. Generated before Workshop map load.',
     'mp_freezetime 5',
-    'mp_roundtime 5',
-    'mp_roundtime_defuse 5',
-    'mp_roundtime_hostage 5',
+    'mp_roundtime 2',
+    'mp_roundtime_defuse 2',
+    'mp_roundtime_hostage 2',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
   ];
@@ -818,11 +821,19 @@ function observeServerLine(text) {
     const now = Date.now();
     if (now - lastRoundRuleApplyAt > 1500) {
       lastRoundRuleApplyAt = now;
-      setTimeout(() => {
-        if (!current || resultSent) return;
-        applyDuelRules(current.mode, current.weaponModifier);
-        pulseGrenadeLoadout();
-      }, 150);
+      const reapplyRoundRules = (delay) => {
+        setTimeout(() => {
+          if (!current || resultSent) return;
+          applyDuelRules(current.mode, current.weaponModifier);
+          if (delay >= 1000) pulseGrenadeLoadout();
+        }, delay);
+      };
+      // Workshop maps can re-apply their own cvars after Round_Start.
+      // Re-assert DuelPlay rules after the map has finished doing so.
+      reapplyRoundRules(150);
+      reapplyRoundRules(1000);
+      reapplyRoundRules(2500);
+      reapplyRoundRules(5000);
     }
   }
 
@@ -934,7 +945,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '5', '+mp_roundtime_defuse', '5', '+mp_roundtime_hostage', '5', '+mp_buytime', '5', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '2', '+mp_roundtime_defuse', '2', '+mp_roundtime_hostage', '2', '+mp_buytime', '5', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
@@ -1042,10 +1053,12 @@ async function claimAndStart(match) {
       command('mp_warmuptime 0');
       command('mp_warmup_end');
       command('mp_restartgame 1');
-      setTimeout(() => {
-        if (!current || current.id !== match.id) return;
-        applyDuelRules(current.mode, current.weaponModifier);
-      }, 1500);
+      [1500, 3000, 5000].forEach((delay) => {
+        setTimeout(() => {
+          if (!current || current.id !== match.id) return;
+          applyDuelRules(current.mode, current.weaponModifier);
+        }, delay);
+      });
       command('mp_match_can_clinch 1');
       command('mp_match_end_restart 0');
       command('sv_visiblemaxplayers 2');
