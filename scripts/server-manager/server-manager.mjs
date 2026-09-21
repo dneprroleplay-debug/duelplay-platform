@@ -125,7 +125,7 @@ function writeConfigs() {
     'mp_roundtime 2',
     'mp_roundtime_defuse 2',
     'mp_roundtime_hostage 2',
-    'mp_buytime 5',
+    'mp_buytime 0.5',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
     'mp_buy_anywhere 1',
@@ -414,7 +414,7 @@ function applyDuelRules(mode, weaponModifier) {
   if (buyEnabled) {
     // Classic 1v1 / Headshot Only / FIRST_TO_10:
     // 5 seconds of buy time from round start.
-    command('mp_buytime 5');
+    command('mp_buytime 0.5');
     command('mp_startmoney 16000');
     command('mp_maxmoney 16000');
     command('mp_afterroundmoney 16000');
@@ -655,7 +655,7 @@ function buildMatchMapConfig(mode, weaponModifier) {
 
   if (buyEnabled) {
     lines.push(
-      'mp_buytime 5',
+      'mp_buytime 0.5',
       'mp_startmoney 16000',
       'mp_maxmoney 16000',
       'mp_afterroundmoney 16000',
@@ -817,6 +817,18 @@ function observeServerLine(text) {
 
   // CS2 logs an authenticated Steam Net connection before warmup ends.
   // Use this for immediate 1/2 detection instead of waiting for a team line.
+  // Workshop maps can initialize their own match cvars around Match_Start.
+  // Re-assert DuelPlay rules immediately so the first freeze is exactly 5 seconds
+  // and the 30-second buy window is active before players can buy.
+  if (/World triggered \"Match_Start\"/i.test(text)) {
+    [0, 100, 500].forEach((delay) => {
+      setTimeout(() => {
+        if (!current || resultSent) return;
+        applyDuelRules(current.mode, current.weaponModifier);
+      }, delay);
+    });
+  }
+
   if (/World triggered \"Round_Start\"/i.test(text)) {
     const now = Date.now();
     if (now - lastRoundRuleApplyAt > 1500) {
@@ -945,7 +957,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '2', '+mp_roundtime_defuse', '2', '+mp_roundtime_hostage', '2', '+mp_buytime', '5', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '2', '+mp_roundtime_defuse', '2', '+mp_roundtime_hostage', '2', '+mp_buytime', '0.5', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
