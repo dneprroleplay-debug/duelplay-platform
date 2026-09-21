@@ -46,6 +46,9 @@ let lastHeartbeatSentAt = 0;
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
+let grenadeLoadoutPulseTimer = null;
+let lastGrenadeLoadoutPulseAt = 0;
+let lastRoundRuleApplyAt = 0;
 let shuttingDown = false;
 let lastLogFile = "";
 let lastLogSize = 0;
@@ -119,6 +122,9 @@ function writeConfigs() {
     'mp_limitteams 0',
     'sv_visiblemaxplayers 2',
     'mp_freezetime 5',
+    'mp_roundtime 5',
+    'mp_roundtime_defuse 5',
+    'mp_roundtime_hostage 5',
     'mp_buytime 0',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
@@ -157,8 +163,8 @@ function writeConfigs() {
     'mp_ct_default_primary weapon_awp',
     'mp_t_default_secondary 0',
     'mp_ct_default_secondary 0',
-    'mp_t_default_melee 0',
-    'mp_ct_default_melee 0',
+    'mp_t_default_melee weapon_knife',
+    'mp_ct_default_melee weapon_knife',
     'mp_t_default_grenades 0',
     'mp_ct_default_grenades 0',
     'mp_free_armor 2',
@@ -186,8 +192,8 @@ function writeConfigs() {
     'mp_ct_default_primary 0',
     'mp_t_default_secondary 0',
     'mp_ct_default_secondary 0',
-    'mp_t_default_melee 0',
-    'mp_ct_default_melee 0',
+    'mp_t_default_melee weapon_knife',
+    'mp_ct_default_melee weapon_knife',
     'mp_t_default_grenades 0',
     'mp_ct_default_grenades 0',
     'ammo_grenade_limit_total 12',
@@ -198,7 +204,7 @@ function writeConfigs() {
     ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_deagle.cfg'), [
-    '// DuelPlay DEAGLE ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
+    '// DuelPlay DEAGLE ONLY rules', 'mp_freezetime 5', 'mp_roundtime 5', 'mp_roundtime_defuse 5', 'mp_roundtime_hostage 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
     'mp_buy_allow_guns 0', 'mp_buy_allow_grenades 0', 'mp_weapons_allow_map_placed 0',
     'mp_weapons_allow_pistols 1', 'mp_weapons_allow_smgs 0', 'mp_weapons_allow_rifles 0',
     'mp_weapons_allow_heavy 0', 'mp_weapons_allow_zeus 0',
@@ -208,7 +214,7 @@ function writeConfigs() {
     'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_knife.cfg'), [
-    '// DuelPlay KNIFE ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
+    '// DuelPlay KNIFE ONLY rules', 'mp_freezetime 5', 'mp_roundtime 5', 'mp_roundtime_defuse 5', 'mp_roundtime_hostage 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
     'mp_buy_allow_guns 0', 'mp_buy_allow_grenades 0', 'mp_weapons_allow_map_placed 0',
     'mp_weapons_allow_pistols 0', 'mp_weapons_allow_smgs 0', 'mp_weapons_allow_rifles 0',
     'mp_weapons_allow_heavy 0', 'mp_weapons_allow_zeus 0',
@@ -217,13 +223,13 @@ function writeConfigs() {
     'mp_t_default_grenades 0', 'mp_ct_default_grenades 0', 'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_headshot.cfg'), [
-    '// DuelPlay HEADSHOT ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_during_immunity 1', 'mp_respawn_immunitytime 5', 'mp_buy_anywhere 1',
+    '// DuelPlay HEADSHOT ONLY rules', 'mp_freezetime 5', 'mp_roundtime 5', 'mp_roundtime_defuse 5', 'mp_roundtime_hostage 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_during_immunity 1', 'mp_respawn_immunitytime 5', 'mp_buy_anywhere 1',
     'mp_buy_allow_guns 255', 'mp_buy_allow_grenades 1', 'mp_weapons_allow_pistols -1', 'mp_weapons_allow_smgs -1', 'mp_weapons_allow_rifles -1', 'mp_weapons_allow_heavy -1', 'mp_weapons_allow_map_placed 1',
-    'mp_damage_headshot_only 1', 'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
+    'mp_damage_headshot_only 1', 'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', 'mp_t_default_melee weapon_knife', 'mp_ct_default_melee weapon_knife', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_first_to_10.cfg'), [
-    '// DuelPlay FIRST TO 10 rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_maxrounds 19', 'mp_match_can_clinch 1',
-    'mp_halftime 0', 'mp_buytime 0', 'mp_buy_during_immunity 1', 'mp_respawn_immunitytime 5', 'mp_buy_anywhere 1', 'mp_buy_allow_guns 255', 'mp_buy_allow_grenades 1', 'mp_weapons_allow_pistols -1', 'mp_weapons_allow_smgs -1', 'mp_weapons_allow_rifles -1', 'mp_weapons_allow_heavy -1', 'mp_weapons_allow_map_placed 1', ''
+    '// DuelPlay FIRST TO 10 rules', 'mp_freezetime 5', 'mp_roundtime 5', 'mp_roundtime_defuse 5', 'mp_roundtime_hostage 5', 'mp_warmup_end', 'mp_maxrounds 19', 'mp_match_can_clinch 1',
+    'mp_halftime 0', 'mp_buytime 0', 'mp_buy_during_immunity 1', 'mp_respawn_immunitytime 5', 'mp_buy_anywhere 1', 'mp_buy_allow_guns 255', 'mp_buy_allow_grenades 1', 'mp_weapons_allow_pistols -1', 'mp_weapons_allow_smgs -1', 'mp_weapons_allow_rifles -1', 'mp_weapons_allow_heavy -1', 'mp_weapons_allow_map_placed 1', 'mp_t_default_melee weapon_knife', 'mp_ct_default_melee weapon_knife', ''
   ].join('\n'));
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
   writeFileSync(join(cfgDir, 'gamestate_integration_duelplay.cfg'), gsi);
@@ -239,9 +245,11 @@ function clearCurrentTimers() {
   if (readyTimer) clearTimeout(readyTimer);
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
   if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+  if (grenadeLoadoutPulseTimer) clearTimeout(grenadeLoadoutPulseTimer);
   readyTimer = null;
   startupDeadlineTimer = null;
   warmupGuardTimer = null;
+  grenadeLoadoutPulseTimer = null;
 }
 
 function isPortAvailable(port) {
@@ -358,6 +366,27 @@ function randomWeaponForDuel() {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+function pulseGrenadeLoadout() {
+  if (!current || resultSent) return;
+  const grenadeOnly = current.weaponModifier === 'GRENADE_ONLY' || current.mode === 'GRENADE_ONLY';
+  if (!grenadeOnly) return;
+
+  // The plugin should only be enabled long enough to seed the initial 12 grenades.
+  // Leaving enforcement enabled causes repeated GiveNamedItem calls and effectively
+  // creates an infinite grenade supply. A short pulse is enough for the plugin to
+  // configure the round loadout; server-side pickup/shop restrictions stay active.
+  const now = Date.now();
+  if (now - lastGrenadeLoadoutPulseAt < 3000) return;
+  lastGrenadeLoadoutPulseAt = now;
+
+  command('duelplay_grenade_only 1');
+  if (grenadeLoadoutPulseTimer) clearTimeout(grenadeLoadoutPulseTimer);
+  grenadeLoadoutPulseTimer = setTimeout(() => {
+    if (current && !resultSent) command('duelplay_grenade_only 0');
+    grenadeLoadoutPulseTimer = null;
+  }, 500);
+}
+
 function applyDuelRules(mode, weaponModifier) {
   const grenadeOnly = weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY';
   const awpOnly = weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY';
@@ -377,7 +406,7 @@ function applyDuelRules(mode, weaponModifier) {
   command('mp_limitteams 0');
   command('mp_freezetime 5');
   command('mp_buy_during_immunity 0');
-  command('duelplay_grenade_only ' + (grenadeOnly ? '1' : '0'));
+  command('duelplay_grenade_only 0');
 
   if (buyEnabled) {
     // Classic 1v1 / Headshot Only / FIRST_TO_10:
@@ -400,10 +429,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_require_gun_use_to_acquire 0');
     command('sv_allow_ground_weapon_pickup 1');
     command('mp_death_drop_gun 1');
-    if (classicMode) {
-      command('mp_t_default_melee weapon_knife');
-      command('mp_ct_default_melee weapon_knife');
-    }
+    command('mp_t_default_melee weapon_knife');
+    command('mp_ct_default_melee weapon_knife');
     command('mp_match_can_clinch 1');
     command('mp_match_end_restart 0');
     if (firstTo10) {
@@ -431,6 +458,7 @@ function applyDuelRules(mode, weaponModifier) {
 
   if (grenadeOnly) {
     command('exec duelplay_grenade');
+    pulseGrenadeLoadout();
   } else if (awpOnly) {
     command('exec duelplay_awp');
     // AWP ONLY: explicitly re-apply the loadout after cfg execution so no pistol,
@@ -452,8 +480,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_ct_default_primary weapon_awp');
     command('mp_t_default_secondary 0');
     command('mp_ct_default_secondary 0');
-    command('mp_t_default_melee 0');
-    command('mp_ct_default_melee 0');
+    command('mp_t_default_melee weapon_knife');
+    command('mp_ct_default_melee weapon_knife');
     command('mp_t_default_grenades 0');
     command('mp_ct_default_grenades 0');
     command('mp_free_armor 2');
@@ -478,8 +506,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_ct_default_primary 0');
     command('mp_t_default_secondary weapon_deagle');
     command('mp_ct_default_secondary weapon_deagle');
-    command('mp_t_default_melee 0');
-    command('mp_ct_default_melee 0');
+    command('mp_t_default_melee weapon_knife');
+    command('mp_ct_default_melee weapon_knife');
     command('mp_t_default_grenades 0');
     command('mp_ct_default_grenades 0');
     command('mp_free_armor 2');
@@ -529,6 +557,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('sv_allow_ground_weapon_pickup 1');
     command('mp_death_drop_gun 1');
     command('mp_death_drop_grenade 1');
+    command('mp_t_default_melee weapon_knife');
+    command('mp_ct_default_melee weapon_knife');
     // HEADSHOT ONLY: every normal weapon/grenade remains available, but
     // damage is restricted to headshots. Re-apply after cfg so nothing
     // from duelplay_headshot.cfg can disable the full shop.
@@ -553,8 +583,8 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_require_gun_use_to_acquire 0');
     command('mp_death_drop_gun 0');
     command('mp_death_drop_grenade 0');
-    command('mp_t_default_melee 0');
-    command('mp_ct_default_melee 0');
+    command('mp_t_default_melee weapon_knife');
+    command('mp_ct_default_melee weapon_knife');
     command('mp_t_default_grenades 0');
     command('mp_ct_default_grenades 0');
     command('mp_free_armor 2');
@@ -612,6 +642,9 @@ function buildMatchMapConfig(mode, weaponModifier) {
   const lines = [
     '// DuelPlay per-match map rules. Generated before Workshop map load.',
     'mp_freezetime 5',
+    'mp_roundtime 5',
+    'mp_roundtime_defuse 5',
+    'mp_roundtime_hostage 5',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
   ];
@@ -632,7 +665,8 @@ function buildMatchMapConfig(mode, weaponModifier) {
       'sv_allow_ground_weapon_pickup 1',
       'mp_death_drop_gun 1',
       'mp_death_drop_grenade 1',
-      ...(classicMode ? ['mp_t_default_melee weapon_knife', 'mp_ct_default_melee weapon_knife'] : []),
+      'mp_t_default_melee weapon_knife',
+      'mp_ct_default_melee weapon_knife',
     );
   } else {
     lines.push(
@@ -648,6 +682,8 @@ function buildMatchMapConfig(mode, weaponModifier) {
       'mp_weapons_allow_map_placed 0',
       'sv_allow_ground_weapon_pickup 0',
       'mp_death_drop_gun 0',
+      'mp_t_default_melee weapon_knife',
+      'mp_ct_default_melee weapon_knife',
       'mp_death_drop_grenade 0',
     );
   }
@@ -659,15 +695,15 @@ function buildMatchMapConfig(mode, weaponModifier) {
   }
 
   if (awpOnly) {
-    lines.push('mp_t_default_primary weapon_awp', 'mp_ct_default_primary weapon_awp', 'mp_t_default_secondary 0', 'mp_ct_default_secondary 0', 'mp_t_default_melee ""', 'mp_ct_default_melee ""', 'mp_t_default_grenades 0', 'mp_ct_default_grenades 0', 'mp_free_armor 2');
+    lines.push('mp_t_default_primary weapon_awp', 'mp_ct_default_primary weapon_awp', 'mp_t_default_secondary 0', 'mp_ct_default_secondary 0', 'mp_t_default_melee weapon_knife', 'mp_ct_default_melee weapon_knife', 'mp_t_default_grenades 0', 'mp_ct_default_grenades 0', 'mp_free_armor 2');
   } else if (deagleOnly) {
     lines.push(
       'mp_t_default_primary 0',
       'mp_ct_default_primary 0',
       'mp_t_default_secondary weapon_deagle',
       'mp_ct_default_secondary weapon_deagle',
-      'mp_t_default_melee 0',
-      'mp_ct_default_melee 0',
+      'mp_t_default_melee weapon_knife',
+      'mp_ct_default_melee weapon_knife',
       'mp_t_default_grenades 0',
       'mp_ct_default_grenades 0',
       'mp_free_armor 2'
@@ -682,14 +718,15 @@ function buildMatchMapConfig(mode, weaponModifier) {
       'mp_ct_default_primary 0',
       'mp_t_default_secondary 0',
       'mp_ct_default_secondary 0',
-      'mp_t_default_melee 0',
-      'mp_ct_default_melee 0',
+      'mp_t_default_melee weapon_knife',
+      'mp_ct_default_melee weapon_knife',
       'mp_t_default_grenades 0',
       'mp_ct_default_grenades 0',
       'mp_free_armor 2'
     );
   } else if (grenadeOnly) {
-    lines.push('duelplay_grenade_only 1');
+    // Enable only through the short per-round pulse; never leave enforcement on in the map cfg.
+    lines.push('duelplay_grenade_only 0');
   } else {
     lines.push('duelplay_grenade_only 0');
   }
@@ -773,6 +810,18 @@ function observeServerLine(text) {
 
   // CS2 logs an authenticated Steam Net connection before warmup ends.
   // Use this for immediate 1/2 detection instead of waiting for a team line.
+  if (/World triggered \"Round_Start\"/i.test(text)) {
+    const now = Date.now();
+    if (now - lastRoundRuleApplyAt > 1500) {
+      lastRoundRuleApplyAt = now;
+      setTimeout(() => {
+        if (!current || resultSent) return;
+        applyDuelRules(current.mode, current.weaponModifier);
+        pulseGrenadeLoadout();
+      }, 150);
+    }
+  }
+
   const steamNetLine = text.match(
     /Accepting Steam Net connection.*?steamid:(\d{17})/i
   );
@@ -881,7 +930,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_buytime', '0', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '5', '+mp_roundtime_defuse', '5', '+mp_roundtime_hostage', '5', '+mp_buytime', '0', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
@@ -926,6 +975,8 @@ async function claimAndStart(match) {
   connectionPhaseCompleted = false;
   duelRulesAppliedAfterConnect = false;
   lastHeartbeatSentAt = 0;
+  lastGrenadeLoadoutPulseAt = 0;
+  lastRoundRuleApplyAt = 0;
   resetRefereeState();
 
   child.stdout.on('data', (chunk) => {
@@ -987,6 +1038,10 @@ async function claimAndStart(match) {
       command('mp_warmuptime 0');
       command('mp_warmup_end');
       command('mp_restartgame 1');
+      setTimeout(() => {
+        if (!current || current.id !== match.id) return;
+        applyDuelRules(current.mode, current.weaponModifier);
+      }, 1500);
       command('mp_match_can_clinch 1');
       command('mp_match_end_restart 0');
       command('sv_visiblemaxplayers 2');
@@ -1003,10 +1058,12 @@ async function claimAndStart(match) {
       connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
       if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+  if (grenadeLoadoutPulseTimer) clearTimeout(grenadeLoadoutPulseTimer);
       let warmupGuardTicks = 0;
       warmupGuardTimer = setInterval(() => {
         if (!current || current.id !== match.id || warmupGuardTicks++ >= 12) {
           if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+  if (grenadeLoadoutPulseTimer) clearTimeout(grenadeLoadoutPulseTimer);
           warmupGuardTimer = null;
           return;
         }
