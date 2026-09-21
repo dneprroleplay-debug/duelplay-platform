@@ -48,7 +48,31 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
  }
  async function loadAuth(){try{const ur=await fetch(`/api/auth/me?t=${Date.now()}`,{cache:"no-store",headers:{"Cache-Control":"no-store"}});const ud=await ur.json();setUser(ud.user??null)}catch{}}
  useEffect(()=>{if(!id)return;void loadMatch();void loadAuth()},[id]);
- useEffect(()=>{if(!id)return;const tick=()=>{if(document.visibilityState!=="hidden")void loadMatch()};const timer=setInterval(tick,1000);const onVisibility=()=>{if(document.visibilityState==="visible")void loadMatch()};document.addEventListener("visibilitychange",onVisibility);return()=>{clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility)}},[id]);
+ useEffect(()=>{
+   if(!id)return;
+   const isTerminal=()=>m?.status==="FINISHED"||m?.status==="CANCELLED";
+   const tick=()=>{
+     if(document.visibilityState==="hidden"||isTerminal())return;
+     void loadMatch();
+   };
+   const timer=setInterval(tick,1000);
+   const onVisibility=()=>{
+     if(document.visibilityState==="visible"&&!isTerminal())void loadMatch();
+   };
+   // Admin actions create an audit-log entry, which normally triggers the global
+   // platform sync. On a match page we only need a fresh match snapshot; a full
+   // browser reload remounts the whole page and causes the visible loading flicker.
+   const onPlatformChanged=()=>{
+     if(document.visibilityState!=="hidden")void loadMatch();
+   };
+   document.addEventListener("visibilitychange",onVisibility);
+   window.addEventListener("duelplay:match-refresh",onPlatformChanged);
+   return()=>{
+     clearInterval(timer);
+     document.removeEventListener("visibilitychange",onVisibility);
+     window.removeEventListener("duelplay:match-refresh",onPlatformChanged);
+   };
+ },[id,m?.status]);
  const load=loadMatch;
  useEffect(()=>{
    setDeadlineExpired(false);

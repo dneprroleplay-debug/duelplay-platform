@@ -26,7 +26,17 @@ export default function LivePlatformSync(){
   };
   void check();
   const timer=window.setInterval(()=>void check(),3000);
-  const onLocal=()=>{if(!pathname.startsWith("/admin"))window.location.reload()};
+  const onLocal=()=>{
+    if(pathname.startsWith("/admin"))return;
+    // Match pages already poll their own lifecycle state. A platform-version
+    // change (for example an admin cancellation) should refresh that snapshot
+    // instead of hard-reloading the whole page and flashing LoadingScreen.
+    if(pathname.startsWith("/matches/")){
+      window.dispatchEvent(new Event("duelplay:match-refresh"));
+      return;
+    }
+    window.location.reload();
+  };
   window.addEventListener("duelplay:platform-changed",onLocal);
   const onVisibility=()=>{if(document.visibilityState==="visible")void check()};
   document.addEventListener("visibilitychange",onVisibility);
