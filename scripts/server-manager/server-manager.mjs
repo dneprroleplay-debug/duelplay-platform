@@ -46,6 +46,7 @@ let lastHeartbeatSentAt = 0;
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
+let duelRulesGuardTimer = null;
 let shuttingDown = false;
 let lastLogFile = "";
 let lastLogSize = 0;
@@ -119,10 +120,11 @@ function writeConfigs() {
     'mp_limitteams 0',
     'sv_visiblemaxplayers 2',
     'mp_freezetime 5',
-    'mp_buytime 0',
-    'mp_buy_anywhere 0',
-    'mp_buy_allow_guns 0',
-    'mp_buy_allow_grenades 0',
+    'mp_buytime 5',
+    'mp_buy_anywhere 1',
+    'mp_buy_allow_guns 255',
+    'mp_buy_allow_grenades 1',
+    'mp_weapons_allow_map_placed 1',
     'mp_warmup_end',
     'mp_warmup_online_enabled 0',
     'mp_warmuptime 0',
@@ -136,6 +138,7 @@ function writeConfigs() {
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_awp.cfg'), [
     '// DuelPlay AWP ONLY rules',
+    'mp_freezetime 5',
     'mp_warmup_end',
     'mp_warmup_online_enabled 0',
     'mp_warmuptime 0',
@@ -164,6 +167,7 @@ function writeConfigs() {
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_grenade.cfg'), [
     '// DuelPlay GRENADE ONLY rules',
+    'mp_freezetime 5',
     'mp_warmup_end',
     'mp_warmup_online_enabled 0',
     'mp_warmuptime 0',
@@ -193,7 +197,7 @@ function writeConfigs() {
     ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_deagle.cfg'), [
-    '// DuelPlay DEAGLE ONLY rules', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
+    '// DuelPlay DEAGLE ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
     'mp_buy_allow_guns 0', 'mp_buy_allow_grenades 0', 'mp_weapons_allow_map_placed 0',
     'mp_weapons_allow_pistols 1', 'mp_weapons_allow_smgs 0', 'mp_weapons_allow_rifles 0',
     'mp_weapons_allow_heavy 0', 'mp_weapons_allow_zeus 0',
@@ -203,7 +207,7 @@ function writeConfigs() {
     'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_knife.cfg'), [
-    '// DuelPlay KNIFE ONLY rules', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
+    '// DuelPlay KNIFE ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
     'mp_buy_allow_guns 0', 'mp_buy_allow_grenades 0', 'mp_weapons_allow_map_placed 0',
     'mp_weapons_allow_pistols 0', 'mp_weapons_allow_smgs 0', 'mp_weapons_allow_rifles 0',
     'mp_weapons_allow_heavy 0', 'mp_weapons_allow_zeus 0',
@@ -212,12 +216,13 @@ function writeConfigs() {
     'mp_t_default_grenades 0', 'mp_ct_default_grenades 0', 'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_headshot.cfg'), [
-    '// DuelPlay HEADSHOT ONLY rules', 'mp_warmup_end', 'mp_buytime 0', 'mp_buy_anywhere 0',
+    '// DuelPlay HEADSHOT ONLY rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_buytime 5', 'mp_buy_anywhere 1',
+    'mp_buy_allow_guns 255', 'mp_buy_allow_grenades 1', 'mp_weapons_allow_map_placed 1',
     'mp_damage_headshot_only 1', 'mp_death_drop_gun 0', 'mp_death_drop_grenade 0', ''
   ].join('\n'));
   writeFileSync(join(cfgDir, 'duelplay_first_to_10.cfg'), [
-    '// DuelPlay FIRST TO 10 rules', 'mp_warmup_end', 'mp_maxrounds 19', 'mp_match_can_clinch 1',
-    'mp_match_end_restart 0', 'mp_halftime 0', 'mp_buytime 0', 'mp_buy_anywhere 0', ''
+    '// DuelPlay FIRST TO 10 rules', 'mp_freezetime 5', 'mp_warmup_end', 'mp_maxrounds 19', 'mp_match_can_clinch 1',
+    'mp_halftime 0', 'mp_buytime 5', 'mp_buy_anywhere 1', 'mp_buy_allow_guns 255', 'mp_buy_allow_grenades 1', 'mp_weapons_allow_map_placed 1', ''
   ].join('\n'));
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
   writeFileSync(join(cfgDir, 'gamestate_integration_duelplay.cfg'), gsi);
@@ -233,9 +238,11 @@ function clearCurrentTimers() {
   if (readyTimer) clearTimeout(readyTimer);
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
   if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+  if (duelRulesGuardTimer) clearInterval(duelRulesGuardTimer);
   readyTimer = null;
   startupDeadlineTimer = null;
   warmupGuardTimer = null;
+  duelRulesGuardTimer = null;
 }
 
 function isPortAvailable(port) {
@@ -323,42 +330,120 @@ function randomWeaponForDuel() {
 }
 
 function applyDuelRules(mode, weaponModifier) {
-  command('mp_warmup_online_enabled 0'); command('mp_warmuptime 0'); command('mp_warmup_pausetimer 0'); command('mp_warmup_end');
-  command('mp_autoteambalance 0'); command('mp_limitteams 0');
-  command('mp_freezetime 5');
-  command('mp_buytime 0'); command('mp_buy_anywhere 0');
-  command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
-  command('mp_damage_headshot_only 0');
   const grenadeOnly = weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY';
+  const awpOnly = weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY';
+  const deagleOnly = weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY';
+  const knifeOnly = weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY';
+  const headshotOnly = weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY';
+  const randomOnly = weaponModifier === 'RANDOM_WEAPON' || mode === 'RANDOM_WEAPON';
+
+  command('mp_warmup_online_enabled 0');
+  command('mp_warmuptime 0');
+  command('mp_warmup_pausetimer 0');
+  command('mp_warmup_end');
+  command('mp_autoteambalance 0');
+  command('mp_limitteams 0');
+  command('mp_freezetime 5');
+  command('mp_damage_headshot_only 0');
   command(`duelplay_grenade_only ${grenadeOnly ? 1 : 0}`);
-  if (grenadeOnly) command('exec duelplay_grenade');
-  else if (weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY') command('exec duelplay_awp');
-  else if (weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY') command('exec duelplay_deagle');
-  else if (weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY') command('exec duelplay_knife');
-  else if (weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY') { command('exec duelplay_headshot'); command('mp_damage_headshot_only 1'); }
-  else if (weaponModifier === 'RANDOM_WEAPON' || mode === 'RANDOM_WEAPON') {
+
+  // Classic 1v1, Headshot Only and FIRST_TO_10:
+  // buy for exactly the first 5 seconds of every round; floor weapons stay pickable.
+  const buyEnabled = !grenadeOnly && !awpOnly && !deagleOnly && !knifeOnly && !randomOnly;
+  if (buyEnabled) {
+    command('mp_buytime 5');
+    command('mp_buy_anywhere 1');
+    command('mp_buy_allow_guns 255');
+    command('mp_buy_allow_grenades 1');
+    command('mp_weapons_allow_map_placed 1');
+  } else {
+    command('mp_buytime 0');
+    command('mp_buy_anywhere 0');
+    command('mp_buy_allow_guns 0');
+    command('mp_buy_allow_grenades 0');
+    command('mp_weapons_allow_map_placed 0');
+  }
+
+  if (grenadeOnly) {
+    command('exec duelplay_grenade');
+  } else if (awpOnly) {
+    command('exec duelplay_awp');
+  } else if (deagleOnly) {
+    command('exec duelplay_deagle');
+  } else if (knifeOnly) {
+    command('exec duelplay_knife');
+  } else if (headshotOnly) {
+    command('exec duelplay_headshot');
+    command('mp_damage_headshot_only 1');
+  } else if (randomOnly) {
     const random = current?.randomWeapon || randomWeaponForDuel();
     if (current) current.randomWeapon = random;
-    command('mp_weapons_allow_map_placed 0'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
-    command('mp_weapons_allow_pistols 0'); command('mp_weapons_allow_smgs 0'); command('mp_weapons_allow_rifles 0'); command('mp_weapons_allow_heavy 0'); command('mp_weapons_allow_zeus 0');
     if (random.slot === 'primary') {
-      command(`mp_t_default_primary ${random.weapon}`); command(`mp_ct_default_primary ${random.weapon}`); command('mp_t_default_secondary 0'); command('mp_ct_default_secondary 0');
+      command(`mp_t_default_primary ${random.weapon}`);
+      command(`mp_ct_default_primary ${random.weapon}`);
+      command('mp_t_default_secondary 0');
+      command('mp_ct_default_secondary 0');
     } else {
-      command('mp_t_default_primary 0'); command('mp_ct_default_primary 0'); command(`mp_t_default_secondary ${random.weapon}`); command(`mp_ct_default_secondary ${random.weapon}`);
+      command('mp_t_default_primary 0');
+      command('mp_ct_default_primary 0');
+      command(`mp_t_default_secondary ${random.weapon}`);
+      command(`mp_ct_default_secondary ${random.weapon}`);
     }
-    command('mp_t_default_melee 0'); command('mp_ct_default_melee 0'); command('mp_t_default_grenades 0'); command('mp_ct_default_grenades 0'); command('mp_death_drop_gun 0'); command('mp_death_drop_grenade 0');
-  } else if (mode === 'FIRST_TO_10') {
-    command('exec duelplay_first_to_10'); command('mp_maxrounds 19'); command('mp_match_can_clinch 1'); command('mp_match_end_restart 0'); command('mp_halftime 0');
-    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
+    command('mp_t_default_melee 0');
+    command('mp_ct_default_melee 0');
+    command('mp_t_default_grenades 0');
+    command('mp_ct_default_grenades 0');
+    command('mp_death_drop_gun 0');
+    command('mp_death_drop_grenade 0');
   } else {
-    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
-    command('mp_weapons_allow_pistols 1'); command('mp_weapons_allow_smgs 1'); command('mp_weapons_allow_rifles 1'); command('mp_weapons_allow_heavy 1'); command('mp_weapons_allow_zeus 1');
-    command('mp_match_can_clinch 1'); command('mp_match_end_restart 0');
+    command('mp_weapons_allow_pistols 1');
+    command('mp_weapons_allow_smgs 1');
+    command('mp_weapons_allow_rifles 1');
+    command('mp_weapons_allow_heavy 1');
+    command('mp_weapons_allow_zeus 1');
+    command('mp_match_can_clinch 1');
+    command('mp_match_end_restart 0');
   }
-  // Universal DuelPlay rule: no player purchases on any map/mode.
+
+  // Re-assert mode-specific values after the selected config is loaded.
+  if (buyEnabled) {
+    command('mp_freezetime 5');
+    command('mp_buytime 5');
+    command('mp_buy_anywhere 1');
+    command('mp_buy_allow_guns 255');
+    command('mp_buy_allow_grenades 1');
+    command('mp_weapons_allow_map_placed 1');
+  } else {
+    command('mp_freezetime 5');
+    command('mp_buytime 0');
+    command('mp_buy_anywhere 0');
+    command('mp_buy_allow_guns 0');
+    command('mp_buy_allow_grenades 0');
+    command('mp_weapons_allow_map_placed 0');
+  }
+  command('mp_damage_headshot_only ' + (headshotOnly ? '1' : '0'));
+}
+
+
+function enforceDuelRoundRules(mode, weaponModifier) {
+  const grenadeOnly = weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY';
+  const awpOnly = weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY';
+  const deagleOnly = weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY';
+  const knifeOnly = weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY';
+  const randomOnly = weaponModifier === 'RANDOM_WEAPON' || mode === 'RANDOM_WEAPON';
+  const headshotOnly = weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY';
+  const buyEnabled = !grenadeOnly && !awpOnly && !deagleOnly && !knifeOnly && !randomOnly;
+
   command('mp_freezetime 5');
-  command('mp_buytime 0'); command('mp_buy_anywhere 0');
-  command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
+  command('mp_buytime ' + (buyEnabled ? '5' : '0'));
+  command('mp_buy_anywhere ' + (buyEnabled ? '1' : '0'));
+  command('mp_buy_allow_guns ' + (buyEnabled ? '255' : '0'));
+  command('mp_buy_allow_grenades ' + (buyEnabled ? '1' : '0'));
+  command('mp_weapons_allow_map_placed ' + (buyEnabled ? '1' : '0'));
+  command('mp_damage_headshot_only ' + (headshotOnly ? '1' : '0'));
+  command('mp_autoteambalance 0');
+  command('mp_limitteams 0');
+  command('duelplay_grenade_only ' + (grenadeOnly ? '1' : '0'));
 }
 
 function steam64FromSteam3(value) {
@@ -413,8 +498,14 @@ function finalizePlayerLoadoutAfterConnect() {
   if (!current || !serverReadyAt || duelRulesAppliedAfterConnect) return;
   duelRulesAppliedAfterConnect = true;
   applyDuelRules(current.mode, current.weaponModifier);
+  enforceDuelRoundRules(current.mode, current.weaponModifier);
   command('mp_warmup_end'); command('mp_restartgame 1');
-  setTimeout(() => { if (!current) return; applyDuelRules(current.mode, current.weaponModifier); command('mp_warmup_end'); }, 2500);
+  setTimeout(() => {
+    if (!current) return;
+    applyDuelRules(current.mode, current.weaponModifier);
+    enforceDuelRoundRules(current.mode, current.weaponModifier);
+    command('mp_warmup_end');
+  }, 2500);
 }
 
 function observeServerLine(text) {
@@ -523,7 +614,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_buytime', '0', '+mp_buy_anywhere', '0', '+mp_buy_allow_guns', '0', '+mp_buy_allow_grenades', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_buytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_map_placed', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
@@ -625,6 +716,7 @@ async function claimAndStart(match) {
       command('mp_autoteambalance 0');
       command('mp_limitteams 0');
       applyDuelRules(current.mode, current.weaponModifier);
+      enforceDuelRoundRules(current.mode, current.weaponModifier);
       command('mp_warmup_online_enabled 0');
       command('mp_warmuptime 0');
       command('mp_warmup_end');
@@ -641,6 +733,15 @@ async function claimAndStart(match) {
         body: JSON.stringify({ action: 'ready', serverId: current.serverId, host: runtimeHost, port: runtimePort, processId: current.process.pid })
       });
       serverReadyAt = Date.now();
+      if (duelRulesGuardTimer) clearInterval(duelRulesGuardTimer);
+      duelRulesGuardTimer = setInterval(() => {
+        if (!current || current.id !== match.id) {
+          if (duelRulesGuardTimer) clearInterval(duelRulesGuardTimer);
+          duelRulesGuardTimer = null;
+          return;
+        }
+        enforceDuelRoundRules(current.mode, current.weaponModifier);
+      }, 1000);
       connectedSteamIds = [];
       connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
@@ -652,11 +753,7 @@ async function claimAndStart(match) {
           warmupGuardTimer = null;
           return;
         }
-        command('mp_warmup_online_enabled 0');
-        command('mp_warmuptime 0');
-        command('mp_freezetime 5');
-        command('mp_buytime 0'); command('mp_buy_anywhere 0');
-        command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
+        enforceDuelRoundRules(current.mode, current.weaponModifier);
         command('mp_warmup_pausetimer 0');
         command('mp_warmup_end');
       }, 500);
