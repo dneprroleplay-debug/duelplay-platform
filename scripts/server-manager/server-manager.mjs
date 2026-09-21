@@ -118,6 +118,11 @@ function writeConfigs() {
     'mp_autoteambalance 0',
     'mp_limitteams 0',
     'sv_visiblemaxplayers 2',
+    'mp_freezetime 5',
+    'mp_buytime 0',
+    'mp_buy_anywhere 0',
+    'mp_buy_allow_guns 0',
+    'mp_buy_allow_grenades 0',
     'mp_warmup_end',
     'mp_warmup_online_enabled 0',
     'mp_warmuptime 0',
@@ -165,7 +170,7 @@ function writeConfigs() {
     'mp_buytime 0',
     'mp_buy_anywhere 0',
     'mp_buy_allow_guns 0',
-    'mp_buy_allow_grenades 1',
+    'mp_buy_allow_grenades 0',
     'mp_weapons_allow_map_placed 0',
     'mp_weapons_allow_pistols 0',
     'mp_weapons_allow_smgs 0',
@@ -319,7 +324,10 @@ function randomWeaponForDuel() {
 
 function applyDuelRules(mode, weaponModifier) {
   command('mp_warmup_online_enabled 0'); command('mp_warmuptime 0'); command('mp_warmup_pausetimer 0'); command('mp_warmup_end');
-  command('mp_autoteambalance 0'); command('mp_limitteams 0'); command('mp_buytime 0'); command('mp_buy_anywhere 0');
+  command('mp_autoteambalance 0'); command('mp_limitteams 0');
+  command('mp_freezetime 5');
+  command('mp_buytime 0'); command('mp_buy_anywhere 0');
+  command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
   command('mp_damage_headshot_only 0');
   const grenadeOnly = weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY';
   command(`duelplay_grenade_only ${grenadeOnly ? 1 : 0}`);
@@ -341,12 +349,16 @@ function applyDuelRules(mode, weaponModifier) {
     command('mp_t_default_melee 0'); command('mp_ct_default_melee 0'); command('mp_t_default_grenades 0'); command('mp_ct_default_grenades 0'); command('mp_death_drop_gun 0'); command('mp_death_drop_grenade 0');
   } else if (mode === 'FIRST_TO_10') {
     command('exec duelplay_first_to_10'); command('mp_maxrounds 19'); command('mp_match_can_clinch 1'); command('mp_match_end_restart 0'); command('mp_halftime 0');
-    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 255'); command('mp_buy_allow_grenades 1');
+    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
   } else {
-    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 255'); command('mp_buy_allow_grenades 1');
+    command('mp_weapons_allow_map_placed 1'); command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
     command('mp_weapons_allow_pistols 1'); command('mp_weapons_allow_smgs 1'); command('mp_weapons_allow_rifles 1'); command('mp_weapons_allow_heavy 1'); command('mp_weapons_allow_zeus 1');
     command('mp_match_can_clinch 1'); command('mp_match_end_restart 0');
   }
+  // Universal DuelPlay rule: no player purchases on any map/mode.
+  command('mp_freezetime 5');
+  command('mp_buytime 0'); command('mp_buy_anywhere 0');
+  command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
 }
 
 function steam64FromSteam3(value) {
@@ -511,7 +523,7 @@ async function claimAndStart(match) {
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_buytime', '0', '+mp_buy_anywhere', '0', '+mp_buy_allow_guns', '0', '+mp_buy_allow_grenades', '0', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
@@ -642,6 +654,9 @@ async function claimAndStart(match) {
         }
         command('mp_warmup_online_enabled 0');
         command('mp_warmuptime 0');
+        command('mp_freezetime 5');
+        command('mp_buytime 0'); command('mp_buy_anywhere 0');
+        command('mp_buy_allow_guns 0'); command('mp_buy_allow_grenades 0');
         command('mp_warmup_pausetimer 0');
         command('mp_warmup_end');
       }, 500);
