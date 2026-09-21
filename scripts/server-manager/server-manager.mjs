@@ -413,7 +413,7 @@ function applyDuelRules(mode, weaponModifier) {
 
   if (buyEnabled) {
     // Classic 1v1 / Headshot Only / FIRST_TO_10:
-    // 5 seconds of buy time from round start.
+    // 30 seconds of buy time from round start.
     command('mp_buytime 0.5');
     command('mp_startmoney 16000');
     command('mp_maxmoney 16000');
@@ -820,6 +820,21 @@ function observeServerLine(text) {
   // Workshop maps can initialize their own match cvars around Match_Start.
   // Re-assert DuelPlay rules immediately so the first freeze is exactly 5 seconds
   // and the 30-second buy window is active before players can buy.
+  // Remastered starts the real freeze immediately after Game_Commencing.
+  // Apply DuelPlay rules synchronously before the freeze is created, then
+  // re-assert briefly in case the workshop map changes its cvars in the same tick.
+  if (/World triggered \"Game_Commencing\"/i.test(text)) {
+    if (current && !resultSent) {
+      applyDuelRules(current.mode, current.weaponModifier);
+    }
+    [50, 100, 250, 500].forEach((delay) => {
+      setTimeout(() => {
+        if (!current || resultSent) return;
+        applyDuelRules(current.mode, current.weaponModifier);
+      }, delay);
+    });
+  }
+
   if (/World triggered \"Match_Start\"/i.test(text)) {
     [0, 100, 500].forEach((delay) => {
       setTimeout(() => {
