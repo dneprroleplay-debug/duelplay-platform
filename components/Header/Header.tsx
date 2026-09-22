@@ -2,6 +2,7 @@
 import Link from "next/link";
 import {useEffect,useState,useRef} from "react";
 import {useLanguage} from "../Common/LanguageContext";
+import {useRouter} from "next/navigation";
 import {languages} from "../../lib/language";
 import {useAuth} from "../Common/AuthContext";
 import SeasonIntensityControl from "../Common/SeasonIntensityControl";
@@ -16,7 +17,7 @@ const FLAGS:{key:keyof typeof languages;name:string;src:string}[]=[
 type Notice={id:string;type:string;title:string;body:string;createdAt:string;status:string};
 
 export default function Header(){
- const{language,setLanguage,t}=useLanguage(); const{user,loading,logout}=useAuth();
+ const{language,setLanguage,t}=useLanguage(); const{user,loading,logout}=useAuth(); const router=useRouter();
  const[langOpen,setLangOpen]=useState(false),[menuOpen,setMenuOpen]=useState(false),[profileOpen,setProfileOpen]=useState(false),[noticeOpen,setNoticeOpen]=useState(false);
  const[notices,setNotices]=useState<Notice[]>([]),[unread,setUnread]=useState(0);
  const langRef=useRef<HTMLDivElement>(null),noticeRef=useRef<HTMLDivElement>(null),profileRef=useRef<HTMLDivElement>(null);
@@ -176,19 +177,15 @@ export default function Header(){
  const current=FLAGS.find(x=>x.key===language)||FLAGS[0];
  const navClass="cursor-pointer whitespace-nowrap rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition hover:bg-[var(--theme-accent-bg)] hover:text-[var(--theme-accent)]";
  const closeMenus=()=>{setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)};
-<<<<<<< HEAD
  const goHome=(e:React.MouseEvent<HTMLAnchorElement>)=>{e.preventDefault();closeMenus();router.push("/")};
  const links=<><Link className={navClass} href="/" onClick={goHome}>{t.home}</Link><Link className={navClass} href="/matches" onClick={closeMenus}>{t.matches}</Link><Link className={navClass} href="/live" onClick={closeMenus}><span className="inline-flex items-center gap-2"><span className="site-live-dot"/>{t.live}</span></Link><Link className={navClass} href="/cases" onClick={closeMenus}>{t.casesNav}</Link><Link className={navClass} href="/rating" onClick={closeMenus}>{t.rating}</Link>{user&&<><Link className={navClass} href="/profile" onClick={closeMenus}>{t.profile}</Link><Link className={navClass+" hidden lg:inline-flex"} href="/hub" onClick={closeMenus}>HUB</Link></>}</>;
-=======
- const links=<><Link className={navClass} href="/" onClick={closeMenus}>{t.home}</Link><Link className={navClass} href="/matches" onClick={closeMenus}>{t.matches}</Link><Link className={navClass} href="/live" onClick={closeMenus}><span className="inline-flex items-center gap-2"><span className="site-live-dot"/>{t.live}</span></Link><Link className={navClass} href="/cases" onClick={closeMenus}>{t.casesNav}</Link><Link className={navClass} href="/rating" onClick={closeMenus}>{t.rating}</Link>{user&&<><Link className={navClass} href="/profile" onClick={closeMenus}>{t.profile}</Link><Link className={navClass+" hidden lg:inline-flex"} href="/hub" onClick={closeMenus}>HUB</Link></>}</>;
->>>>>>> b4b250a (fix navigation and page flicker)
  const avatar=user?.avatarUrl||user?.steamAvatarUrl;
  const anyOpen=langOpen||noticeOpen||profileOpen||menuOpen;
  return <>
   {anyOpen&&<button aria-label="Закрыть меню" className="fixed inset-0 z-[45] cursor-default bg-transparent" onClick={closeMenus}/>}
   <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#050507]/90 backdrop-blur-xl">
    <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-    <div className="flex items-center gap-2"><button className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 xl:hidden" aria-label="Menu" onClick={e=>{e.stopPropagation();setMenuOpen(v=>!v)}}>{menuOpen?"×":"☰"}</button><Link data-no-i18n href="/" onClick={closeMenus} className="flex items-center gap-2 font-black tracking-tight transition hover:opacity-90"><span className="grid h-11 w-11 shrink-0 place-items-center overflow-visible"><img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-10 w-10 object-contain"/></span><span className="hidden text-xl tracking-[-.03em] sm:block">DUEL<span className="text-[var(--theme-accent)]">PLAY</span></span></Link></div>
+    <div className="flex items-center gap-2"><button className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 xl:hidden" aria-label="Menu" onClick={e=>{e.stopPropagation();setMenuOpen(v=>!v)}}>{menuOpen?"×":"☰"}</button><Link data-no-i18n href="/" onClick={goHome} className="flex items-center gap-2 font-black tracking-tight transition hover:opacity-90"><span className="grid h-11 w-11 shrink-0 place-items-center overflow-visible"><img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-10 w-10 object-contain"/></span><span className="hidden text-xl tracking-[-.03em] sm:block">DUEL<span className="text-[var(--theme-accent)]">PLAY</span></span></Link></div>
     <nav className="hidden items-center gap-2 text-sm xl:flex">{links}<Link href="/search" onClick={closeMenus} aria-label="Global search" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:border-[var(--theme-accent)]/30 hover:text-[var(--theme-accent)]"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5" strokeLinecap="round"/></svg></Link></nav>
     <div className="flex items-center gap-2">
      <SeasonIntensityControl/><PerformanceModeControl/><div className="relative" ref={langRef}><button type="button" aria-label="Language" onClick={()=>{setLangOpen(v=>!v);setNoticeOpen(false);setProfileOpen(false)}} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 p-1.5 hover:border-[var(--theme-accent)]/30"><img src={current.src} alt={current.name} className="h-6 w-8 rounded object-cover"/></button>{langOpen&&<div className="absolute right-0 top-12 z-[60] w-44 rounded-2xl border border-white/10 bg-[#0b0b10] p-2 shadow-2xl">{FLAGS.map(x=><button key={x.key} type="button" onClick={()=>{setLanguage(x.key);closeMenus()}} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/5 ${language===x.key?"bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]":"text-zinc-300"}`}><img src={x.src} alt="" className="h-5 w-7 rounded object-cover"/><span>{x.name}</span></button>)}</div>}</div>
