@@ -177,7 +177,7 @@ export default function Header(){
  const current=FLAGS.find(x=>x.key===language)||FLAGS[0];
  const navClass="cursor-pointer whitespace-nowrap rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition hover:bg-[var(--theme-accent-bg)] hover:text-[var(--theme-accent)]";
  const closeMenus=()=>{setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)};
- const goHome=(e:React.MouseEvent<HTMLAnchorElement>)=>{e.preventDefault();closeMenus();router.push(`/?intro=${Date.now()}`)};
+ const goHome=(e:React.MouseEvent<HTMLAnchorElement>)=>{e.preventDefault();closeMenus();router.push("/")};
  const links=<><Link className={navClass} href="/" onClick={goHome}>{t.home}</Link><Link className={navClass} href="/matches" onClick={closeMenus}>{t.matches}</Link><Link className={navClass} href="/live" onClick={closeMenus}><span className="inline-flex items-center gap-2"><span className="site-live-dot"/>{t.live}</span></Link><Link className={navClass} href="/cases" onClick={closeMenus}>{t.casesNav}</Link><Link className={navClass} href="/rating" onClick={closeMenus}>{t.rating}</Link>{user&&<><Link className={navClass} href="/profile" onClick={closeMenus}>{t.profile}</Link><Link className={navClass+" hidden lg:inline-flex"} href="/hub" onClick={closeMenus}>HUB</Link></>}</>;
  const avatar=user?.avatarUrl||user?.steamAvatarUrl;
  const anyOpen=langOpen||noticeOpen||profileOpen||menuOpen;

@@ -13,7 +13,7 @@ import BannerStrip from "../components/Home/BannerStrip";
 function HomeContent(){
   const {t}=useLanguage();
   const searchParams=useSearchParams();
-  const [introKey,setIntroKey]=useState(1);
+  const [introKey,setIntroKey]=useState(0);
   const playedIntro=useRef<string|null>(null);
   const [loading,setLoading]=useState(false);
   const [refreshKey,setRefreshKey]=useState(0);
