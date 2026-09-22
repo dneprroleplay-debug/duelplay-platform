@@ -317,7 +317,7 @@ function mapCode(name) {
   const raw = String(name || 'Dust2').trim();
   const normalized = raw.replace(/^de_/, '').toLowerCase();
   const customMapNames = new Set([
-    'aim_redline', 'aim_dust2', 'fy_pool_day', '1v1_map', '1v1_remastered',
+    'aim_redline', 'aim_dust2', 'fy_pool_day', '1v1_map', 'minecraft_aim_map',
     '1v1_oasis', '1v1_v3', '1v1_arena', '1v1_de_anubis_aim', 'aim_halloween'
   ]);
   if (customMapNames.has(normalized)) return normalized;
@@ -973,7 +973,7 @@ async function claimAndStart(match) {
     ? ['+map', 'de_dust2', '+host_workshop_map', workshopId]
     : (() => {
         const fallback = mapCode(match.mapName);
-        if (/^(aim_|fy_|1v1_)/i.test(fallback)) {
+        if (/^(aim_|fy_|1v1_|minecraft_aim_map)/i.test(fallback)) {
           throw new Error(`Workshop ID is required for custom duel map: ${fallback}`);
         }
         return ['+map', fallback];
@@ -1537,4 +1537,3 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-

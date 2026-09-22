@@ -57,9 +57,9 @@ export const DUEL_MAPS: readonly DuelMapConfig[] = [
     requiresManualInstall: true,
   },
   {
-    id: "one_v_one_remastered", displayName: "1v1 - Remastered", serverMapName: "1v1_remastered",
-    image: "/images/maps/one_v_one_remastered.png", workshopId: "3070368330", category: "ARENA",
-    description: "Classic 1v1 arena remastered for Counter-Strike 2.", supportedModes: ALL_GAMEPLAY,
+    id: "minecraft_aim_map", displayName: "Aim Map Minecraft", serverMapName: "de_minecraft_aim_map",
+    image: "/images/maps/one_v_one_remastered.png", workshopId: "3655222443", category: "ARENA",
+    description: "Minecraft-themed aim arena for fast 1v1 duels.", supportedModes: ALL_GAMEPLAY,
     requiresManualInstall: true,
   },
   {
