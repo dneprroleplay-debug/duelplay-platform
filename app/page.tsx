@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { preloadImage, preloadImages } from "../lib/image-preload";
 import { useSearchParams } from "next/navigation";
 import Live from "../components/Live/Live";
 import CreateMatch from "../components/CreateMatch/CreateMatch";
@@ -20,7 +20,56 @@ function HomeContent(){
   const [refreshKey,setRefreshKey]=useState(0);
   const [count,setCount]=useState(0);
   const [openMatches,setOpenMatches]=useState<any[]>([]);
-  const [heroBackground,setHeroBackground]=useState("hero-01");
+  const HERO_STORAGE_KEY="duelplay-hero-background-v1";
+
+  const [heroBackground,setHeroBackground]=useState(()=>{
+    if(typeof window==="undefined")return "hero-01";
+
+    try{
+      const saved=window.sessionStorage.getItem(
+        HERO_STORAGE_KEY
+      );
+
+      return saved&&/^hero-(0[1-9]|10)$/.test(saved)
+        ?saved
+        :"hero-01";
+    }catch{
+      return "hero-01";
+    }
+  });
+
+  const warmAllHomeImages=async()=>{
+    const heroes=Array.from(
+      {length:10},
+      (_,i)=>
+        `/hero-backgrounds/hero-${String(i+1).padStart(2,"0")}.jpg`
+    );
+
+    const seasons=[
+      "winter",
+      "spring",
+      "summer",
+      "autumn",
+      "halloween"
+    ].map(
+      x=>`/season-heroes/${x}.png`
+    );
+
+    await preloadImages([
+      ...heroes,
+      ...seasons
+    ]);
+  };
+
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>{
+      void warmAllHomeImages();
+    },1800);
+
+    return()=>{
+      window.clearTimeout(timer);
+    };
+  },[]);
 
   const introParam=searchParams.get("intro");
   useEffect(()=>{
@@ -37,7 +86,22 @@ function HomeContent(){
       const list=Array.isArray(matches)?matches:[];
       setCount(list.length);
       setOpenMatches(list.filter((m:any)=>m.status==="WAITING_FOR_PLAYERS").slice(0,4));
-      if(typeof settings.heroBackground==="string")setHeroBackground(settings.heroBackground);
+      if(typeof settings.heroBackground==="string"){
+        const nextHero=settings.heroBackground;
+
+        void preloadImage(
+          `/hero-backgrounds/${nextHero}.jpg`
+        ).then(()=>{
+          setHeroBackground(nextHero);
+
+          try{
+            window.sessionStorage.setItem(
+              HERO_STORAGE_KEY,
+              nextHero
+            );
+          }catch{}
+        });
+      }
     }).catch(()=>{setCount(0);setOpenMatches([])}).finally(()=>setTimeout(()=>setLoading(false),350));
   },[refreshKey]);
 
@@ -48,14 +112,11 @@ function HomeContent(){
     <main className="pt-16">
       <BannerStrip/>
       <section className="hero home-hero relative overflow-hidden border-b border-white/5">
-        <Image
-          src={`/hero-backgrounds/${heroBackground}.jpg`}
-          alt=""
-          fill
-          priority
-          fetchPriority="high"
-          sizes="100vw"
-          className="hero-base-art object-cover object-center"
+        <div
+          className="hero-base-art absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage:`url("/hero-backgrounds/${heroBackground}.jpg")`
+          }}
         />
         <div className="hero-base-overlay absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,47,145,.14),transparent_34%),linear-gradient(180deg,rgba(5,5,7,.18),rgba(5,5,7,.10)_48%,rgba(5,5,7,.72)_100%)]"/>
         <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(5,5,7,.72)_0%,transparent_28%,transparent_72%,rgba(5,5,7,.22)_100%)]"/>
