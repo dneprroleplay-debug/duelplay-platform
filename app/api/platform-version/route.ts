@@ -1,7 +1,17 @@
-import {NextResponse} from "next/server";
-import {prisma} from "@/lib/prisma";
+﻿import { NextResponse } from "next/server";
+import { getPlatformVersion } from "@/lib/platform-version";
 
-export async function GET(){
- const latest=await prisma.auditLog.findFirst({orderBy:[{createdAt:"desc"},{id:"desc"}],select:{id:true,createdAt:true}});
- return NextResponse.json({version:latest?`${latest.createdAt.toISOString()}-${latest.id}`:"0"},{headers:{"Cache-Control":"no-store, max-age=0"}});
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const version = await getPlatformVersion();
+
+  return NextResponse.json(
+    { version },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }
