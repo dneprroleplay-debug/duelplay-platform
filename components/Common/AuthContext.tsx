@@ -43,7 +43,7 @@ export function AuthProvider({children}:{children:React.ReactNode}){
     try{await fetch("/api/auth/logout",{method:"POST"})}finally{
       setUser(null);
       window.dispatchEvent(new Event("duelplay:auth-changed"));
-      window.location.href="/?intro=1";
+      window.location.href="/";
     }
   };
   const value=useMemo(()=>({user,loading,refresh,logout}),[user,loading]);

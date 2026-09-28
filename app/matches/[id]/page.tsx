@@ -1,13 +1,14 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect,useRef,useState } from "react";
+import { use,useEffect,useRef,useState } from "react";
 import CenterModal from "@/components/Common/CenterModal";
 import { useLanguage } from "@/components/Common/LanguageContext";
 import { useAuth } from "@/components/Common/AuthContext";
 import { languages } from "@/lib/language";
 import { getDuelMap } from "@/lib/duel-maps";
 import MatchPageSkeleton from "@/components/Match/MatchPageSkeleton";
+import { cacheMatch,getCachedMatch } from "@/lib/client-navigation-cache";
 const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"/images/maps/dust2.jpg",Ancient:"/images/maps/ancient.jpg",Train:"/images/maps/train.jpg",Overpass:"/images/maps/overpass.jpg",Inferno:"/images/maps/inferno.jpg",Nuke:"/images/maps/nuke.jpg",Anubis:"/images/maps/anubis.jpg"};
 type Player={id?:string;nickname:string;avatarUrl:string|null;steamAvatarUrl?:string|null};
 type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;weaponModifier?:string|null;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[];connectionPhaseCompleted?:boolean}|null;liveState?:{state:string|null;connectUrl:string|null;connectionPhaseCompleted:boolean;connectedCount:number;connectionSlots:number;heartbeatAgeMs:number|null;serverHealthy:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null;startDeadlineAt?:string|null;connectionDeadlineAt?:string|null;liveDeadlineAt?:string|null};
@@ -25,9 +26,11 @@ function formatCountdown(total:number){
 }
 
 export default function MatchPage({params}:{params:Promise<{id:string}>}){
+ const routeParams=use(params);
+ const routeId=routeParams.id;
  const{language,t}=useLanguage();
- const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[deadlineExpired,setDeadlineExpired]=useState(false);
- useEffect(()=>{params.then(p=>{setId(p.id);try{setConnectClicked(localStorage.getItem(`duelplay-connect-${p.id}`)==="1")}catch{}})},[params]);
+ const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id]=useState(routeId);const[m,setM]=useState<Match|null>(()=>getCachedMatch(routeId) as Match|null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[deadlineExpired,setDeadlineExpired]=useState(false);
+ useEffect(()=>{try{setConnectClicked(localStorage.getItem(`duelplay-connect-${id}`)==="1")}catch{}},[id]);
  const loadInFlight=useRef(false);
  const previousSnapshot=useRef<{status:string;playerTwoId:string|null;startDeadlineAt:string|null;connectionDeadlineAt:string|null;liveDeadlineAt:string|null}|null>(null);
  async function loadMatch(){
@@ -40,6 +43,7 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
      const md=await mr.json();
      if(!mr.ok)throw 0;
      const fresh=md.match??md;
+     cacheMatch(id,fresh);
      setM(prev=>prev?{...prev,...fresh,playerOne:fresh.playerOne??prev.playerOne,playerTwo:fresh.playerTwo??prev.playerTwo,liveState:fresh.liveState??prev.liveState}:fresh);
      // Keep the current React page mounted when the server changes lifecycle state.
      // The fresh API snapshot above is authoritative; forcing a full browser reload
