@@ -7,6 +7,6 @@ export async function GET(request: NextRequest) {
   if (!token) return NextResponse.json({ user: null });
   const session = await prisma.userSession.findFirst({ where: { token: hashToken(token), isRevoked: false, expiresAt: { gt: new Date() } }, include: { user: { include: { wallet: true } } } });
   if (!session) return NextResponse.json({ user: null });
-  return NextResponse.json({ user: { id: session.user.id, role: session.user.role, nickname: session.user.nickname, steamId: session.user.steamId, email: session.user.email, avatarUrl: session.user.avatarUrl, steamAvatarUrl: session.user.steamAvatarUrl, balance: session.user.wallet?.balance.toString() ?? "0", lockedBalance: session.user.wallet?.lockedBalance.toString() ?? "0", reputation: session.user.reputation, level: session.user.level, xp: session.user.xp } });
+  return NextResponse.json({ user: { id: session.user.id, role: session.user.role, nickname: session.user.nickname, steamId: session.user.steamId, email: session.user.email, avatarUrl: session.user.avatarUrl, steamAvatarUrl: session.user.steamAvatarUrl, themePreference: session.user.themePreference, balance: session.user.wallet?.balance.toString() ?? "0", lockedBalance: session.user.wallet?.lockedBalance.toString() ?? "0", reputation: session.user.reputation, level: session.user.level, xp: session.user.xp } });
 }
 
