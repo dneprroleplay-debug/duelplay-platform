@@ -29,9 +29,27 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
     setStandard(st);
     setBackground(bg);
     const saved=window.localStorage.getItem("duelplay-theme") as ThemeId|null;
-    const pref=me.user?.themePreference;
-    const chosen=pref&&THEMES.some(x=>x.id===pref)?pref:(saved&&THEMES.some(x=>x.id===saved)?saved:st);
-    setThemeState(chosen); setIsCustom(chosen!=="STANDARD");
+
+    const serverPreference =
+      me.user?.themePreference &&
+      THEMES.some(x=>x.id===me.user.themePreference)
+        ? me.user.themePreference as ThemeId
+        : null;
+
+    const preference =
+      serverPreference ||
+      (saved && THEMES.some(x=>x.id===saved) ? saved : "STANDARD");
+
+    const effectiveTheme =
+      preference === "STANDARD"
+        ? st
+        : preference;
+
+    setStandard(st);
+    setBackground(bg);
+    setThemePreference(preference);
+    setThemeState(effectiveTheme);
+    setIsCustom(preference !== "STANDARD");
   };
   void load();
   const onChanged=()=>void load();
