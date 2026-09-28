@@ -2,137 +2,84 @@
 
 import { useEffect, useRef } from "react";
 
-type PlatformEvent = {
-  version?: string;
-};
-
 export default function LivePlatformSync() {
   const versionRef = useRef("");
+  const initializedRef = useRef(false);
   const reloadScheduledRef = useRef(false);
 
   useEffect(() => {
     let disposed = false;
-    let source: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let loading = false;
 
-    const closeSource = () => {
-      if (source) {
-        source.close();
-        source = null;
-      }
-    };
-
-    const scheduleReconnect = () => {
+    const check = async () => {
       if (
         disposed ||
-        document.visibilityState !== "visible" ||
-        reconnectTimer
+        loading ||
+        document.visibilityState === "hidden" ||
+        reloadScheduledRef.current
       ) {
         return;
       }
 
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connect();
-      }, 3000);
-    };
-
-    const handlePlatformChange = (raw: string) => {
-      let payload: PlatformEvent = {};
+      loading = true;
 
       try {
-        payload = JSON.parse(raw) as PlatformEvent;
-      } catch {
-        return;
-      }
+        const response = await fetch(
+          `/api/platform-version?ts=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
 
-      const next = String(payload.version || "");
+        if (!response.ok) return;
 
-      if (!next || next === versionRef.current) {
-        return;
-      }
+        const data = await response.json();
+        const nextVersion = String(data.version || "");
 
-      versionRef.current = next;
+        if (!nextVersion) return;
 
-      if (reloadScheduledRef.current) {
-        return;
-      }
+        if (!initializedRef.current) {
+          versionRef.current = nextVersion;
+          initializedRef.current = true;
+          return;
+        }
 
-      reloadScheduledRef.current = true;
-      closeSource();
+        if (
+          versionRef.current &&
+          nextVersion !== versionRef.current
+        ) {
+          versionRef.current = nextVersion;
 
-      // Give the SSE connection a moment to close cleanly before
-      // replacing the current document with the fresh platform state.
-      window.setTimeout(() => {
-        if (!disposed) {
+          if (reloadScheduledRef.current) return;
+
+          reloadScheduledRef.current = true;
+
+          // Full browser reload:
+          // fresh HTML + fresh React state + fresh API data +
+          // fresh global settings for every opened client.
           window.location.reload();
         }
-      }, 50);
+      } catch {
+        // Temporary network failure: keep checking.
+      } finally {
+        loading = false;
+      }
     };
 
-    function connect() {
-      if (
-        disposed ||
-        document.visibilityState !== "visible" ||
-        source
-      ) {
-        return;
-      }
+    void check();
 
-      const since = versionRef.current
-        ? `?since=${encodeURIComponent(versionRef.current)}`
-        : "";
-
-      const nextSource = new EventSource(
-        `/api/platform-version/stream${since}`
-      );
-
-      source = nextSource;
-
-      nextSource.addEventListener("ready", (event) => {
-        const message = event as MessageEvent<string>;
-
-        try {
-          const payload = JSON.parse(message.data) as PlatformEvent;
-          const next = String(payload.version || "");
-
-          if (next) {
-            versionRef.current = next;
-          }
-        } catch {}
-      });
-
-      nextSource.addEventListener("platform-changed", (event) => {
-        const message = event as MessageEvent<string>;
-        handlePlatformChange(message.data);
-      });
-
-      nextSource.onerror = () => {
-        if (source === nextSource) {
-          nextSource.close();
-          source = null;
-        }
-
-        scheduleReconnect();
-      };
-    }
+    const timer = window.setInterval(() => {
+      void check();
+    }, 1000);
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        if (!source && !reloadScheduledRef.current) {
-          connect();
-        }
-      } else {
-        closeSource();
-
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
+        void check();
       }
     };
-
-    connect();
 
     document.addEventListener(
       "visibilitychange",
@@ -141,13 +88,7 @@ export default function LivePlatformSync() {
 
     return () => {
       disposed = true;
-      closeSource();
-
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-
+      window.clearInterval(timer);
       document.removeEventListener(
         "visibilitychange",
         onVisibility
