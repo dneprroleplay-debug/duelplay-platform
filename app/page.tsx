@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import Live from "../components/Live/Live";
 import CreateMatch from "../components/CreateMatch/CreateMatch";
@@ -47,7 +48,15 @@ function HomeContent(){
     <main className="pt-16">
       <BannerStrip/>
       <section className="hero home-hero relative overflow-hidden border-b border-white/5">
-        <div className="hero-base-art absolute inset-0 bg-cover bg-center" style={{backgroundImage:`url("/hero-backgrounds/${heroBackground}.jpg")`}}/>
+        <Image
+          src={`/hero-backgrounds/${heroBackground}.jpg`}
+          alt=""
+          fill
+          priority
+          fetchPriority="high"
+          sizes="100vw"
+          className="hero-base-art object-cover object-center"
+        />
         <div className="hero-base-overlay absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,47,145,.14),transparent_34%),linear-gradient(180deg,rgba(5,5,7,.18),rgba(5,5,7,.10)_48%,rgba(5,5,7,.72)_100%)]"/>
         <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(5,5,7,.72)_0%,transparent_28%,transparent_72%,rgba(5,5,7,.22)_100%)]"/>
         <div className="home-hero-content relative z-10 mx-auto flex max-w-7xl flex-col items-center px-4 text-center sm:px-6">
