@@ -1,46 +1,67 @@
-"use client";
+﻿"use client";
+
 import {useEffect} from "react";
-import {usePathname} from "next/navigation";
 
 export default function LivePlatformSync(){
- const pathname=usePathname();
- useEffect(()=>{
-  let disposed=false;
-  let loading=false;
-  let first=true;
-  let version="";
-  const check=async()=>{
-   if(disposed||loading||document.visibilityState==="hidden")return;
-   loading=true;
-   try{
-    const r=await fetch("/api/platform-version",{cache:"no-store"});
-    if(!r.ok)return;
-    const d=await r.json();
-    const next=String(d.version||"");
-    if(first){version=next;first=false;return;}
-    if(next&&version&&next!==version){
-      version=next;
-      window.dispatchEvent(new Event("duelplay:platform-changed"));
-    }
-   }catch{}finally{loading=false}
-  };
-  void check();
-  const timer=window.setInterval(()=>void check(),3000);
-  const onLocal=()=>{
-    if(pathname.startsWith("/admin"))return;
-    // Match pages already poll their own lifecycle state. A platform-version
-    // change (for example an admin cancellation) should refresh that snapshot
-    // instead of hard-reloading the whole page and flashing LoadingScreen.
-    if(pathname.startsWith("/matches/")){
+  useEffect(()=>{
+    let disposed=false;
+    let loading=false;
+    let first=true;
+    let version="";
+
+    const check=async()=>{
+      if(disposed||loading||document.visibilityState==="hidden")return;
+
+      loading=true;
+
+      try{
+        const r=await fetch("/api/platform-version",{cache:"no-store"});
+        if(!r.ok)return;
+
+        const d=await r.json();
+        const next=String(d.version||"");
+
+        if(first){
+          version=next;
+          first=false;
+          return;
+        }
+
+        if(next&&version&&next!==version){
+          version=next;
+          window.dispatchEvent(new Event("duelplay:platform-changed"));
+        }
+      }catch{}
+      finally{
+        loading=false;
+      }
+    };
+
+    void check();
+
+    const timer=window.setInterval(()=>void check(),3000);
+
+    const onLocal=()=>{
+      // Never hard-reload the browser on platform-version changes.
+      // Match pages can refresh their own API snapshot through this event.
       window.dispatchEvent(new Event("duelplay:match-refresh"));
-      return;
-    }
-    window.location.reload();
-  };
-  window.addEventListener("duelplay:platform-changed",onLocal);
-  const onVisibility=()=>{if(document.visibilityState==="visible")void check()};
-  document.addEventListener("visibilitychange",onVisibility);
-  return()=>{disposed=true;window.clearInterval(timer);window.removeEventListener("duelplay:platform-changed",onLocal);document.removeEventListener("visibilitychange",onVisibility)};
- },[pathname]);
- return null;
+    };
+
+    window.addEventListener("duelplay:platform-changed",onLocal);
+
+    const onVisibility=()=>{
+      if(document.visibilityState==="visible")void check();
+    };
+
+    document.addEventListener("visibilitychange",onVisibility);
+
+    return()=>{
+      disposed=true;
+      window.clearInterval(timer);
+      window.removeEventListener("duelplay:platform-changed",onLocal);
+      document.removeEventListener("visibilitychange",onVisibility);
+    };
+  },[]);
+
+  return null;
 }
