@@ -80,8 +80,28 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
   return()=>observer.disconnect();
  },[theme,background]);
  async function setTheme(id:ThemeId){
- setThemeState(id);setIsCustom(id!=="STANDARD");window.localStorage.setItem("duelplay-theme",id);
- try{await fetch("/api/profile",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({themePreference:id})})}catch{}}
+  setThemePreference(id);
+  setIsCustom(id!=="STANDARD");
+
+  const effectiveTheme =
+    id==="STANDARD"
+      ? standard
+      : id;
+
+  setThemeState(effectiveTheme);
+
+  try{
+    window.localStorage.setItem("duelplay-theme",id);
+  }catch{}
+
+  try{
+    await fetch("/api/profile",{
+      method:"PATCH",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({themePreference:id})
+    });
+  }catch{}
+ }
  const value=useMemo(()=>({theme,themePreference,setTheme,themes:THEMES,isCustom}),[theme,themePreference,isCustom]); return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 export function useTheme(){const c=useContext(ThemeContext);if(!c)throw new Error("useTheme must be used inside ThemeProvider");return c;}
