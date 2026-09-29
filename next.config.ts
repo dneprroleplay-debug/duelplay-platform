@@ -14,7 +14,40 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    const imageCacheHeaders=[
+      {
+        key:"Cache-Control",
+        value:"public, max-age=604800, stale-while-revalidate=2592000"
+      }
+    ];
+
+    const imageSources=[
+      "/hero-backgrounds/:path*",
+      "/season-heroes/:path*",
+      "/season-backgrounds/:path*",
+      "/theme-backgrounds/:path*",
+      "/season-rain/:path*",
+      "/images/maps/:path*",
+      "/images/cases/:path*",
+      "/images/case-items/:path*",
+      "/images/games/:path*",
+      "/images/flags/:path*",
+      "/branding/:path*",
+      "/avatars/:path*",
+      "/case-items/:path*",
+      "/payment-methods/:path*"
+    ];
+
+    return [
+      ...imageSources.map(source=>({
+        source,
+        headers:imageCacheHeaders
+      })),
+      {
+        source:"/(.*)",
+        headers:securityHeaders
+      }
+    ];
   },
 };
 

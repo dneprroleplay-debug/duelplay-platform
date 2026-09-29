@@ -1,12 +1,14 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect,useRef,useState } from "react";
+import { use,useEffect,useRef,useState } from "react";
 import CenterModal from "@/components/Common/CenterModal";
 import { useLanguage } from "@/components/Common/LanguageContext";
 import { useAuth } from "@/components/Common/AuthContext";
 import { languages } from "@/lib/language";
 import { getDuelMap } from "@/lib/duel-maps";
+import MatchPageSkeleton from "@/components/Match/MatchPageSkeleton";
+import { cacheMatch,getCachedMatch } from "@/lib/client-navigation-cache";
 const MAP_IMAGES:Record<string,string>={Mirage:"/images/maps/mirage.jpg",Dust2:"/images/maps/dust2.jpg",Ancient:"/images/maps/ancient.jpg",Train:"/images/maps/train.jpg",Overpass:"/images/maps/overpass.jpg",Inferno:"/images/maps/inferno.jpg",Nuke:"/images/maps/nuke.jpg",Anubis:"/images/maps/anubis.jpg"};
 type Player={id?:string;nickname:string;avatarUrl:string|null;steamAvatarUrl?:string|null};
 type Match={id:string;playerOneId:string;playerTwoId:string|null;status:string;mode:string;weaponModifier?:string|null;mapName:string|null;betAmount:string|number;commission:string|number;playerOne:Player;playerTwo:Player|null;winner?:Player|null;serverConfig?:{connectUrl?:string|null;state?:string;managerRequested?:boolean;localTest?:boolean;connectedSteamIds?:string[];connectionPhaseCompleted?:boolean}|null;liveState?:{state:string|null;connectUrl:string|null;connectionPhaseCompleted:boolean;connectedCount:number;connectionSlots:number;heartbeatAgeMs:number|null;serverHealthy:boolean}|null;createdAt?:string;updatedAt?:string;startedAt?:string|null;endedAt?:string|null;startDeadlineAt?:string|null;connectionDeadlineAt?:string|null;liveDeadlineAt?:string|null};
@@ -24,9 +26,11 @@ function formatCountdown(total:number){
 }
 
 export default function MatchPage({params}:{params:Promise<{id:string}>}){
+ const routeParams=use(params);
+ const routeId=routeParams.id;
  const{language,t}=useLanguage();
- const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id,setId]=useState("");const[m,setM]=useState<Match|null>(null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[deadlineExpired,setDeadlineExpired]=useState(false);
- useEffect(()=>{params.then(p=>{setId(p.id);try{setConnectClicked(localStorage.getItem(`duelplay-connect-${p.id}`)==="1")}catch{}})},[params]);
+ const{refresh:refreshAuth}=useAuth();const u=MATCH_UI[language]||MATCH_UI.RU;const steps=[u.created,u.player2,u.readyStatus,u.server,u.game,u.result];const[id]=useState(routeId);const[m,setM]=useState<Match|null>(()=>getCachedMatch(routeId) as Match|null);const[user,setUser]=useState<any>(null);const[msg,setMsg]=useState("");const msgTimer=useRef<number|null>(null);const[busy,setBusy]=useState(false);const[cancelOpen,setCancelOpen]=useState(false);const[connectClicked,setConnectClicked]=useState(false);const[deadlineExpired,setDeadlineExpired]=useState(false);
+ useEffect(()=>{try{setConnectClicked(localStorage.getItem(`duelplay-connect-${id}`)==="1")}catch{}},[id]);
  const loadInFlight=useRef(false);
  const previousSnapshot=useRef<{status:string;playerTwoId:string|null;startDeadlineAt:string|null;connectionDeadlineAt:string|null;liveDeadlineAt:string|null}|null>(null);
  async function loadMatch(){
@@ -39,6 +43,7 @@ export default function MatchPage({params}:{params:Promise<{id:string}>}){
      const md=await mr.json();
      if(!mr.ok)throw 0;
      const fresh=md.match??md;
+     cacheMatch(id,fresh);
      setM(prev=>prev?{...prev,...fresh,playerOne:fresh.playerOne??prev.playerOne,playerTwo:fresh.playerTwo??prev.playerTwo,liveState:fresh.liveState??prev.liveState}:fresh);
      // Keep the current React page mounted when the server changes lifecycle state.
      // The fresh API snapshot above is authoritative; forcing a full browser reload
@@ -129,7 +134,7 @@ useEffect(()=>{
 },[language,t.steamAccountRequired]);
 async function action(path:string){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${id}/${path}`,{method:"POST"});const d=await r.json();if(!r.ok){const code=String(d.errorCode||"").trim().toUpperCase();const raw=String(d.error||"").trim();const rawLower=raw.toLowerCase();const joinErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,OWN_MATCH:t.ownMatch,MATCH_FULL:t.full,INSUFFICIENT_BALANCE:t.walletRequired,JOIN_ERROR:t.joinError};const startErrors:Record<string,string>={AUTH_REQUIRED:t.loginRequired,STEAM_REQUIRED:t.steamAccountRequired,NOT_READY:t.startError,NOT_PARTICIPANT:t.startError,START_EXPIRED:"Время на запуск матча истекло. Матч отменён, ставка возвращена.",START_ERROR:t.startError};const isOwn=rawLower.includes("своему матчу")||rawLower.includes("own match")||rawLower.includes("własnego meczu")||rawLower.includes("власного матчу");const isFull=rawLower.includes("матч уже заполнен")||rawLower.includes("match is full")||rawLower.includes("mecz jest pełny")||rawLower.includes("матч уже заповнений");const localized=path==="join"?(joinErrors[code]||(isOwn?t.ownMatch:isFull?t.full:t.joinError)):(startErrors[code]||t.startError);throw new Error(localized||"ERROR")}if(path==="join"&&d?.playerOne&&d?.playerTwo)setM(d);await loadMatch();await refreshAuth();if(path==="start")showMessage(t.matchStarted);if(path==="join")showMessage(t.bothReady)}catch(e){showMessage(e instanceof Error?e.message:(path==="join"?t.joinError:t.startError))}finally{setBusy(false)}}
 async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r=await fetch(`/api/matches/${id}/local-test`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({winnerId})});const d=await r.json();if(!r.ok)throw new Error(d.error||t.startError);await load();await refreshAuth();window.dispatchEvent(new Event("duelplay:profile-updated"));showMessage(t.finished)}catch(e){showMessage(e instanceof Error?e.message:t.startError)}finally{setBusy(false)}}
- if(!m)return <><main className="min-h-screen pt-28 text-center text-zinc-500">{t.loading}</main></>;
+ if(!m)return <MatchPageSkeleton/>;
  const displayPlayerOne=m.playerOne;const displayPlayerTwo=m.playerTwo;const hasPlayerTwo=Boolean(displayPlayerTwo);const pot=Number(m.betAmount)*(hasPlayerTwo?2:1),payout=pot-Number(m.commission??pot*.10),participant=Boolean(user&&[m.playerOneId,m.playerTwoId].includes(user.id));const mapConfig=getDuelMap(m.mapName);const mapImage=mapConfig?.image||MAP_IMAGES[m.mapName||""];
  const statusLabel=(status:string)=>({WAITING_FOR_PLAYERS:u.waitingStatus,READY:u.readyStatus,LIVE:"LIVE",FINISHED:u.confirmed,CANCELLED:u.cancelled}[status]||status);
  const weaponLabel=(value:string|null|undefined)=>({AWP_ONLY:"AWP Only",DEAGLE_ONLY:"Deagle Only",KNIFE_ONLY:"Knife Only",HEADSHOT_ONLY:"Headshot Only",RANDOM_WEAPON:"Random Weapon",FIRST_TO_10:"First to 10",GRENADE_ONLY:"Grenade Only"}[String(value||"")]||"");

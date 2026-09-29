@@ -1,46 +1,100 @@
-"use client";
-import {useEffect} from "react";
-import {usePathname} from "next/navigation";
+﻿"use client";
 
-export default function LivePlatformSync(){
- const pathname=usePathname();
- useEffect(()=>{
-  let disposed=false;
-  let loading=false;
-  let first=true;
-  let version="";
-  const check=async()=>{
-   if(disposed||loading||document.visibilityState==="hidden")return;
-   loading=true;
-   try{
-    const r=await fetch("/api/platform-version",{cache:"no-store"});
-    if(!r.ok)return;
-    const d=await r.json();
-    const next=String(d.version||"");
-    if(first){version=next;first=false;return;}
-    if(next&&version&&next!==version){
-      version=next;
-      window.dispatchEvent(new Event("duelplay:platform-changed"));
-    }
-   }catch{}finally{loading=false}
-  };
-  void check();
-  const timer=window.setInterval(()=>void check(),3000);
-  const onLocal=()=>{
-    if(pathname.startsWith("/admin"))return;
-    // Match pages already poll their own lifecycle state. A platform-version
-    // change (for example an admin cancellation) should refresh that snapshot
-    // instead of hard-reloading the whole page and flashing LoadingScreen.
-    if(pathname.startsWith("/matches/")){
-      window.dispatchEvent(new Event("duelplay:match-refresh"));
-      return;
-    }
-    window.location.reload();
-  };
-  window.addEventListener("duelplay:platform-changed",onLocal);
-  const onVisibility=()=>{if(document.visibilityState==="visible")void check()};
-  document.addEventListener("visibilitychange",onVisibility);
-  return()=>{disposed=true;window.clearInterval(timer);window.removeEventListener("duelplay:platform-changed",onLocal);document.removeEventListener("visibilitychange",onVisibility)};
- },[pathname]);
- return null;
+import { useEffect, useRef } from "react";
+
+export default function LivePlatformSync() {
+  const versionRef = useRef("");
+  const initializedRef = useRef(false);
+  const reloadScheduledRef = useRef(false);
+
+  useEffect(() => {
+    let disposed = false;
+    let loading = false;
+
+    const check = async () => {
+      if (
+        disposed ||
+        loading ||
+        document.visibilityState === "hidden" ||
+        reloadScheduledRef.current
+      ) {
+        return;
+      }
+
+      loading = true;
+
+      try {
+        const response = await fetch(
+          `/api/platform-version?ts=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              "Cache-Control": "no-cache",
+            },
+          }
+        );
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const nextVersion = String(data.version || "");
+
+        if (!nextVersion) return;
+
+        if (!initializedRef.current) {
+          versionRef.current = nextVersion;
+          initializedRef.current = true;
+          return;
+        }
+
+        if (
+          versionRef.current &&
+          nextVersion !== versionRef.current
+        ) {
+          versionRef.current = nextVersion;
+
+          if (reloadScheduledRef.current) return;
+
+          reloadScheduledRef.current = true;
+
+          // Full browser reload:
+          // fresh HTML + fresh React state + fresh API data +
+          // fresh global settings for every opened client.
+          window.location.reload();
+        }
+      } catch {
+        // Temporary network failure: keep checking.
+      } finally {
+        loading = false;
+      }
+    };
+
+    void check();
+
+    const timer = window.setInterval(() => {
+      void check();
+    }, 1000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void check();
+      }
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      onVisibility
+    );
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibility
+      );
+    };
+  }, []);
+
+  return null;
 }

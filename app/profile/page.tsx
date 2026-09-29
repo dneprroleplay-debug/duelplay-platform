@@ -12,7 +12,7 @@ type Data={referralLink:string;user:User;stats:{matches:number;wins:number;losse
 
 
 export default function ProfilePage(){
- const {t,language}=useLanguage(); const {theme,setTheme}=useTheme(); const [data,setData]=useState<Data|null>(null); const [error,setError]=useState(""); const [authRequired,setAuthRequired]=useState(false); const [copied,setCopied]=useState(false); const [editingNickname,setEditingNickname]=useState(false); const [nicknameDraft,setNicknameDraft]=useState(""); const [nicknameBusy,setNicknameBusy]=useState(false); const [nicknameMessage,setNicknameMessage]=useState("");
+ const {t,language}=useLanguage(); const {theme,themePreference,setTheme}=useTheme(); const [data,setData]=useState<Data|null>(null); const [error,setError]=useState(""); const [authRequired,setAuthRequired]=useState(false); const [copied,setCopied]=useState(false); const [editingNickname,setEditingNickname]=useState(false); const [nicknameDraft,setNicknameDraft]=useState(""); const [nicknameBusy,setNicknameBusy]=useState(false); const [nicknameMessage,setNicknameMessage]=useState("");
  async function loadProfile(){const r=await fetch("/api/profile",{cache:"no-store"});const d=await r.json().catch(()=>({}));if(r.status===401){setAuthRequired(true);return}if(!r.ok){setError(t.profileLoadError);return}setData(d)}
  useEffect(()=>{
   void loadProfile();
@@ -62,9 +62,9 @@ export default function ProfilePage(){
     [`${t.profile}`,"/profile"],[`📊 ${t.hubCards.analytics}`,"/analytics"],[`⚔ ${t.matches}`,"/matches"],[`🏆 ${t.hubCards.achievements}`,"/achievements"],[`🎒 ${t.hubCards.inventory}`,"/inventory"],[`💎 ${t.hubCards.collections}`,"/collections"],[`👥 ${t.hubCards.social}`,"/social"],[`🛡 ${t.hubCards.clans}`,"/clans"],[`🎟 ${t.hubCards.duelPass}`,"/duelpass"],[`👑 ${t.hubCards.prime}`,"/prime"],[`💳 ${t.wallet}`,"/wallet"]
   ].map(([label,href])=><a key={href} href={href} className="flex min-h-11 items-center justify-center rounded-xl border border-white/8 bg-white/[.025] px-3 py-2 text-center text-sm font-bold text-zinc-300 transition hover:border-pink-400/30 hover:text-white">{label}</a>)}</div></nav>
   <section className="panel mt-6 rounded-3xl p-5 sm:p-6">
-   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><span className="pill">STYLE</span><h2 className="mt-3 text-2xl font-black">{t.themeStyle}</h2><p className="mt-2 max-w-3xl text-sm text-zinc-500">{t.themeDescription}</p></div><span className="text-xs font-bold text-zinc-500">{theme==="STANDARD"?t.themeStandard:t.themePersonal}</span></div>
+   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><span className="pill">STYLE</span><h2 className="mt-3 text-2xl font-black">{t.themeStyle}</h2><p className="mt-2 max-w-3xl text-sm text-zinc-500">{t.themeDescription}</p></div><span className="text-xs font-bold text-zinc-500">{themePreference==="STANDARD"?t.themeStandard:t.themePersonal}</span></div>
    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-    {THEMES.map(x=><button type="button" key={x.id} onClick={()=>setTheme(x.id as ThemeId)} className={`group overflow-hidden rounded-xl border text-left transition hover:-translate-y-0.5 ${theme===x.id?"border-pink-400/70 bg-pink-400/[.08]":"border-white/8 bg-white/[.025] hover:border-white/20"}`}>
+    {THEMES.map(x=><button type="button" key={x.id} onClick={()=>setTheme(x.id as ThemeId)} className={`group overflow-hidden rounded-xl border text-left transition hover:-translate-y-0.5 ${themePreference===x.id?"border-pink-400/70 bg-pink-400/[.08]":"border-white/8 bg-white/[.025] hover:border-white/20"}`}>
       <div className="h-12 w-full" style={{background:`linear-gradient(135deg,${x.preview[0]} 0%,${x.preview[0]} 45%,${x.preview[1]} 45%,${x.preview[1]} 70%,${x.preview[2]} 70%)`}}/>
       <div className="p-3"><div className="text-sm font-bold">{x.name}</div><div className="mt-1 truncate text-[11px] text-zinc-500">{x.description}</div></div>
     </button>)}
