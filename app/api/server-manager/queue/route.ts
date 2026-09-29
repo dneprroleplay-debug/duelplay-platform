@@ -9,7 +9,7 @@ import { runMatchWatchdog } from "@/lib/match-lifecycle";
 export async function GET(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "SERVER_MANAGER_QUEUE", 300, 10 * 60_000));
+    await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "SERVER_MANAGER_QUEUE", 10000, 10 * 60_000));
   } catch (error) {
     if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     throw error;
