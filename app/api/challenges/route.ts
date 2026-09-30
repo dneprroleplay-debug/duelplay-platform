@@ -116,7 +116,7 @@ export async function PATCH(r: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async tx => {
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Challenge" WHERE id = ${id} FOR UPDATE`;
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Challenge" WHERE id = ${id}::uuid FOR UPDATE`;
       if (!rows.length) throw new Error("NOT_FOUND");
       const row = await tx.challenge.findUnique({ where: { id } });
       if (!row || ![row.senderId, row.receiverId].includes(me.id)) throw new Error("NOT_FOUND");
