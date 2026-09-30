@@ -71,7 +71,7 @@ export async function POST(r: NextRequest) {
       await enforceRateLimit(tx, me.id, "CHALLENGE_CREATE", 20, 60_000);
       // Lock both players before checking limits/duplicates so concurrent requests cannot bypass them.
       const lockedUsers = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM "User" WHERE id IN (${me.id}, ${receiverId}) ORDER BY id FOR UPDATE
+        SELECT id FROM "User" WHERE id IN (${me.id}::uuid, ${receiverId}::uuid) ORDER BY id FOR UPDATE
       `;
       if (lockedUsers.length !== 2) throw new Error("RECEIVER_UNAVAILABLE");
 
