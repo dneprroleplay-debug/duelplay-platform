@@ -55,7 +55,7 @@ export async function POST(r: NextRequest) {
   const minStake = await getPlatformNumber("MIN_STAKE", 3);
   const maxStake = await getPlatformNumber("MAX_STAKE", 10000);
   const stake = Number(b.stake ?? 0);
-  if (!isDuelMode(mode) || !mapConfig || !mapConfig.supportedModes[mode as keyof typeof mapConfig.supportedModes] || !ALLOWED_FORMATS.has(format) || !ALLOWED_WEAPONS.has(weaponModifier)) {
+  if (!isDuelMode(mode) || !mapConfig || !mapConfig.supportedModes[mode as keyof typeof mapConfig.supportedModes] || !ALLOWED_FORMATS.has(format)) {
     return NextResponse.json({ error: "Invalid challenge configuration" }, { status: 400 });
   }
   const weaponResult = isDuelMode(mode) ? normalizeModeWeaponModifier(mode, weaponModifier) : { ok: false as const, error: "INVALID_MODE" };
