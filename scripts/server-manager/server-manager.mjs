@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+﻿import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
@@ -1006,6 +1006,8 @@ async function claimAndStart(match) {
     serverId: claimed.serverId,
     playerOneSteamId: match.playerOne.steamId,
     playerTwoSteamId: match.playerTwo.steamId,
+    playerOneNickname: claimed.playerOneNickname || '',
+    playerTwoNickname: claimed.playerTwoNickname || '',
     mapName: match.mapName || 'Dust2',
     mode,
     weaponModifier,
@@ -1537,3 +1539,6 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+
+

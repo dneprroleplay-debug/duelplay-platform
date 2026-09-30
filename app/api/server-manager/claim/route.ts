@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
 import { prisma } from "@/lib/prisma";
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({
         where: { id: matchId },
-        include: { playerOne: { select: { steamId: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, isTestAccount: true } }, gameServer: true },
+        include: { playerOne: { select: { steamId: true, nickname: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, nickname: true, isTestAccount: true } }, gameServer: true },
       });
       if (!match) throw new Error("NOT_FOUND");
       if (!["READY","STARTING"].includes(match.status) || !match.playerTwoId || !match.playerTwo) throw new Error("NOT_READY");
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
       const current = (match.serverConfig ?? {}) as Record<string, unknown>;
       await tx.match.update({ where: { id: matchId }, data: { serverConfig: { ...current, state: "STARTING", serverId: server.id, connectUrl: `steam://connect/${host}:${port}` } } });
-      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, mapId: mapConfig.id, mapName: mapConfig.serverMapName, displayName: mapConfig.displayName, workshopId: mapConfig.workshopId, workshopUrl: `https://steamcommunity.com/sharedfiles/filedetails/?id=${mapConfig.workshopId}`, mode: match.mode, weaponModifier: match.weaponModifier ?? null };
+      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, playerOneNickname: match.playerOne.nickname, playerTwoNickname: match.playerTwo.nickname, mapId: mapConfig.id, mapName: mapConfig.serverMapName, displayName: mapConfig.displayName, workshopId: mapConfig.workshopId, workshopUrl: `https://steamcommunity.com/sharedfiles/filedetails/?id=${mapConfig.workshopId}`, mode: match.mode, weaponModifier: match.weaponModifier ?? null };
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
@@ -73,4 +73,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not claim server" }, { status: 500 });
   }
 }
+
 
