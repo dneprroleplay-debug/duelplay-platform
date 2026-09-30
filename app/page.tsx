@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { preloadImage, preloadImages } from "../lib/image-preload";
@@ -14,7 +14,7 @@ import BannerStrip from "../components/Home/BannerStrip";
 function HomeContent(){
   const {t}=useLanguage();
   const searchParams=useSearchParams();
-  const [introKey,setIntroKey]=useState(0);
+  const [introKey,setIntroKey]=useState(1);
   const playedIntro=useRef<string|null>(null);
   const [loading,setLoading]=useState(false);
   const [refreshKey,setRefreshKey]=useState(0);
@@ -121,7 +121,7 @@ function HomeContent(){
         <div className="hero-base-overlay absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,47,145,.14),transparent_34%),linear-gradient(180deg,rgba(5,5,7,.18),rgba(5,5,7,.10)_48%,rgba(5,5,7,.72)_100%)]"/>
         <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(5,5,7,.72)_0%,transparent_28%,transparent_72%,rgba(5,5,7,.22)_100%)]"/>
         <div className="home-hero-content relative z-10 mx-auto flex max-w-7xl flex-col items-center px-4 text-center sm:px-6">
-          <span className="pill">1V1 · CS2 · REAL MATCHES</span>
+          <span className="pill">1V1 В· CS2 В· REAL MATCHES</span>
           <h1 className="home-hero-title mt-3 max-w-5xl font-black uppercase tracking-[-.055em]">{t.heroTitleNew}</h1>
           <p className="home-hero-subtitle mt-2 max-w-4xl text-base leading-7 text-zinc-200 sm:text-lg">{t.heroTextNew}</p>
           <div className="home-hero-bottom">
@@ -131,7 +131,7 @@ function HomeContent(){
             </div>
             <div className="mt-4 grid w-full max-w-3xl grid-cols-3 gap-2 sm:gap-3">
               <Stat value={String(count)} label={t.activeDuels}/>
-              <Stat value="1х1" label={t.formatLabel}/>
+              <Stat value="1С…1" label={t.formatLabel}/>
               <Stat value="10%" label={t.commissionLabel}/>
             </div>
           </div>
@@ -165,7 +165,7 @@ function HomeContent(){
         <div className="panel rounded-3xl p-8 sm:p-10"><div className="grid gap-8 lg:grid-cols-[1fr_1.5fr]"><div><span className="pill">RANKING</span><h2 className="mt-4 text-4xl font-black uppercase">{t.ratingTitle}</h2><p className="mt-3 text-zinc-500">{t.ratingText}</p></div><Ranking/></div></div>
       </section>
     </main>
-    <footer className="border-t border-white/5 py-8 text-center text-sm text-zinc-600">DUELPLAY · CS2 1V1 · 2026</footer>
+    <footer className="border-t border-white/5 py-8 text-center text-sm text-zinc-600">DUELPLAY В· CS2 1V1 В· 2026</footer>
   </div>
 }
 
@@ -176,3 +176,4 @@ function Ranking(){const [users,setUsers]=useState<any[]>([]);useEffect(()=>{fet
 export default function Home(){
   return <Suspense fallback={null}><HomeContent /></Suspense>
 }
+
