@@ -18,7 +18,7 @@ function challengeError(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   if (code === "RATE_LIMITED") return NextResponse.json({ error: "Too many challenge requests. Try again later." }, { status: 429 });
   if (code === "INSUFFICIENT_BALANCE" || code === "FUNDS") return NextResponse.json({ error: "Insufficient balance." }, { status: 400 });
-  if (code === "BUSY") return NextResponse.json({ error: "One of the players is already in an active match." }, { status: 409 });
+  if (code === "PLAYER_BUSY") return NextResponse.json({ error: "The player is currently in another active match.", errorCode: "PLAYER_BUSY" }, { status: 409 });
   if (code === "CLAIMED") return NextResponse.json({ error: "Challenge was already processed." }, { status: 409 });
   if (code === "GAME") return NextResponse.json({ error: "CS2 game configuration is unavailable." }, { status: 503 });
   return NextResponse.json({ error: "Unable to process challenge." }, { status: 500 });
@@ -121,6 +121,14 @@ export async function PATCH(r: NextRequest) {
       const row = await tx.challenge.findUnique({ where: { id } });
       if (!row || ![row.senderId, row.receiverId].includes(me.id)) throw new Error("NOT_FOUND");
 
+      const lockedUsers = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "User"
+      WHERE id IN (${row.senderId}::uuid, ${row.receiverId}::uuid)
+      ORDER BY id
+      FOR UPDATE
+    `;
+    if (lockedUsers.length !== 2) throw new Error("PLAYER_UNAVAILABLE");
+
       const now = new Date();
       if (row.status === "PENDING" && row.expiresAt <= now) {
         await tx.challenge.updateMany({ where: { id, status: "PENDING" }, data: { status: "EXPIRED" } });
@@ -154,7 +162,7 @@ export async function PATCH(r: NextRequest) {
         { playerOneId: row.receiverId, status: { in: [...ACTIVE_MATCH_STATUSES] } },
         { playerTwoId: row.receiverId, status: { in: [...ACTIVE_MATCH_STATUSES] } },
       ] } });
-      if (existing) throw new Error("BUSY");
+      if (existing) throw new Error("PLAYER_BUSY");
 
       const stake = Number(row.stake);
       if (!Number.isFinite(stake) || stake < 0) throw new Error("FUNDS");
@@ -164,8 +172,8 @@ export async function PATCH(r: NextRequest) {
       const commissionRate = await getPlatformNumber("COMMISSION_RATE", 10);
 
       if (stake > 0) {
-        const senderDebit = await debitWallet(tx, row.senderId, stake, `challenge:${row.id}:sender`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
-        const receiverDebit = await debitWallet(tx, row.receiverId, stake, `challenge:${row.id}:receiver`, "MATCH_BET", `Challenge stake · ${row.id}`, row.id);
+        const senderDebit = await debitWallet(tx, row.senderId, stake, `challenge:${row.id}:sender`, "MATCH_BET", `Challenge stake В· ${row.id}`, row.id);
+        const receiverDebit = await debitWallet(tx, row.receiverId, stake, `challenge:${row.id}:receiver`, "MATCH_BET", `Challenge stake В· ${row.id}`, row.id);
         if (senderDebit.idempotent || receiverDebit.idempotent) throw new Error("CLAIMED");
       }
 
@@ -176,8 +184,8 @@ export async function PATCH(r: NextRequest) {
       } });
 
       if (stake > 0) {
-        await lockWallet(tx, row.senderId, stake, `challenge-stake:${row.id}:sender`, "MATCH_STAKE", match.id, `Challenge stake reserved · ${row.id}`);
-        await lockWallet(tx, row.receiverId, stake, `challenge-stake:${row.id}:receiver`, "MATCH_STAKE", match.id, `Challenge stake reserved · ${row.id}`);
+        await lockWallet(tx, row.senderId, stake, `challenge-stake:${row.id}:sender`, "MATCH_STAKE", match.id, `Challenge stake reserved В· ${row.id}`);
+        await lockWallet(tx, row.receiverId, stake, `challenge-stake:${row.id}:receiver`, "MATCH_STAKE", match.id, `Challenge stake reserved В· ${row.id}`);
       }
 
       await tx.challenge.update({ where: { id: row.id }, data: { matchId: match.id } });
