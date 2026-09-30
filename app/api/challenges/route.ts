@@ -95,6 +95,7 @@ export async function POST(r: NextRequest) {
 
     return NextResponse.json(result.duplicate ?? result.row, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
+    console.error("[CHALLENGE_POST_ERROR]", error);
     const code = error instanceof Error ? error.message : "";
     if (code === "RECEIVER_UNAVAILABLE") return NextResponse.json({ error: "Player unavailable" }, { status: 404 });
     if (code === "CHALLENGES_DISABLED") return NextResponse.json({ error: "Player does not accept challenges" }, { status: 403 });
@@ -186,6 +187,7 @@ export async function PATCH(r: NextRequest) {
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
+    console.error("[CHALLENGE_POST_ERROR]", error);
     const code = error instanceof Error ? error.message : "";
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Challenge not found" }, { status: 404 });
     if (code === "EXPIRED") return NextResponse.json({ error: "Challenge expired" }, { status: 409 });
