@@ -3,6 +3,7 @@ import { createConnection } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import sharp from 'sharp';
 
 const required = (name) => {
   const value = process.env[name];
@@ -14,6 +15,7 @@ const SECRET = required('DUELPLAY_SERVER_MANAGER_SECRET');
 const RESULT_SECRET = required('CS2_RESULT_SECRET');
 const GSI_TOKEN = required('CS2_GSI_TOKEN');
 const CS2_DIR = process.env.CS2_DIR || '/home/ubuntu/cs2/game';
+const CS2_STEAMCMD_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
 const CS2_SCRIPT = join(CS2_DIR, 'cs2.sh');
 const CS2_AUTO_UPDATE = !['0', 'false', 'no'].includes(String(process.env.CS2_AUTO_UPDATE ?? 'true').toLowerCase());
 const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
@@ -74,6 +76,89 @@ let refereeState = {
   players: {}
 };
 
+
+const AVATAR_CACHE_DIR = '/home/ubuntu/duelplay-avatar-cache';
+const AVATAR_MAX_SOURCE_BYTES = 5 * 1024 * 1024;
+const AVATAR_MAX_PNG_BYTES = 512 * 1024;
+
+async function preparePlayerAvatar(steamId, avatarUrl) {
+  if (!steamId || !avatarUrl) return null;
+
+  const normalized = canonicalPlayerSteamId(steamId);
+  const rawUrl = String(avatarUrl).trim();
+  if (!rawUrl) return null;
+
+  const resolvedUrl = rawUrl.startsWith("/")
+    ? `${API}${rawUrl}`
+    : rawUrl;
+
+  try {
+    let sourceBuffer;
+
+    if (rawUrl.startsWith('data:image/')) {
+      const comma = rawUrl.indexOf(',');
+      if (comma === -1) return null;
+
+      const meta = rawUrl.slice(0, comma);
+      const payload = rawUrl.slice(comma + 1);
+
+      sourceBuffer = meta.includes(';base64')
+        ? Buffer.from(payload, 'base64')
+        : Buffer.from(decodeURIComponent(payload));
+
+      if (sourceBuffer.length > AVATAR_MAX_SOURCE_BYTES) {
+        throw new Error('avatar source is too large');
+      }
+    } else if (/^https?:\/\//i.test(resolvedUrl)) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      try {
+        const response = await fetch(resolvedUrl, {
+          signal: controller.signal,
+          headers: { 'user-agent': 'DuelPlay-CS2-Avatar/1.0' }
+        });
+
+        if (!response.ok) throw new Error(`avatar http ${response.status}`);
+
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength > AVATAR_MAX_SOURCE_BYTES) {
+          throw new Error('avatar source is too large');
+        }
+
+        sourceBuffer = Buffer.from(await response.arrayBuffer());
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else {
+      throw new Error('unsupported avatar source');
+    }
+
+    if (!sourceBuffer?.length || sourceBuffer.length > AVATAR_MAX_SOURCE_BYTES) {
+      throw new Error('invalid avatar source');
+    }
+
+    const png = await sharp(sourceBuffer)
+      .resize(64, 64, { fit: 'cover', position: 'centre' })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    if (!png.length || png.length > AVATAR_MAX_PNG_BYTES) {
+      throw new Error('converted avatar is too large');
+    }
+
+    mkdirSync(AVATAR_CACHE_DIR, { recursive: true });
+
+    const filePath = join(AVATAR_CACHE_DIR, `${normalized}.png`);
+    writeFileSync(filePath, png);
+
+    return filePath;
+  } catch (error) {
+    console.error(`[DuelPlay] avatar prepare failed ${normalized}:`, error);
+    return null;
+  }
+}
+
 async function api(path, init = {}) {
   const headers = new Headers(init.headers);
   headers.set('x-duelplay-server-secret', SECRET);
@@ -86,6 +171,37 @@ async function api(path, init = {}) {
   return data;
 }
 
+function ensureMetamodGameInfo() {
+  const gameInfoPath = join(CS2_DIR, 'csgo', 'gameinfo.gi');
+
+  if (!existsSync(gameInfoPath)) {
+    throw new Error(`CS2 gameinfo.gi not found: ${gameInfoPath}`);
+  }
+
+  let content = readFileSync(gameInfoPath, 'utf8');
+  const metamodPattern = /^\s*Game\s+csgo\/addons\/metamod\s*$/m;
+
+  if (metamodPattern.test(content)) {
+    console.log('[DuelPlay] Metamod gameinfo entry already present');
+    return;
+  }
+
+  const searchPaths = content.match(/SearchPaths\s*\{/);
+
+  if (!searchPaths) {
+    throw new Error(`Could not find SearchPaths block in ${gameInfoPath}`);
+  }
+
+  const insertAt = searchPaths.index + searchPaths[0].length;
+  content =
+    content.slice(0, insertAt) +
+    `\n    Game    csgo/addons/metamod` +
+    content.slice(insertAt);
+
+  writeFileSync(gameInfoPath, content);
+  console.log('[DuelPlay] Restored Metamod gameinfo entry');
+}
+
 function updateCs2Server() {
   if (!CS2_AUTO_UPDATE) {
     console.log('[DuelPlay] CS2_AUTO_UPDATE=false; using the installed CS2 server build');
@@ -95,7 +211,7 @@ function updateCs2Server() {
   console.log(`[DuelPlay] updating CS2 dedicated server via ${STEAMCMD_BIN} (app ${CS2_APP_ID})`);
   const result = spawnSync(
     STEAMCMD_BIN,
-    ['+force_install_dir', CS2_DIR, '+login', 'anonymous', '+app_update', String(CS2_APP_ID), 'validate', '+quit'],
+    ['+force_install_dir', CS2_STEAMCMD_DIR, '+login', 'anonymous', '+app_update', String(CS2_APP_ID), 'validate', '+quit'],
     { stdio: 'inherit', cwd: CS2_DIR, env: process.env }
   );
 
@@ -107,6 +223,7 @@ function updateCs2Server() {
     throw new Error(`SteamCMD CS2 update failed with exit code ${result.status}`);
   }
 
+  ensureMetamodGameInfo();
   console.log('[DuelPlay] CS2 dedicated server update/validation completed');
 }
 
@@ -239,6 +356,26 @@ function command(text) {
   const child = current?.process;
   if (!child || child.killed || child.exitCode !== null || child.stdin.destroyed) return false;
   try { child.stdin.write(`${text}\n`); return true; } catch { return false; }
+}
+
+function syncPlayerNickname(steamId) {
+  if (!current || !steamId) return;
+
+  const normalized = canonicalPlayerSteamId(steamId);
+  const entries = [
+    [current.playerOneSteamId, current.playerOneNickname],
+    [current.playerTwoSteamId, current.playerTwoNickname]
+  ];
+
+  const match = entries.find(([id]) => canonicalPlayerSteamId(id) === normalized);
+  if (!match?.[1]) return;
+
+  const nickname = String(match[1])
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\\"');
+
+  command(`duelplay_set_player_name ${normalized} "${nickname}"`);
+  console.log(`[DuelPlay] syncing CS2 nickname ${normalized} -> ${match[1]}`);
 }
 
 function clearCurrentTimers() {
@@ -890,6 +1027,9 @@ function observeServerLine(text) {
       console.log(
         `[DuelPlay] Steam Net player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
       );
+      syncPlayerNickname(playerSteamId);
+      setTimeout(() => syncPlayerNickname(playerSteamId), 500);
+      setTimeout(() => syncPlayerNickname(playerSteamId), 1500);
 
       // Force the next manager tick to send the new count immediately.
       lastHeartbeatSentAt = 0;
@@ -1004,8 +1144,12 @@ async function claimAndStart(match) {
   current = {
     id: match.id,
     serverId: claimed.serverId,
-    playerOneSteamId: match.playerOne.steamId,
-    playerTwoSteamId: match.playerTwo.steamId,
+    playerOneSteamId: claimed.playerOneSteamId,
+    playerTwoSteamId: claimed.playerTwoSteamId,
+    playerOneNickname: claimed.playerOneNickname,
+    playerTwoNickname: claimed.playerTwoNickname,
+    playerOneAvatarUrl: claimed.playerOneAvatarUrl ?? null,
+    playerTwoAvatarUrl: claimed.playerTwoAvatarUrl ?? null,
     mapName: match.mapName || 'Dust2',
     mode,
     weaponModifier,
@@ -1126,6 +1270,40 @@ async function claimAndStart(match) {
         command('mp_warmup_pausetimer 0');
         command('mp_warmup_end');
       }, 500);
+      if (current?.playerOneSteamId && current?.playerOneNickname) {
+        command(`duelplay_set_player_name ${current.playerOneSteamId} "${String(current.playerOneNickname)
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\\"')}"`);
+      }
+
+      if (current?.playerTwoSteamId && current?.playerTwoNickname) {
+        command(`duelplay_set_player_name ${current.playerTwoSteamId} "${String(current.playerTwoNickname)
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\\"')}"`);
+      }
+
+      if (current?.playerOneSteamId && current?.playerOneAvatarUrl) {
+        const avatarPath = await preparePlayerAvatar(
+          current.playerOneSteamId,
+          current.playerOneAvatarUrl
+        );
+        if (avatarPath) {
+          command(`duelplay_set_player_avatar ${current.playerOneSteamId} ${avatarPath}`);
+          console.log(`[DuelPlay] syncing CS2 avatar ${current.playerOneSteamId} -> ${avatarPath}`);
+        }
+      }
+
+      if (current?.playerTwoSteamId && current?.playerTwoAvatarUrl) {
+        const avatarPath = await preparePlayerAvatar(
+          current.playerTwoSteamId,
+          current.playerTwoAvatarUrl
+        );
+        if (avatarPath) {
+          command(`duelplay_set_player_avatar ${current.playerTwoSteamId} ${avatarPath}`);
+          console.log(`[DuelPlay] syncing CS2 avatar ${current.playerTwoSteamId} -> ${avatarPath}`);
+        }
+      }
+
       console.log(`[DuelPlay] server ready: steam://connect/${runtimeHost}:${runtimePort}`);
     } catch (error) {
       console.error('[DuelPlay] server failed to become ready', error);
