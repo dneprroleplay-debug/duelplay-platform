@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+﻿import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
@@ -959,6 +959,28 @@ function finalizePlayerLoadoutAfterConnect() {
   });
 }
 
+function setDuelPlayerNames() {
+  if (!current || connectedSteamIds.length < 2) return;
+
+  const players = [
+    { steamId: current.playerOneSteamId, nickname: current.playerOneNickname },
+    { steamId: current.playerTwoSteamId, nickname: current.playerTwoNickname },
+  ];
+
+  for (const player of players) {
+    const steamId = String(player.steamId || '').trim();
+    const nickname = String(player.nickname || '').trim();
+
+    if (!steamId || !nickname) continue;
+
+    const safeNickname = nickname
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+
+    command(`duelplay_set_player_name ${steamId} "${safeNickname}"`);
+  }
+}
+
 function observeServerLine(text) {
   if (!current || resultSent) return;
 
@@ -1035,6 +1057,7 @@ function observeServerLine(text) {
       lastHeartbeatSentAt = 0;
       if (connectedSteamIds.length >= 2) {
         connectionPhaseCompleted = true;
+        setDuelPlayerNames();
       }
       if (current) {
         finalizePlayerLoadoutAfterConnect();
@@ -1059,6 +1082,7 @@ function observeServerLine(text) {
 
       if (connectedSteamIds.length >= 2) {
         connectionPhaseCompleted = true;
+        setDuelPlayerNames();
       }
 
       console.log(

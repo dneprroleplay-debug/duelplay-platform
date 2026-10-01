@@ -1,0 +1,14 @@
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.csproj.CoreCompileInputs.cache
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.sourcelink.json
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\bin\Release\net10.0\DuelPlayPlayerNameTest.deps.json
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\bin\Release\net10.0\DuelPlayPlayerNameTest.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\bin\Release\net10.0\DuelPlayPlayerNameTest.pdb
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\bin\Release\net10.0\CounterStrikeSharp.API.server.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\bin\Release\net10.0\CounterStrikeSharp.API.server.xml
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.csproj.AssemblyReference.cache
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlay.70758427.Up2Date
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\refint\DuelPlayPlayerNameTest.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\DuelPlayPlayerNameTest.pdb
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\obj\Release\net10.0\ref\DuelPlayPlayerNameTest.dll

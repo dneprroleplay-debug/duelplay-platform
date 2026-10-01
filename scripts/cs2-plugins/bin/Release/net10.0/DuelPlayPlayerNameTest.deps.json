@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "DuelPlayPlayerNameTest/1.0.0": {
+        "dependencies": {
+          "CounterStrikeSharp.API.server": "1.0.374.0"
+        },
+        "runtime": {
+          "DuelPlayPlayerNameTest.dll": {}
+        }
+      },
+      "CounterStrikeSharp.API.server/1.0.374.0": {
+        "runtime": {
+          "CounterStrikeSharp.API.server.dll": {
+            "assemblyVersion": "1.0.374.0",
+            "fileVersion": "1.0.374.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "DuelPlayPlayerNameTest/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CounterStrikeSharp.API.server/1.0.374.0": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

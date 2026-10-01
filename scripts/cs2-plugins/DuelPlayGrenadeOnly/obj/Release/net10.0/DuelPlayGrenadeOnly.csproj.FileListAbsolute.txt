@@ -1,0 +1,6 @@
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.csproj.AssemblyReference.cache
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.AssemblyInfoInputs.cache
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.AssemblyInfo.cs
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.csproj.CoreCompileInputs.cache
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.sourcelink.json
