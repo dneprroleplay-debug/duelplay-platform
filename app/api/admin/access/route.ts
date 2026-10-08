@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
     if (roleCode === "FOUNDER" && actor.roleCode !== "FOUNDER") return NextResponse.json({ error: "Назначать Founder может только Founder" }, { status: 403 });
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, nickname: true, steamId: true, role: true, status: true } });
     if (!target) return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
-    if (isProtectedFounder(target) && target.id !== actor.user.id) return NextResponse.json({ error: "Founder защищён" }, { status: 403 });
+    if (target.id === actor.user.id) return NextResponse.json({ error: "Нельзя изменять собственную роль" }, { status: 403 });
+    if (isProtectedFounder(target)) return NextResponse.json({ error: "Founder защищён" }, { status: 403 });
     if (roleCode === "FOUNDER" && target.id !== actor.user.id && actor.roleCode !== "FOUNDER") return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
 
     const def = ADMIN_ROLE_DEFINITIONS[roleCode];
