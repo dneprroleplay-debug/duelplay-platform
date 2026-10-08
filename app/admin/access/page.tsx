@@ -254,7 +254,7 @@ export default function AdminAccessPage(){
           {roleCards.map(role=>{
             const isMe=role.code===data.me.roleCode;
             const isFounder=role.code==="FOUNDER";
-            const clickable=isMe;
+            const clickable=isMe||data.me.roleCode==="FOUNDER";
             return <button key={role.code} type="button" disabled={!clickable} onClick={()=>clickable&&setWorkspace("dashboard")} className={`group relative overflow-hidden rounded-3xl border p-5 text-left transition ${ROLE_COLORS[role.code]||"border-white/8 bg-white/[.025]"} ${clickable?"cursor-pointer hover:-translate-y-0.5 hover:border-[var(--theme-accent)]/50 hover:shadow-[0_0_40px_var(--theme-glow)]":"cursor-not-allowed opacity-55"}`}>
               <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="text-sm font-black">{isFounder?"👑 ":""}{role.title}</span>{isMe&&<span className="rounded-full bg-[var(--theme-accent)] px-2 py-0.5 text-[9px] font-black text-black">ТЫ</span>}{isFounder&&!data.founder&&<span className="rounded-full border border-amber-400/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-300">LOCKED</span>}</div><span className={`text-xs font-black ${isFounder?"text-amber-300":"text-[var(--theme-accent)]"}`}>LEVEL {role.level}</span></div>
               <p className="mt-3 min-h-12 text-sm leading-6 text-zinc-500">{role.description}</p>
