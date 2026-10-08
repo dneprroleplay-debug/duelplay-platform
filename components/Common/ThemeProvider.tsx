@@ -53,8 +53,9 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
   };
   void load();
   const onChanged=()=>void load();
+  const timer=window.setInterval(()=>void load(),5000);
   window.addEventListener("duelplay:theme-changed",onChanged);
-  return()=>window.removeEventListener("duelplay:theme-changed",onChanged);
+  return()=>{window.clearInterval(timer);window.removeEventListener("duelplay:theme-changed",onChanged)};
 },[]);
  useEffect(()=>{
   document.documentElement.dataset.theme=theme;

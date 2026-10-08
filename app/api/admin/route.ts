@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { validatePlatformSettingValue, validatePlatformSettingRelationships, PLATFORM_SETTING_RULES } from "@/lib/platform-setting-policy";
 import { grantDepositBonus } from "@/lib/promotions";
 import { requireAdmin, adminLevel, auditRequest } from "@/lib/admin";
-import { permissionForAdminAction, requirePermissionForUser, resolveAdminAccess } from "@/lib/admin-rbac";
 import { getCurrentAdminSession, ADMIN_INVITE_PREFIX, newAdminInviteToken } from "@/lib/admin-auth";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { THEMES, themeById } from "@/lib/themes";
@@ -14,6 +13,7 @@ import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
 import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
 import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
+import { hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
 import { getClientIp } from "@/lib/request-meta";
 
 const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
@@ -45,15 +45,18 @@ export async function GET(request:NextRequest){
     const session=await getCurrentAdminSession();
     const account=session?.user;
     if(!account) return NextResponse.json({error:"Требуется вход администратора",errorCode:"ADMIN_LOGIN_REQUIRED"},{status:401});
-    if(adminLevel(account.role)<1) return NextResponse.json({error:"Недостаточно прав"},{status:403});
+    const access=await resolveAdminAccess(account.id);
+    if(!access || access.level===0) return NextResponse.json({error:"Недостаточно прав"},{status:403});
+    const accessMe={nickname:account.nickname,role:access.roleCode||account.role,level:access.level};
     if(!account.twoFactorEnabled){
-      return NextResponse.json({mfaRequired:true,mfaSetupRequired:true,me:{nickname:account.nickname,role:account.role,level:adminLevel(account.role)}});
+      return NextResponse.json({mfaRequired:true,mfaSetupRequired:true,me:accessMe});
     }
     if(!session?.adminMfaVerifiedAt || Date.now()-session.adminMfaVerifiedAt.getTime()>8*60*60*1000){
-      return NextResponse.json({mfaRequired:true,mfaSetupRequired:false,me:{nickname:account.nickname,role:account.role,level:adminLevel(account.role)}});
+      return NextResponse.json({mfaRequired:true,mfaSetupRequired:false,me:accessMe});
     }
     const me=account;
-    const rbacAccess=await resolveAdminAccess(me.id);
+    const permissions=access.permissions;
+    const can=(permission:string)=>hasPermission(permissions,permission);
     const [users,matches,transactions,disputes,fraud,tickets,settings,topSkins,servers,logs,avatarPresets,platformSettings,featureFlags,creatorPayouts,withdrawals,deposits,onlineSessions]=await Promise.all([
       prisma.user.findMany({orderBy:{createdAt:"desc"},take:100,select:{id:true,nickname:true,email:true,role:true,status:true,createdAt:true,steamId:true,wallet:{select:{balance:true,lockedBalance:true}}}}),
       prisma.match.findMany({orderBy:{createdAt:"desc"},take:100,include:{playerOne:{select:{nickname:true}},playerTwo:{select:{nickname:true}},game:{select:{title:true}}}}),
@@ -75,7 +78,7 @@ export async function GET(request:NextRequest){
     ]);
     const row=settings.find(x=>x.key==="standardTheme");
     const standard=typeof row?.value==="object"&&row?.value&&"id" in row.value?String((row.value as {id?:unknown}).id):"STANDARD";
-    const level=rbacAccess?.legacyAuthority ?? adminLevel(me.role);
+    const level=access.legacyAuthority;
     const userRows=users.map(u=>({
       ...u,
       email: level >= 3 ? u.email : null,
@@ -91,7 +94,7 @@ export async function GET(request:NextRequest){
     const completedTransactions=transactions.filter(t=>t.status==="COMPLETED");const revenueTypes=["COMMISSION","CASE_OPEN","COSMETIC_PURCHASE","PRIME_PURCHASE","DUELPASS_PURCHASE","EVENTPASS_PURCHASE","XP_BOOSTER_PURCHASE"];const expenseTypes=["REFERRAL","REFERRAL_RACE_PRIZE","TOURNAMENT_PRIZE"];const revenueByType=Object.fromEntries([...new Set([...revenueTypes,...expenseTypes])].map(type=>[type,completedTransactions.filter(t=>t.type===type).reduce((n,t)=>n+Math.max(0,Number(t.amount)),0)]));const revenue=revenueTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const expenses=expenseTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const dayAgo=new Date(Date.now()-86400000);const completedMatchVolume=matches.filter(m=>m.createdAt>=dayAgo&&["FINISHED","CANCELLED"].includes(m.status)).reduce((n,m)=>n+Number(m.betAmount)*2,0);const openDisputes=disputes.filter(x=>["OPEN","UNDER_REVIEW","AI_PROCESSED"].includes(x.status)).length;const openFraud=fraud.filter(x=>!["CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(x.status)).length;
     const fullDashboard={users:users.length,online:onlineSessions,matchesToday:matches.filter(m=>m.createdAt>=dayAgo).length,liveMatches:matches.filter(m=>m.status==="LIVE").length,activeServers:servers.filter(s=>s.status==="BUSY"||s.status==="STARTING").length,volume:completedMatchVolume,revenue,deposits:completedTransactions.filter(t=>t.type==="DEPOSIT").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),withdrawals:completedTransactions.filter(t=>t.type==="WITHDRAW").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),referralPayouts:revenueByType.REFERRAL||0,creatorPayouts:creatorPayouts.filter(p=>p.status!=="REJECTED").reduce((n,p)=>n+Number(p.amount),0),pendingWithdrawals:withdrawals.filter(x=>x.status!=="COMPLETED"&&x.status!=="REJECTED"&&x.status!=="FAILED").length,pendingDeposits:deposits.filter(x=>x.status!=="COMPLETED"&&x.status!=="FAILED"&&x.status!=="EXPIRED").length,openDisputes,openFraud,revenueByType,expenses,netRevenue:revenue-expenses};
     const dashboard=level>=3?fullDashboard:{users:level>=2?users.length:0,online:onlineSessions,matchesToday:level>=2?matches.filter(m=>m.createdAt>=dayAgo).length:0,liveMatches:level>=2?matches.filter(m=>m.status==="LIVE").length:0,activeServers:0,volume:0,revenue:0,deposits:0,withdrawals:0,referralPayouts:0,creatorPayouts:0,pendingWithdrawals:0,pendingDeposits:0,openDisputes:level>=2?openDisputes:0,openFraud:level>=2?openFraud:0,revenueByType:{},expenses:0,netRevenue:0};
-    return NextResponse.json({me:{nickname:me.nickname,role:me.role,level,adminRole:rbacAccess?.roleCode??null,adminLevel:rbacAccess?.level??0,permissions:rbacAccess?.permissions??[]},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:level>=5?platformSettings:[],featureFlags:level>=5?featureFlags:[],creatorPayouts:level>=3?creatorPayouts:[],withdrawals:level>=3?withdrawals:[],deposits:level>=3?deposits:[],dashboard,users:level>=2?userRows:[],matches:level>=2?matches:[],transactions:level>=3?transactions:[],disputes:level>=2?disputes:[],fraud:level>=2?fraud:[],tickets:level>=2?await hydrateTickets(tickets):[],topSkins:level>=3?topSkins:[],servers:level>=3?servers:[],logs:level>=3?logs:[],avatarPresets:level>=3?avatarPresets:[]});
+    return NextResponse.json({me:{nickname:me.nickname,role:access.roleCode||me.role,level:access.level,permissions:access.permissions},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:can("settings.manage")?platformSettings:[],featureFlags:can("feature_flags.manage")?featureFlags:[],creatorPayouts:can("finance.view")?creatorPayouts:[],withdrawals:can("withdrawals.review")||can("finance.view")?withdrawals:[],deposits:can("deposits.review")||can("finance.view")?deposits:[],dashboard,users:can("users.view")?userRows:[],matches:can("matches.view")?matches:[],transactions:can("ledger.view")||can("finance.view")?transactions:[],disputes:can("disputes.view")?disputes:[],fraud:can("risk.cases.review")||can("security.view")?fraud:[],tickets:can("support.view")?await hydrateTickets(tickets):[],topSkins:can("content.skins.manage")?topSkins:[],servers:can("servers.view")?servers:[],logs:can("admin.audit.view")||can("system.logs.view")?logs:[],avatarPresets:can("content.avatars.manage")?avatarPresets:[]});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
     if(e instanceof Error&&e.message==="ADMIN_MFA_SETUP_REQUIRED")return NextResponse.json({error:"Требуется настроить MFA администратора",errorCode:e.message},{status:403});
@@ -104,21 +107,15 @@ export async function PATCH(request:NextRequest){
   try{
     const ip = getClientIp(request);
     await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "ADMIN_ACTION", 60, 10 * 60_000));
-    const me=await requireAdmin(1);
     const body=await request.json();
     const action=String(body.action||"");
     const requiredPermission=permissionForAdminAction(action);
-    if(requiredPermission){
-      try { await requirePermissionForUser(me.id, requiredPermission); }
-      catch(error){
-        if(error instanceof Error && error.message==="ADMIN_MFA_SETUP_REQUIRED") return NextResponse.json({error:"Требуется настройка MFA"},{status:403});
-        return NextResponse.json({error:"Недостаточно прав",permission:requiredPermission},{status:403});
-      }
-    }
+    const access=requiredPermission ? await requirePermission(requiredPermission) : null;
+    const legacyMe=access?.user || await requireAdmin(1);
+    const me=legacyMe;
     await prisma.$transaction(tx=>enforceRateLimit(tx,me.id,"ADMIN_ACTION",30,60_000));
 
     if(action==="resolveDispute"){
-      if(adminLevel(me.role)<2)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const disputeId=String(body.disputeId||"");
       const decision=String(body.decision||"") as "DRAW"|"WINNER_PLAYER_ONE"|"WINNER_PLAYER_TWO"|"CANCELLED_REFUND";
       if(!disputeId||!["DRAW","WINNER_PLAYER_ONE","WINNER_PLAYER_TWO","CANCELLED_REFUND"].includes(decision)){
@@ -192,7 +189,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="revokeUserSessions"||action==="revokeAllSessions"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const userId=String(body.userId||"");
       if(action==="revokeUserSessions"&&!userId)return NextResponse.json({error:"Не указан пользователь"},{status:400});
       const result=await prisma.$transaction(async tx=>{
@@ -211,7 +207,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="platformSetting"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const key=String(body.key??"");
       const validation=validatePlatformSettingValue(key,body.value);
       if(!validation.ok)return NextResponse.json({error:"Некорректное значение",errorCode:validation.error},{status:400});
@@ -226,7 +221,6 @@ export async function PATCH(request:NextRequest){
       return NextResponse.json({ok:true,row});
     }
     if(action==="featureFlag"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const validation=validateFeatureFlagPayload(body);
       if(!validation.ok)return NextResponse.json({error:"Некорректный feature flag",errorCode:validation.error},{status:400});
       const row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
@@ -235,7 +229,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="standardTheme"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const theme=String(body.theme||"");
       if(!THEMES.some(t=>t.id===theme))return NextResponse.json({error:"Неизвестная тема"},{status:400});
       await prisma.siteSettings.upsert({where:{key:"standardTheme"},update:{value:{id:theme},updatedBy:me.id},create:{key:"standardTheme",value:{id:theme},updatedBy:me.id,description:"Стандартная тема сайта"}});
@@ -244,7 +237,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="backgroundTheme"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const background=String(body.background||"stars");
       const allowed=["stars","blue-nebula","green-aurora","purple-galaxy","gold-space"];
       if(!allowed.includes(background))return NextResponse.json({error:"Неизвестный фон"},{status:400});
@@ -254,7 +246,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="heroBackground"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const hero=String(body.hero||"");
       const allowed=Array.from({length:10},(_,i)=>`hero-${String(i+1).padStart(2,"0")}`);
       if(!allowed.includes(hero))return NextResponse.json({error:"Неизвестная главная картинка"},{status:400});
@@ -264,7 +255,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="sendNotification"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const title=String(body.title||"").trim().slice(0,120);
       const message=String(body.body||"").trim().slice(0,600);
       const target=String(body.target||"ALL");
@@ -279,7 +269,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="topSkinAdd"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const name=String(body.name||"").trim().slice(0,100);
       const imageData=String(body.imageData||"");
       if(!name||!imageData.startsWith("data:image/"))return NextResponse.json({error:"Нужны название и изображение"},{status:400});
@@ -290,7 +279,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="topSkinDelete"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.id||"");
       await prisma.topSkin.delete({where:{id}});
       await auditRequest(request, me.id,"DELETE_TOP_SKIN","TOP_SKIN",id);
@@ -298,7 +286,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="avatarPresetAdd"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const name=String(body.name||"").trim().slice(0,100); const imageData=String(body.imageData||"");
       if(!name||!imageData.startsWith("data:image/"))return NextResponse.json({error:"Нужны название и изображение"},{status:400});
       if(imageData.length>3_000_000)return NextResponse.json({error:"Изображение слишком большое"},{status:400});
@@ -306,12 +293,10 @@ export async function PATCH(request:NextRequest){
       await auditRequest(request, me.id,"ADD_AVATAR_PRESET","AVATAR_PRESET",avatar.id,{name}); return NextResponse.json({ok:true,avatar});
     }
     if(action==="avatarPresetDelete"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.id||""); await prisma.avatarPreset.delete({where:{id}}); await auditRequest(request, me.id,"DELETE_AVATAR_PRESET","AVATAR_PRESET",id); return NextResponse.json({ok:true});
     }
 
     if(action==="fraudReview"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.fraudCaseId||""); const status=String(body.status||"");
       if(!id||!["DETECTED","UNDER_INVESTIGATION","CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(status))return NextResponse.json({error:"Некорректный fraud status"},{status:400});
       const result=await prisma.$transaction(async tx=>{
@@ -330,7 +315,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="userStatus"){
-      if(adminLevel(me.role)<2)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.userId),status=String(body.status);
       const target=await prisma.user.findUnique({where:{id},select:{steamId:true,nickname:true,role:true}});
       if(target&&protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
@@ -340,7 +324,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="userRole"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const id=String(body.userId),role=String(body.role);
       const target=await prisma.user.findUnique({where:{id},select:{id:true,steamId:true,nickname:true,role:true,passwordHash:true,status:true}});
       if(!target)return NextResponse.json({error:"Пользователь не найден"},{status:404});
@@ -370,7 +353,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="issueAdminInvite"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});
       const id=String(body.userId);
       const target=await prisma.user.findUnique({where:{id},select:{id:true,steamId:true,nickname:true,role:true,status:true}});
       if(!target)return NextResponse.json({error:"Пользователь не найден"},{status:404});
@@ -392,7 +374,6 @@ export async function PATCH(request:NextRequest){
     if(action==="walletAdjust"){
       const id=String(body.userId), amount=Number(body.amount), reason=String(body.reason||"").trim().slice(0,240);
       if(!Number.isFinite(amount)||amount===0)return NextResponse.json({error:"Укажи корректную сумму"},{status:400});
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const result=await prisma.$transaction(async tx=>{
         const target=await tx.user.findUnique({where:{id},select:{id:true,nickname:true,steamId:true,wallet:{select:{id:true,balance:true,lockedBalance:true}}}});
         if(!target?.wallet)throw new Error("WALLET");
@@ -428,17 +409,14 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="withdrawalStatus"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.id||""),status=String(body.status||"");
       if(!["PROCESSING","COMPLETED","FAILED","REJECTED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});
       const row=await prisma.$transaction(async tx=>{const w=await tx.withdrawal.findUnique({where:{id}});if(!w)throw new Error("NOT_FOUND");if(["COMPLETED","REJECTED","FAILED"].includes(w.status))return w;const wallet=await tx.wallet.findUnique({where:{id:w.walletId},select:{id:true,userId:true}});if(!wallet)throw new Error("WALLET");const amount=Number(w.amount);if(!Number.isFinite(amount)||amount<=0)throw new Error("INVALID_AMOUNT");const updated=await tx.withdrawal.update({where:{id},data:{status:status as never,reviewReason:String(body.reason||"").slice(0,1000)}});if(["REJECTED","FAILED"].includes(status)){await creditWallet(tx,wallet.userId,amount,`withdraw-refund:${w.id}`,"REFUND",`Withdrawal ${status.toLowerCase()} refund`,w.id);await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:${status}`,"WITHDRAWAL",w.id,"RELEASED",`Withdrawal ${status.toLowerCase()} — hold released`);}else if(status==="COMPLETED"){await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:COMPLETED`,"WITHDRAWAL",w.id,"CONSUMED","Withdrawal completed — hold consumed");}return updated;});await auditRequest(request, me.id,"WITHDRAWAL_STATUS","WITHDRAWAL",id,{status});return NextResponse.json(row);
     }
-    if(action==="depositStatus"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});const id=String(body.id||""),status=String(body.status||"");if(!["PROCESSING","COMPLETED","FAILED","EXPIRED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(d.status==="COMPLETED")return d;const updated=await tx.deposit.update({where:{id},data:{status:status as never}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await auditRequest(request, me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
+    if(action==="depositStatus"){const id=String(body.id||""),status=String(body.status||"");if(!["PROCESSING","COMPLETED","FAILED","EXPIRED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(d.status==="COMPLETED")return d;const updated=await tx.deposit.update({where:{id},data:{status:status as never}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await auditRequest(request, me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
     }
 
     if(action==="supportReply"){
-      if(adminLevel(me.role)<1)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const ticketId=String(body.ticketId||""), message=String(body.message||"").trim().slice(0,3000);
       if(!ticketId||!message)return NextResponse.json({error:"Нужен текст ответа"},{status:400});
       const ticket=await prisma.supportTicket.findUnique({where:{id:ticketId}});
@@ -450,7 +428,6 @@ export async function PATCH(request:NextRequest){
       return NextResponse.json({ok:true});
     }
     if(action==="supportDelete"){
-      if(adminLevel(me.role)<5)return NextResponse.json({error:"Удалять обращения может только SUPERADMIN"},{status:403});
       const ticketId=String(body.ticketId||"").trim();
       if(!ticketId)return NextResponse.json({error:"Обращение не найдено"},{status:400});
       const ticket=await prisma.supportTicket.findUnique({where:{id:ticketId},select:{id:true,subject:true}});
@@ -461,7 +438,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="supportStatus"){
-      if(adminLevel(me.role)<1)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const ticketId=String(body.ticketId||""), status=String(body.status||"");
       const allowed=["OPEN","ASSIGNED","IN_PROGRESS","WAITING_ON_USER","RESOLVED","CLOSED"];
       if(!allowed.includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});
@@ -476,7 +452,6 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="cancelMatch"){
-      if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});
       const id=String(body.matchId||"").trim();
       if(!id)return NextResponse.json({error:"Матч не найден"},{status:400});
 

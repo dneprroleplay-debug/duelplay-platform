@@ -1,24 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ADMIN_ROLE_DEFINITIONS, ADMIN_ROLE_CODES, resolveAdminAccess, requirePermission, hasPermission, isProtectedFounder } from "@/lib/admin-rbac";
-import { requireAdmin } from "@/lib/admin";
+import { ADMIN_ROLE_DEFINITIONS, ADMIN_ROLE_CODES, requireAdminAccess, requirePermission, hasPermission, isProtectedFounder } from "@/lib/admin-rbac";
 import { auditRequest } from "@/lib/admin";
-import { getCurrentAdminSession } from "@/lib/admin-auth";
 
 function errorResponse(error: unknown) {
   const code = error instanceof Error ? error.message : "";
-  if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Требуется вход администратора" }, { status: 401 });
-  if (code === "ADMIN_MFA_SETUP_REQUIRED" || code === "ADMIN_MFA_REQUIRED") return NextResponse.json({ error: "Требуется подтверждение MFA" }, { status: 403 });
-  return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+  if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Требуется вход администратора", errorCode: code }, { status: 401 });
+  if (code === "ADMIN_MFA_SETUP_REQUIRED") return NextResponse.json({ error: "Требуется настроить MFA администратора", errorCode: code }, { status: 403 });
+  if (code === "ADMIN_MFA_REQUIRED") return NextResponse.json({ error: "Требуется подтверждение MFA администратора", errorCode: code }, { status: 403 });
+  return NextResponse.json({ error: "Недостаточно прав", errorCode: code || "FORBIDDEN" }, { status: 403 });
 }
 
 export async function GET() {
   try {
-    await requireAdmin(1);
-    const session = await getCurrentAdminSession();
-    const sessionAccess = session?.user ? await resolveAdminAccess(session.user.id) : null;
-    if (!sessionAccess) throw new Error("FORBIDDEN");
-    const access = sessionAccess;
+    const access = await requireAdminAccess();
     const [assignments, users] = await Promise.all([
       prisma.adminRoleAssignment.findMany({
         include: { user: { select: { id: true, nickname: true, steamId: true, role: true, status: true } } },
@@ -76,6 +71,7 @@ export async function DELETE(request: NextRequest) {
     const actor = await requirePermission("roles.manage");
     const userId = new URL(request.url).searchParams.get("userId") || "";
     if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+    if (userId === actor.user.id) return NextResponse.json({ error: "Нельзя изменять собственный уровень доступа" }, { status: 403 });
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, nickname: true, steamId: true } });
     if (!target) return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
     if (isProtectedFounder(target)) return NextResponse.json({ error: "Founder защищён" }, { status: 403 });

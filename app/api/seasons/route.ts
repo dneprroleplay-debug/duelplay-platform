@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 import { chooseEffectiveSeason, normalizeSeasonEffects, isValidSeasonWindow, SEASON_MODES } from "@/lib/season-policy";
 
 const select = { id:true,name:true,theme:true,startsAt:true,endsAt:true,mode:true,effects:true,active:true,createdAt:true } as const;
@@ -27,7 +28,8 @@ export async function GET() {
 }
 
 export async function POST(r:NextRequest) {
-  const me = await requireAdmin(5);
+  const access = await requirePermission("seasons.manage");
+  const me = access.user;
   const b = await r.json();
   const mode = String(b.mode ?? "AUTO") as typeof SEASON_MODES[number];
   if (!SEASON_MODES.includes(mode)) return jsonResponse({error:"Invalid season mode"},{status:400});
@@ -48,7 +50,8 @@ export async function POST(r:NextRequest) {
 }
 
 export async function PATCH(r:NextRequest) {
-  const me = await requireAdmin(5);
+  const access = await requirePermission("seasons.manage");
+  const me = access.user;
   const b = await r.json();
   const id = String(b.id ?? "");
   if (!id) return jsonResponse({error:"id required"},{status:400});
@@ -77,7 +80,8 @@ export async function PATCH(r:NextRequest) {
 }
 
 export async function DELETE(r:NextRequest) {
-  const me = await requireAdmin(5);
+  const access = await requirePermission("seasons.manage");
+  const me = access.user;
   const id = String(new URL(r.url).searchParams.get("id") ?? "").trim();
   if (id) {
     const row = await prisma.season.findUnique({where:{id},select});
