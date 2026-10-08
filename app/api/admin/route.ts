@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validatePlatformSettingValue, validatePlatformSettingRelationships, PLATFORM_SETTING_RULES } from "@/lib/platform-setting-policy";
 import { grantDepositBonus } from "@/lib/promotions";
 import { requireAdmin, adminLevel, auditRequest } from "@/lib/admin";
+import { permissionForAdminAction, requirePermissionForUser, resolveAdminAccess } from "@/lib/admin-rbac";
 import { getCurrentAdminSession, ADMIN_INVITE_PREFIX, newAdminInviteToken } from "@/lib/admin-auth";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { THEMES, themeById } from "@/lib/themes";
@@ -52,6 +53,7 @@ export async function GET(request:NextRequest){
       return NextResponse.json({mfaRequired:true,mfaSetupRequired:false,me:{nickname:account.nickname,role:account.role,level:adminLevel(account.role)}});
     }
     const me=account;
+    const rbacAccess=await resolveAdminAccess(me.id);
     const [users,matches,transactions,disputes,fraud,tickets,settings,topSkins,servers,logs,avatarPresets,platformSettings,featureFlags,creatorPayouts,withdrawals,deposits,onlineSessions]=await Promise.all([
       prisma.user.findMany({orderBy:{createdAt:"desc"},take:100,select:{id:true,nickname:true,email:true,role:true,status:true,createdAt:true,steamId:true,wallet:{select:{balance:true,lockedBalance:true}}}}),
       prisma.match.findMany({orderBy:{createdAt:"desc"},take:100,include:{playerOne:{select:{nickname:true}},playerTwo:{select:{nickname:true}},game:{select:{title:true}}}}),
@@ -73,7 +75,7 @@ export async function GET(request:NextRequest){
     ]);
     const row=settings.find(x=>x.key==="standardTheme");
     const standard=typeof row?.value==="object"&&row?.value&&"id" in row.value?String((row.value as {id?:unknown}).id):"STANDARD";
-    const level=adminLevel(me.role);
+    const level=rbacAccess?.legacyAuthority ?? adminLevel(me.role);
     const userRows=users.map(u=>({
       ...u,
       email: level >= 3 ? u.email : null,
@@ -89,7 +91,7 @@ export async function GET(request:NextRequest){
     const completedTransactions=transactions.filter(t=>t.status==="COMPLETED");const revenueTypes=["COMMISSION","CASE_OPEN","COSMETIC_PURCHASE","PRIME_PURCHASE","DUELPASS_PURCHASE","EVENTPASS_PURCHASE","XP_BOOSTER_PURCHASE"];const expenseTypes=["REFERRAL","REFERRAL_RACE_PRIZE","TOURNAMENT_PRIZE"];const revenueByType=Object.fromEntries([...new Set([...revenueTypes,...expenseTypes])].map(type=>[type,completedTransactions.filter(t=>t.type===type).reduce((n,t)=>n+Math.max(0,Number(t.amount)),0)]));const revenue=revenueTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const expenses=expenseTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const dayAgo=new Date(Date.now()-86400000);const completedMatchVolume=matches.filter(m=>m.createdAt>=dayAgo&&["FINISHED","CANCELLED"].includes(m.status)).reduce((n,m)=>n+Number(m.betAmount)*2,0);const openDisputes=disputes.filter(x=>["OPEN","UNDER_REVIEW","AI_PROCESSED"].includes(x.status)).length;const openFraud=fraud.filter(x=>!["CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(x.status)).length;
     const fullDashboard={users:users.length,online:onlineSessions,matchesToday:matches.filter(m=>m.createdAt>=dayAgo).length,liveMatches:matches.filter(m=>m.status==="LIVE").length,activeServers:servers.filter(s=>s.status==="BUSY"||s.status==="STARTING").length,volume:completedMatchVolume,revenue,deposits:completedTransactions.filter(t=>t.type==="DEPOSIT").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),withdrawals:completedTransactions.filter(t=>t.type==="WITHDRAW").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),referralPayouts:revenueByType.REFERRAL||0,creatorPayouts:creatorPayouts.filter(p=>p.status!=="REJECTED").reduce((n,p)=>n+Number(p.amount),0),pendingWithdrawals:withdrawals.filter(x=>x.status!=="COMPLETED"&&x.status!=="REJECTED"&&x.status!=="FAILED").length,pendingDeposits:deposits.filter(x=>x.status!=="COMPLETED"&&x.status!=="FAILED"&&x.status!=="EXPIRED").length,openDisputes,openFraud,revenueByType,expenses,netRevenue:revenue-expenses};
     const dashboard=level>=3?fullDashboard:{users:level>=2?users.length:0,online:onlineSessions,matchesToday:level>=2?matches.filter(m=>m.createdAt>=dayAgo).length:0,liveMatches:level>=2?matches.filter(m=>m.status==="LIVE").length:0,activeServers:0,volume:0,revenue:0,deposits:0,withdrawals:0,referralPayouts:0,creatorPayouts:0,pendingWithdrawals:0,pendingDeposits:0,openDisputes:level>=2?openDisputes:0,openFraud:level>=2?openFraud:0,revenueByType:{},expenses:0,netRevenue:0};
-    return NextResponse.json({me:{nickname:me.nickname,role:me.role,level},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:level>=5?platformSettings:[],featureFlags:level>=5?featureFlags:[],creatorPayouts:level>=3?creatorPayouts:[],withdrawals:level>=3?withdrawals:[],deposits:level>=3?deposits:[],dashboard,users:level>=2?userRows:[],matches:level>=2?matches:[],transactions:level>=3?transactions:[],disputes:level>=2?disputes:[],fraud:level>=2?fraud:[],tickets:level>=2?await hydrateTickets(tickets):[],topSkins:level>=3?topSkins:[],servers:level>=3?servers:[],logs:level>=3?logs:[],avatarPresets:level>=3?avatarPresets:[]});
+    return NextResponse.json({me:{nickname:me.nickname,role:me.role,level,adminRole:rbacAccess?.roleCode??null,adminLevel:rbacAccess?.level??0,permissions:rbacAccess?.permissions??[]},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:level>=5?platformSettings:[],featureFlags:level>=5?featureFlags:[],creatorPayouts:level>=3?creatorPayouts:[],withdrawals:level>=3?withdrawals:[],deposits:level>=3?deposits:[],dashboard,users:level>=2?userRows:[],matches:level>=2?matches:[],transactions:level>=3?transactions:[],disputes:level>=2?disputes:[],fraud:level>=2?fraud:[],tickets:level>=2?await hydrateTickets(tickets):[],topSkins:level>=3?topSkins:[],servers:level>=3?servers:[],logs:level>=3?logs:[],avatarPresets:level>=3?avatarPresets:[]});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
     if(e instanceof Error&&e.message==="ADMIN_MFA_SETUP_REQUIRED")return NextResponse.json({error:"Требуется настроить MFA администратора",errorCode:e.message},{status:403});
@@ -105,6 +107,14 @@ export async function PATCH(request:NextRequest){
     const me=await requireAdmin(1);
     const body=await request.json();
     const action=String(body.action||"");
+    const requiredPermission=permissionForAdminAction(action);
+    if(requiredPermission){
+      try { await requirePermissionForUser(me.id, requiredPermission); }
+      catch(error){
+        if(error instanceof Error && error.message==="ADMIN_MFA_SETUP_REQUIRED") return NextResponse.json({error:"Требуется настройка MFA"},{status:403});
+        return NextResponse.json({error:"Недостаточно прав",permission:requiredPermission},{status:403});
+      }
+    }
     await prisma.$transaction(tx=>enforceRateLimit(tx,me.id,"ADMIN_ACTION",30,60_000));
 
     if(action==="resolveDispute"){

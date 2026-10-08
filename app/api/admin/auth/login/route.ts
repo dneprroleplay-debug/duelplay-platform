@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashToken, newSessionToken, sessionCookieOptions, verifyPassword } from "@/lib/auth";
 import { enforceIpRateLimit, enforceRateLimit } from "@/lib/rate-limit";
-import { adminLevel } from "@/lib/admin";
+import { resolveAdminAccess } from "@/lib/admin-rbac";
 import { adminAuthCookieOptions, createAdminAuthValue } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
@@ -15,7 +15,8 @@ export async function POST(request: NextRequest) {
     if (!nickname || password.length < 12 || password.length > 256) return NextResponse.json({ error: "Неверные учётные данные." }, { status: 401 });
 
     const user = await prisma.user.findUnique({ where: { nickname }, select: { id: true, nickname: true, role: true, status: true, passwordHash: true } });
-    if (!user || adminLevel(user.role) < 1 || user.status !== "ACTIVE" || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    const adminAccess = user ? await resolveAdminAccess(user.id) : null;
+    if (!user || !adminAccess || adminAccess.level === 0 || user.status !== "ACTIVE" || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       try {
         await prisma.securityEvent.create({ data: { userId: user?.id ?? null, eventType: "ADMIN_LOGIN_FAILED", severity: "WARNING", ipAddress: ip, metadata: { reason: "INVALID_CREDENTIALS" } } });
       } catch {}

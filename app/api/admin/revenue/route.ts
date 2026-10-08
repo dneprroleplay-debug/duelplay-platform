@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 
 const REVENUE_TYPES = [
   "COMMISSION", "CASE_OPEN", "COSMETIC_PURCHASE", "PRIME_PURCHASE",
@@ -24,6 +25,7 @@ function parseDate(value: string | null, fallback: Date) {
 export async function GET(request: Request) {
   try {
     const me = await requireAdmin(3);
+    await requirePermission("finance.view");
     const url = new URL(request.url);
     const now = new Date();
     const from = parseDate(url.searchParams.get("from"), new Date(now.getTime() - 30 * 86400000));

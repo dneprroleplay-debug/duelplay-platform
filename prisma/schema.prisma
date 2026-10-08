@@ -411,6 +411,8 @@ model User {
   mutesGiven           UserMute[] @relation("MuteGiver")
   mutesReceived       UserMute[] @relation("MuteReceiver")
   collectionClaims   CollectionClaim[]
+  adminRoleAssignment AdminRoleAssignment?
+  adminRoleAssignmentsGiven AdminRoleAssignment[] @relation("AdminRoleAssignedBy")
 
   matchesAsPlayerOne   Match[]           @relation("PlayerOneMatches")
   matchesAsPlayerTwo   Match[]           @relation("PlayerTwoMatches")
@@ -424,6 +426,25 @@ model User {
   @@index([createdAt])
   rewardGrants RewardGrant[]
 }
+
+model AdminRoleAssignment {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String   @unique @db.Uuid
+  roleCode             String   @db.VarChar(32)
+  level                Int
+  permissionOverrides  Json?
+  assignedBy           String?  @db.Uuid
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedByUser       User?   @relation("AdminRoleAssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
+
+  @@index([roleCode])
+  @@index([level])
+  @@index([assignedBy])
+}
+
 // ==========================================
 // ЧАСТЬ 2 ИЗ 3: ФИНАНСЫ, МАТЧИ И ДИСПУТЫ
 // ==========================================

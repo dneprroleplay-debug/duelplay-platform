@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { adminLevel } from "@/lib/admin";
+import { resolveAdminAccess } from "@/lib/admin-rbac";
 import { getCurrentAdminSession } from "@/lib/admin-auth";
 import { buildOtpAuthUri, generateTotpSecret, verifyTotp } from "@/lib/totp";
 import { decryptSecret, encryptSecret } from "@/lib/secret-crypto";
@@ -17,7 +17,7 @@ export async function GET() {
   try {
     const session = await getCurrentAdminSession();
     if (!session?.user) return NextResponse.json({ error: "Требуется вход администратора", errorCode: "ADMIN_LOGIN_REQUIRED" }, { status: 401 });
-    if (adminLevel(session.user.role) < 1) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+    if (!(await resolveAdminAccess(session.user.id))?.level) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
     return NextResponse.json({
       enabled: session.user.twoFactorEnabled,
       verified: Boolean(session.adminMfaVerifiedAt && Date.now() - session.adminMfaVerifiedAt.getTime() <= 8 * 60 * 60 * 1000),
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getCurrentAdminSession();
     if (!session?.user) return NextResponse.json({ error: "Требуется вход администратора", errorCode: "ADMIN_LOGIN_REQUIRED" }, { status: 401 });
-    if (adminLevel(session.user.role) < 1) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+    if (!(await resolveAdminAccess(session.user.id))?.level) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "");
 

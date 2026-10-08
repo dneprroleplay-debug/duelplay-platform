@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 import { normalizeCosmeticType, validateCosmeticMetadata, validateCosmeticPrice } from "@/lib/cosmetic-shop";
 import { validateCollectionRequirements } from "@/lib/collection-policy";
 
@@ -27,6 +28,7 @@ function cleanItem(body: any) {
 
 export async function GET() {
   await requireAdmin(5);
+  await requirePermission("content.manage");
   const [items, collections, missions, achievements] = await Promise.all([
     prisma.cosmeticItem.findMany({ orderBy: { createdAt: "desc" }, take: 200 }),
     prisma.collection.findMany({ orderBy: { createdAt: "desc" }, take: 200 }),
@@ -38,6 +40,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const me = await requireAdmin(5);
+  await requirePermission("content.manage");
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   if (!["ITEM", "COLLECTION", "MISSION", "ACHIEVEMENT"].includes(type)) return NextResponse.json({ error: "Invalid content type" }, { status: 400 });
@@ -78,6 +81,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const me = await requireAdmin(5);
+  await requirePermission("content.manage");
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   const id = String(body.id || "");
@@ -137,6 +141,7 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const me = await requireAdmin(5);
+  await requirePermission("content.manage");
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   const id = String(body.id || "");

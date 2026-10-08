@@ -45,3 +45,7 @@ next-env.d.ts
 .vercel
 .env*
 .next/
+
+# .NET build artifacts
+**/bin/
+**/obj/
