@@ -101,7 +101,7 @@ export default function AdminAccessPage(){
   const { themePreference } = useTheme();
   const [data,setData]=useState<AccessData|null>(null);
   const [live,setLive]=useState<LiveData|null>(null);
-  const [error,setError]=useState("");
+  const [error,setError]=useState(""); const [errorCode,setErrorCode]=useState("");
   const [mfaCode,setMfaCode]=useState("");
   const [mfaSecret,setMfaSecret]=useState("");
   const [mfaUri,setMfaUri]=useState("");
@@ -125,7 +125,7 @@ export default function AdminAccessPage(){
       const j=await r.json().catch(()=>({}));
       if(!r.ok){
         if(r.status===401||j.errorCode==="ADMIN_LOGIN_REQUIRED"){router.push("/admin/login");return null;}
-        setError(j.error||"Доступ запрещён");
+        setErrorCode(j.errorCode||""); setError(j.error||"Доступ запрещён");
         return null;
       }
       setData(j);
@@ -199,7 +199,7 @@ export default function AdminAccessPage(){
     try{
       const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"verify",code:mfaCode})});
       const j=await r.json().catch(()=>({}));
-      if(!r.ok){setError(j.error||"Неверный код MFA");return;}
+      if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"Неверный код MFA");return;}
       setMfaCode("");
       await loadAccess();
       await loadLive();
@@ -210,7 +210,7 @@ export default function AdminAccessPage(){
     try{
       const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup"})});
       const j=await r.json().catch(()=>({}));
-      if(!r.ok){setError(j.error||"Не удалось создать MFA");return;}
+      if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"Не удалось создать MFA");return;}
       setMfaSecret(String(j.secret||""));setMfaUri(String(j.otpauthUri||""));
     }catch{setError("Не удалось создать MFA")}finally{setBusy(false)}
   }
@@ -246,7 +246,7 @@ export default function AdminAccessPage(){
 
   if(!data){
     const mfaNeeds = error.includes("MFA");
-    return <main className="min-h-[calc(100vh-72px)] bg-black px-4 pb-20 pt-24 text-white"><div className="mx-auto max-w-2xl">{mfaNeeds?<MfaGate error={error} code={mfaCode} setCode={setMfaCode} secret={mfaSecret} uri={mfaUri} busy={busy} onSetup={setupMfa} onVerify={verifyMfa}/>:<div className="panel rounded-3xl p-8"><div className="text-xs font-black uppercase tracking-[.28em] text-pink-400">DUELPLAY ADMIN</div><h1 className="mt-3 text-3xl font-black">{error||"Загрузка центра управления…"}</h1><p className="mt-3 text-sm text-zinc-500">Проверяем административную сессию и права доступа.</p></div>}</div></main>
+    return <main className="min-h-[calc(100vh-72px)] bg-black px-4 pb-20 pt-24 text-white"><div className="mx-auto max-w-2xl">{mfaNeeds?<MfaGate error={error} errorCode={errorCode} code={mfaCode} setCode={setMfaCode} secret={mfaSecret} uri={mfaUri} busy={busy} onSetup={setupMfa} onVerify={verifyMfa}/>:<div className="panel rounded-3xl p-8"><div className="text-xs font-black uppercase tracking-[.28em] text-pink-400">DUELPLAY ADMIN</div><h1 className="mt-3 text-3xl font-black">{error||"Загрузка центра управления…"}</h1><p className="mt-3 text-sm text-zinc-500">Проверяем административную сессию и права доступа.</p></div>}</div></main>
   }
 
   if(firstRun){
@@ -322,8 +322,8 @@ function RoleWorkspace({role,commands,actualRole,founder,onCommand}:{role:Role;c
 function MiniStat({label,value}:{label:string;value:number|null|undefined}){return <div className="rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5"><div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-1 text-lg font-black">{value??"—"}</div></div>}
 function LivePill({text}:{text:string}){return <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-300">● {text}</span>}
 
-function MfaGate({error,code,setCode,secret,uri,busy,onSetup,onVerify}:{error:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
-  const setup=error.includes("настроить")||error.includes("SETUP");
+function MfaGate({error,errorCode,code,setCode,secret,uri,busy,onSetup,onVerify}:{error:string;errorCode:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
+  const setup=errorCode==="ADMIN_MFA_SETUP_REQUIRED";
   return <div className="panel rounded-[32px] p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">DUELPLAY ADMIN SECURITY</div><h1 className="mt-3 text-3xl font-black">Защищённый вход</h1><p className="mt-2 text-sm leading-6 text-zinc-500">Админка требует подтверждение MFA. После ввода кода достаточно нажать Enter.</p>{error&&<div className="mt-5 rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4 text-sm text-red-300">{error}</div>}{setup&&!secret?<button autoFocus onClick={onSetup} disabled={busy} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Создание…":"Создать MFA"}</button>:<form onSubmit={e=>{e.preventDefault();if(code.length===6&&!busy)onVerify()}}><>{secret&&<div className="mt-5 space-y-3"><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">Секрет</div><code className="block overflow-auto rounded-xl bg-black p-3 text-sm text-white">{secret}</code></div><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">OTPAUTH URI</div><code className="block max-h-28 overflow-auto rounded-xl bg-black p-3 text-xs text-zinc-400">{uri}</code></div></div>}<label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">Код из приложения</span><input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="input text-center text-3xl tracking-[.5em]" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000"/></label><button type="submit" disabled={busy||code.length!==6} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Проверка…":"Подтвердить MFA · ENTER"}</button></></form>}</div>
 }
 
