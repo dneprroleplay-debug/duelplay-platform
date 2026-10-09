@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validatePlatformSettingValue, validatePlatformSettingRelationships, PLATFORM_SETTING_RULES } from "@/lib/platform-setting-policy";
 import { grantDepositBonus } from "@/lib/promotions";
 import { requireAdmin, adminLevel, auditRequest } from "@/lib/admin";
-import { getCurrentAdminSession, ADMIN_INVITE_PREFIX, newAdminInviteToken } from "@/lib/admin-auth";
+import { getCurrentAdminSession, ADMIN_INVITE_PREFIX, newAdminInviteToken, createAdminInviteUrl } from "@/lib/admin-auth";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { THEMES, themeById } from "@/lib/themes";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
@@ -344,7 +344,7 @@ export async function PATCH(request:NextRequest){
           inviteToken=newAdminInviteToken();
           await tx.userSession.updateMany({where:{userId:id,isRevoked:false,ipAddress:"ADMIN_INVITE"},data:{isRevoked:true}});
           await tx.userSession.create({data:{userId:id,token:`${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,ipAddress:"ADMIN_INVITE",userAgent:"admin-role-invite",expiresAt:new Date(Date.now()+30*60_000)}});
-          adminInviteUrl=new URL(`/admin/setup?token=${inviteToken}`,request.url).toString();
+          adminInviteUrl=createAdminInviteUrl(inviteToken, request.url);
         }
         await tx.user.update({where:{id},data:{role:role as never,passwordHash:needsInvite?null:undefined}});
       });
@@ -366,7 +366,7 @@ export async function PATCH(request:NextRequest){
         await tx.userSession.updateMany({where:{userId:id,isRevoked:false,ipAddress:"ADMIN_INVITE"},data:{isRevoked:true}});
         await tx.userSession.create({data:{userId:id,token:`${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,ipAddress:"ADMIN_INVITE",userAgent:"admin-password-reset",expiresAt:new Date(Date.now()+30*60_000)}});
       });
-      const adminInviteUrl=new URL(`/admin/setup?token=${inviteToken}`,request.url).toString();
+      const adminInviteUrl=createAdminInviteUrl(inviteToken, request.url);
       await auditRequest(request, me.id,"ISSUE_ADMIN_PASSWORD_INVITE","USER",id,{role:target.role});
       return NextResponse.json({ok:true,adminInviteUrl});
     }

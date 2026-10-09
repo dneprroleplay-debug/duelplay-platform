@@ -52,3 +52,27 @@ export function newAdminInviteToken() {
 }
 
 export const ADMIN_INVITE_PREFIX = "ADMIN_INVITE:";
+
+export function createAdminInviteUrl(token: string, requestUrl?: string) {
+  const configuredUrl = process.env.DUELPLAY_PUBLIC_URL?.trim() || (process.env.NODE_ENV === "production" ? "" : process.env.NEXT_PUBLIC_APP_URL?.trim());
+  let origin = "";
+
+  if (configuredUrl) {
+    try {
+      const parsed = new URL(configuredUrl);
+      const localHost = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase());
+      if ((parsed.protocol === "https:" || parsed.protocol === "http:") && !(process.env.NODE_ENV === "production" && localHost)) origin = parsed.origin;
+    } catch {}
+  }
+
+  if (!origin && process.env.NODE_ENV === "production") {
+    origin = "https://duelplaygame.com";
+  }
+
+  if (!origin && requestUrl) {
+    try { origin = new URL(requestUrl).origin; } catch {}
+  }
+
+  if (!origin) origin = "http://localhost:3000";
+  return new URL(`/admin/setup?token=${encodeURIComponent(token)}`, origin).toString();
+}

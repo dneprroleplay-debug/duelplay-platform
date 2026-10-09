@@ -1,33 +1,27 @@
-﻿import { prisma } from "@/lib/prisma";
-import type { UserRole } from "@prisma/client";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const ADMIN_ROLES: UserRole[] = [
-  "SUPPORT",
-  "MODERATOR",
-  "ADMIN",
-  "SUPERADMIN",
-];
+let cachedPlatformVersion: string | null = null;
 
 export async function getPlatformVersion() {
-  const latest = await prisma.auditLog.findFirst({
-    where: {
-      user: {
-        role: {
-          in: ADMIN_ROLES,
-        },
-      },
-    },
-    orderBy: [
-      { createdAt: "desc" },
-      { id: "desc" },
-    ],
-    select: {
-      id: true,
-      createdAt: true,
-    },
-  });
+  if (cachedPlatformVersion) return cachedPlatformVersion;
 
-  return latest
-    ? `${latest.createdAt.toISOString()}-${latest.id}`
-    : "0";
+  const configuredVersion = process.env.DUELPLAY_BUILD_VERSION?.trim();
+  if (configuredVersion) {
+    cachedPlatformVersion = configuredVersion;
+    return cachedPlatformVersion;
+  }
+
+  try {
+    const buildId = readFileSync(join(process.cwd(), ".next", "BUILD_ID"), "utf8").trim();
+    if (buildId) {
+      cachedPlatformVersion = buildId;
+      return cachedPlatformVersion;
+    }
+  } catch {
+    // During development or before a production build, use a stable fallback.
+  }
+
+  cachedPlatformVersion = process.env.NODE_ENV === "production" ? "unknown" : "development";
+  return cachedPlatformVersion;
 }

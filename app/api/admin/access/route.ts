@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashToken } from "@/lib/auth";
-import { ADMIN_INVITE_PREFIX, newAdminInviteToken } from "@/lib/admin-auth";
+import { ADMIN_INVITE_PREFIX, newAdminInviteToken, createAdminInviteUrl } from "@/lib/admin-auth";
 import { ADMIN_ROLE_DEFINITIONS, ADMIN_ROLE_CODES, requireAdminAccess, requirePermission, hasPermission, isProtectedFounder } from "@/lib/admin-rbac";
 import { auditRequest } from "@/lib/admin";
 
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
             expiresAt: new Date(Date.now() + 30 * 60_000),
           },
         });
-        adminInviteUrl = new URL(`/admin/setup?token=${inviteToken}`, request.url).toString();
+        adminInviteUrl = createAdminInviteUrl(inviteToken, request.url);
       }
 
       return assignment;

@@ -6,6 +6,8 @@ const files = [
   "app/api/admin/auth/login/route.ts",
   "app/api/admin/auth/setup/route.ts",
   "app/api/admin/access/route.ts",
+  "lib/platform-version.ts",
+  "components/Common/LivePlatformSync.tsx",
   "app/admin/access/page.tsx",
   "app/admin/login/page.tsx",
   "app/admin/setup/page.tsx",
@@ -19,6 +21,8 @@ const accessPage = readFileSync("app/admin/access/page.tsx", "utf8");
 const role = readFileSync("app/api/admin/route.ts", "utf8");
 const logout = readFileSync("app/api/auth/logout/route.ts", "utf8");
 const setupPage = readFileSync("app/admin/setup/page.tsx", "utf8");
+const versionSource = readFileSync("lib/platform-version.ts", "utf8");
+const syncSource = readFileSync("components/Common/LivePlatformSync.tsx", "utf8");
 assert.match(adminLib, /DUELPLAY_ADMIN_AUTH_SECRET/);
 assert.match(adminLib, /ADMIN_AUTH_COOKIE/);
 assert.match(adminLib, /timingSafeEqual/);
@@ -41,6 +45,14 @@ assert.match(setupPage, /Доступные действия определяю�
 assert.match(role, /issueAdminInvite/);
 assert.match(role, /adminInviteUrl/);
 assert.match(role, /passwordHash:needsInvite\?null/);
+assert.match(adminLib, /createAdminInviteUrl/);
+assert.match(adminLib, /https:\/\/duelplaygame\.com/);
+assert.match(access, /createAdminInviteUrl/);
+assert.match(role, /createAdminInviteUrl/);
+assert.match(versionSource, /BUILD_ID/);
+assert.doesNotMatch(versionSource, /auditLog\.findFirst/);
+assert.match(syncSource, /updateAvailable/);
+assert.match(syncSource, /onClick=\{\(\) => window\.location\.reload\(\)\}/);
 assert.match(logout, /ADMIN_AUTH_COOKIE/);
 assert.match(logout, /path: \"\/\"/);
 console.log("admin auth flow static test: PASS");
