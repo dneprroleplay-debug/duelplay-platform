@@ -13,10 +13,10 @@ export async function GET(request: NextRequest) {
   if (!/^[0-9a-f]{64}$/i.test(token)) return NextResponse.json({ error: "Недействительная ссылка приглашения." }, { status: 400 });
   const invite = await prisma.userSession.findFirst({
     where: { token: `${ADMIN_INVITE_PREFIX}${hashToken(token)}`, isRevoked: false, ipAddress: "ADMIN_INVITE", expiresAt: { gt: new Date() } },
-    include: { user: { select: { id: true, nickname: true, role: true, status: true } } },
+    include: { user: { select: { id: true, nickname: true, role: true, status: true, adminRoleAssignment: { select: { roleCode: true } } } } },
   });
   if (!invite || invite.user.status !== "ACTIVE") return NextResponse.json({ error: "Ссылка приглашения недействительна или просрочена." }, { status: 410 });
-  return NextResponse.json({ ok: true, nickname: invite.user.nickname, role: invite.user.role, expiresAt: invite.expiresAt }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ ok: true, nickname: invite.user.nickname, role: invite.user.adminRoleAssignment?.roleCode || invite.user.role, expiresAt: invite.expiresAt }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const invite = await prisma.userSession.findFirst({
       where: { token: `${ADMIN_INVITE_PREFIX}${hashToken(token)}`, isRevoked: false, ipAddress: "ADMIN_INVITE", expiresAt: { gt: new Date() } },
-      include: { user: { select: { id: true, nickname: true, role: true, status: true } } },
+      include: { user: { select: { id: true, nickname: true, role: true, status: true, adminRoleAssignment: { select: { roleCode: true } } } } },
     });
     if (!invite || invite.user.status !== "ACTIVE") return NextResponse.json({ error: "Ссылка приглашения недействительна или просрочена." }, { status: 410 });
 

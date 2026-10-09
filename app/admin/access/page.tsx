@@ -116,6 +116,8 @@ export default function AdminAccessPage(){
   const [command,setCommand]=useState<Command|null>(null);
   const [tick,setTick]=useState(0);
   const [toast,setToast]=useState<string|null>(null);
+  const [adminInviteUrl,setAdminInviteUrl]=useState<string|null>(null);
+  const [inviteCopyStatus,setInviteCopyStatus]=useState("");
 
   const loadAccess=useCallback(async()=>{
     try{
@@ -216,12 +218,16 @@ export default function AdminAccessPage(){
   async function assignRole(userId:string,roleCode:string){
     if(!data)return;
     setBusy(true);setError("");
+    setAdminInviteUrl(null);setInviteCopyStatus("");
     try{
       const r=await fetch("/api/admin/access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId,roleCode})});
       const j=await r.json().catch(()=>({}));
       if(!r.ok){setToast(j.error||"Роль не изменена");return;}
       await loadAccess();
-      setToast(`Роль ${humanRole(roleCode)} назначена`);
+      if(typeof j.adminInviteUrl==="string"&&j.adminInviteUrl){
+        setAdminInviteUrl(j.adminInviteUrl);
+        setToast(null);
+      }else setToast(`Роль ${humanRole(roleCode)} назначена`);
     }catch{setToast("Не удалось изменить роль")}finally{setBusy(false)}
   }
   async function removeRole(userId:string){
@@ -298,6 +304,8 @@ export default function AdminAccessPage(){
     </div>
 
     {workspace&&<div className="fixed inset-0 z-[100] overflow-hidden bg-[#050507]/[.985] backdrop-blur-2xl"><div className="flex h-full flex-col"><div className="flex min-h-16 shrink-0 items-center justify-between border-b border-white/8 bg-black/70 px-4 sm:px-6"><div className="min-w-0"><div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300"/><span className="text-[10px] font-black uppercase tracking-[.22em] text-zinc-600">АДМИН-РАЗДЕЛ</span></div><div className="mt-1 truncate text-lg font-black">{command?.title||"Центр управления"}</div></div><div className="flex items-center gap-2"><span className="hidden rounded-xl border border-white/8 px-3 py-2 text-xs text-zinc-500 sm:block">ESC</span><button autoFocus type="button" onClick={()=>{setCommand(null);setWorkspace(null);setSelectedRoleCode(null)}} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black hover:border-[var(--theme-accent)]/40 hover:text-[var(--theme-accent)]">Закрыть</button></div></div><div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5 lg:p-6"><div className="mx-auto max-w-[1500px]">{workspace==="role"&&!command&&selectedRole?<RoleWorkspace role={selectedRole} commands={selectedRoleCommands} actualRole={data.me.roleCode||"ADMIN"} founder={data.me.roleCode==="FOUNDER"} onCommand={(c)=>{setCommand(c);setWorkspace(c.tab||"dashboard")}}/>:command?.tab==="roles"?<RolesWorkspace data={data} busy={busy} onAssign={assignRole} onRemove={removeRole}/>:command?.tab==="dashboard"?<RealtimeWorkspace data={live} role={selectedRole?.title||currentRole?.title||data.me.roleCode||"ADMIN"}/>:<LegacyAdminPanel embedded embeddedTab={command?.tab||"dashboard"} refreshKey={tick}/>}</div></div></div></div>}
+
+    {adminInviteUrl&&<div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-labelledby="admin-invite-title" className="w-full max-w-xl rounded-3xl border border-white/10 bg-[#09090c] p-6 shadow-2xl sm:p-8"><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">ПЕРВЫЙ ВХОД</div><h2 id="admin-invite-title" className="mt-3 text-2xl font-black">Ссылка для создания пароля</h2><p className="mt-3 text-sm leading-6 text-zinc-400">Роль назначена. Передай эту персональную ссылку самому пользователю: он создаст собственный пароль для существующего аккаунта. Ссылка одноразовая и действует 30 минут. Пароль тебе не показывается.</p><input aria-label="Ссылка для первого входа" readOnly value={adminInviteUrl} onFocus={e=>e.currentTarget.select()} className="input mt-5"/><p className="mt-2 text-xs text-zinc-600">Скопируй ссылку и передай её лично пользователю. Не публикуй её в общих чатах.</p>{inviteCopyStatus&&<p role="status" className="mt-3 text-sm text-emerald-300">{inviteCopyStatus}</p>}<div className="mt-6 flex flex-wrap justify-end gap-3"><button type="button" onClick={()=>{setAdminInviteUrl(null);setInviteCopyStatus("")}} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-300">Закрыть</button><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(adminInviteUrl);setInviteCopyStatus("Ссылка скопирована.")}catch{setInviteCopyStatus("Автокопирование недоступно. Выдели ссылку выше и скопируй её вручную.")}}} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 text-sm font-black text-black">Копировать ссылку</button></div></section></div>}
 
     {toast&&<div className="fixed right-4 top-20 z-[130] w-[min(420px,calc(100vw-2rem))]"><div className="rounded-2xl border border-red-400/25 bg-[#11070c]/95 p-4 shadow-2xl backdrop-blur-xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-400/10 text-red-300">!</span><div className="flex-1"><b>Операция</b><p className="mt-1 text-sm leading-5 text-zinc-400">{toast}</p></div><button onClick={()=>setToast(null)} className="text-zinc-600 hover:text-white">×</button></div></div></div>}
   </main>
