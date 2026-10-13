@@ -2,7 +2,8 @@ import fs from 'node:fs';
 
 const api = fs.readFileSync(new URL('../app/api/cases/route.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../components/Cases/Cases.tsx', import.meta.url), 'utf8');
-const migration = fs.readFileSync(new URL('../prisma/migrations/20260905235500_case_opening_idempotency_scope/migration.sql', import.meta.url), 'utf8');
+const schema = fs.readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
+const baseline = fs.readFileSync(new URL('../prisma/migrations/00000000000000_duelplay_baseline/migration.sql', import.meta.url), 'utf8');
 
 const checks = [
   ['server scopes keys to user', api.includes('const idempotencyKey = `${user.id}:${clientKey}`')],
@@ -12,7 +13,9 @@ const checks = [
   ['ui persists the key in sessionStorage', ui.includes('duelplay:case-opening:v1') && ui.includes('sessionStorage.setItem')],
   ['ui reuses the same key after an error', ui.includes('openingKeyRef.current') && ui.includes('getOpeningKey')],
   ['ui can recover after reload', ui.includes('/api/cases?openingKey=') && ui.includes('setRecovering(true)')],
-  ['database uniqueness is scoped by user', migration.includes('CREATE UNIQUE INDEX "CaseOpening_userId_idempotencyKey_key"')],
+  ['Prisma schema scopes opening uniqueness by user', /@@unique\(\[userId\s*,\s*idempotencyKey\]\)/.test(schema)],
+  ['baseline enforces scoped database uniqueness', baseline.includes('CREATE UNIQUE INDEX "CaseOpening_userId_idempotencyKey_key" ON "CaseOpening"("userId", "idempotencyKey")')],
+  ['baseline does not retain global idempotency uniqueness', !baseline.includes('CaseOpening_idempotencyKey_key')],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAIL: ${name}`);

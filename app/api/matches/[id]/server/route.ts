@@ -7,12 +7,25 @@ import { lockMatchForUpdate, resolveConnectionTimeout, cancelMatchWithRefund } f
 import { deadlineFromNow, MATCH_LIVE_TIMEOUT_MS } from "@/lib/match-timers";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
+import type { DemoPolicyTransactionContext } from "@/lib/demo-policy";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
-async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>, reason = "Match server failed/stopped before completion") {
+async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>, reason = "Match server failed/stopped before completion", demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) {
   const amount = Number(match.betAmount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("INVALID_AMOUNT");
+
+  if (match.economyMode === "DEMO") {
+    if (!demoContext) throw new Error("DEMO_TRANSACTION_REQUIRED");
+    if (match.status !== "LIVE" && match.playerTwoId) await demoContext.policy.releaseDemoMatchReservation(match.id);
+    for (const uid of [match.playerOneId, match.playerTwoId].filter(Boolean).sort() as string[]) {
+      await demoContext.demo.closeDemoWalletHold(uid, match.id, match.betAmount.toString(), `demo:server-refund:${match.id}:${uid}`, "RELEASED");
+      await tx.notification.create({ data: { userId: uid, type: "CANCELLATION", title: "DEMO match cancelled", body: "The virtual match was cancelled and your Demo Credits were refunded.", payload: { matchId: match.id, reason, economyMode: "DEMO" } } });
+    }
+    await tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), serverConfig: { ...asRecord(match.serverConfig), state: "FAILED", connectUrl: "" } } });
+    return;
+  }
 
   for (const uid of [match.playerOneId, match.playerTwoId].filter(Boolean) as string[]) {
     const idem = `refund:${match.id}:${uid}`;
@@ -64,15 +77,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const serverId = String(body.serverId ?? "");
   try {
     if (action === "ready") {
-      const match = await prisma.$transaction(async tx => {
+      const match = await withDemoPolicyTransaction(async ({ db: tx, policy }) => {
         const locked = await lockMatchForUpdate(tx, id);
         if (!locked) throw new Error("NOT_FOUND");
         const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
         if (!match || !match.gameServer || match.gameServer.id !== serverId) throw new Error("NOT_FOUND");
+        if (match.status === "LIVE") {
+          if (match.economyMode === "DEMO") await policy.confirmDemoMatchLive(id, match.startedAt ?? new Date());
+          return match;
+        }
         if (!["READY","STARTING"].includes(match.status)) throw new Error("INVALID_STATUS");
+        const startedAt = new Date();
+        if (match.economyMode === "DEMO") await policy.confirmDemoMatchLive(id, startedAt);
         const port = Number(body.port ?? match.gameServer.port);
         const host = String(body.host ?? match.gameServer.host);
-        const startedAt = new Date();
         await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId: Number.isInteger(body.processId) ? Number(body.processId) : null, startedAt, lastHeartbeat: startedAt } });
         const cfg = asRecord(match.serverConfig);
         return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt, startDeadlineAt: null, connectionDeadlineAt: null,
@@ -253,7 +271,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     if (action === "failed") {
-      await prisma.$transaction(async tx => {
+      await withDemoPolicyTransaction(async ({ db: tx, ...demoContext }) => {
         const locked = await lockMatchForUpdate(tx, id);
         if (!locked) throw new Error("NOT_FOUND");
         const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
@@ -262,20 +280,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
           return;
         }
-        await refundAndCancel(tx, match, String(body.reason ?? "Match server failed/stopped before completion"));
+        await refundAndCancel(tx, match, String(body.reason ?? "Match server failed/stopped before completion"), demoContext);
         if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
       });
       return NextResponse.json({ ok: true });
     }
 
     if (action === "stopped") {
-      await prisma.$transaction(async tx => {
+      await withDemoPolicyTransaction(async ({ db: tx, ...demoContext }) => {
         const locked = await lockMatchForUpdate(tx, id);
         if (!locked) throw new Error("NOT_FOUND");
         const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
         if (!match || !match.gameServer || match.gameServer.id !== serverId) throw new Error("NOT_FOUND");
         if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
-        if (match && match.status === "LIVE") await refundAndCancel(tx, match);
+        if (match && match.status === "LIVE") await refundAndCancel(tx, match, undefined, demoContext);
       });
       return NextResponse.json({ ok: true });
     }

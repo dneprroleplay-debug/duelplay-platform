@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
 import { secureSecretEqual } from "@/lib/secure-secret";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 
 function authorized(request: Request) {
   const secret = process.env.CS2_RESULT_SECRET?.trim();
@@ -37,7 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const suppliedSteamId = String(body.winnerSteamId ?? "");
     if (!suppliedWinnerId && !suppliedSteamId) return NextResponse.json({ error: "winnerId или winnerSteamId обязателен" }, { status: 400 });
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await withDemoPolicyTransaction(async ({ db: tx, demo }) => {
       const locked = await lockMatchForUpdate(tx, id);
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
@@ -62,6 +63,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const pot = Number(match.betAmount) * 2;
       const fee = Number(match.commission);
       const payout = Number((pot - fee).toFixed(4));
+      if (match.economyMode === "DEMO") {
+        const demoPayout = match.betAmount.mul(2).minus(match.commission).toDecimalPlaces(4);
+        for (const userId of [winnerId, loserId].sort()) {
+          await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:result-hold:${match.id}:${userId}`, "CONSUMED");
+        }
+        await demo.creditDemoCredits(winnerId, demoPayout, `demo:result-win:${match.id}`, "MATCH_WIN", match.id, "DEMO CS2 referee result");
+        if (match.commission.gt(0)) await demo.recordDemoMatchFee(match.id, match.commission, `demo:result-fee:${match.id}`);
+        const serverCfg = record(match.serverConfig);
+        const finished = await tx.match.update({ where: { id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), connectionPhaseCompleted: true, connectionDeadlineAt: null, liveDeadlineAt: null, serverConfig: { ...serverCfg, state: "FINISHED", resultSource: "CS2_SERVER" } } });
+        await tx.notification.create({ data: { userId: winnerId, type: "WIN", title: "DEMO victory", body: `You won the virtual CS2 duel and received ${demoPayout.toFixed(2)} Demo Credits.`, payload: { matchId: match.id, payout: demoPayout.toString(), economyMode: "DEMO" } } });
+        await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "DEMO match finished", body: "The virtual duel is complete.", payload: { matchId: match.id, economyMode: "DEMO" } } });
+        return finished;
+      }
       const resultIdempotency = `match-win:${match.id}`;
       const alreadyPaid = await tx.transaction.findUnique({ where: { idempotencyKey: resultIdempotency } });
       if (alreadyPaid) { const finished = await tx.match.findUnique({ where: { id: match.id } }); return finished!; }

@@ -10,7 +10,7 @@ export async function GET() {
     const [stats, rows] = await Promise.all([
       prisma.playerStats.findUnique({ where: { userId: me.id } }),
       prisma.matchPlayerStat.findMany({
-        where: { userId: me.id, match: { status: "FINISHED" } },
+        where: { userId: me.id, match: { status: "FINISHED", economyMode: "REAL" } },
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {

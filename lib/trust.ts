@@ -17,7 +17,7 @@ export async function recalculateTrust(tx: Prisma.TransactionClient, userId: str
   if (!user) return null;
 
   const [matches, transactions, violations, fraudCases] = await Promise.all([
-    tx.match.count({ where: { OR: [{ playerOneId: userId }, { playerTwoId: userId }], status: "FINISHED" } }),
+    tx.match.count({ where: { economyMode: "REAL", OR: [{ playerOneId: userId }, { playerTwoId: userId }], status: "FINISHED" } }),
     tx.transaction.count({ where: { wallet: { userId }, status: "COMPLETED" } }),
     tx.report.count({ where: { targetId: userId, status: "RESOLVED" } }),
     tx.fraudCase.count({ where: { userId, status: { in: ["DETECTED", "UNDER_INVESTIGATION"] } } }),

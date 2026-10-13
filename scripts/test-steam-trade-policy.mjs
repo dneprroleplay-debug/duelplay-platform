@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const policy = fs.readFileSync(`${root}/lib/inventory-policy.ts`, 'utf8');
 const adapter = fs.readFileSync(`${root}/lib/steam-trade.ts`, 'utf8');
 const route = fs.readFileSync(`${root}/app/api/inventory/trade/route.ts`, 'utf8');
 const schema = fs.readFileSync(`${root}/prisma/schema.prisma`, 'utf8');
-const migration = fs.readFileSync(`${root}/prisma/migrations/20260906050000_steam_trades/migration.sql`, 'utf8');
+const baseline = fs.readFileSync(`${root}/prisma/migrations/00000000000000_duelplay_baseline/migration.sql`, 'utf8');
 
 for (const status of ['TRADE_PENDING','TRADE_SENT','TRADE_ACCEPTED','TRADE_FAILED']) assert.match(adapter, new RegExp(status));
 assert.match(adapter, /assertSteamTradeReady/);
@@ -17,10 +18,15 @@ assert.match(policy, /AVAILABLE.*TRADE_PENDING/);
 assert.match(policy, /TRADE_PENDING.*TRADE_SENT/);
 assert.match(policy, /TRADE_SENT.*TRADE_ACCEPTED/);
 assert.match(policy, /TRADE_SENT.*TRADE_FAILED/);
-assert.match(schema, /model SteamTrade/);
-assert.match(schema, /@@unique\(\[inventoryItemId\]\)/);
-assert.match(migration, /CREATE TABLE "SteamTrade"/);
-assert.match(migration, /SteamTrade_inventoryItemId_key/);
+assert.match(schema, /model SteamTrade\s*\{[\s\S]*?@@unique\(\[inventoryItemId\]\)/);
+assert.match(schema, /externalTradeId\s+String\?\s+@unique/);
+assert.match(schema, /@@index\(\[userId,\s*createdAt\]\)/);
+assert.match(schema, /@@index\(\[status,\s*updatedAt\]\)/);
+assert.match(baseline, /CREATE TABLE "SteamTrade" \([\s\S]*?"inventoryItemId" UUID NOT NULL[\s\S]*?"steamAssetId" TEXT NOT NULL[\s\S]*?CONSTRAINT "SteamTrade_pkey" PRIMARY KEY \("id"\)/);
+assert.match(baseline, /CREATE UNIQUE INDEX "SteamTrade_inventoryItemId_key" ON "SteamTrade"\("inventoryItemId"\)/);
+assert.match(baseline, /CREATE UNIQUE INDEX "SteamTrade_externalTradeId_key" ON "SteamTrade"\("externalTradeId"\)/);
+assert.match(baseline, /ALTER TABLE "SteamTrade" ADD CONSTRAINT "SteamTrade_userId_fkey"/);
+assert.match(baseline, /ALTER TABLE "SteamTrade" ADD CONSTRAINT "SteamTrade_inventoryItemId_fkey"/);
 assert.match(route, /assertSteamTradeReady/);
 assert.match(route, /steamAssetId/);
 assert.match(route, /TRADE_PENDING/);

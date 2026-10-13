@@ -38,6 +38,37 @@ enum MatchStatus {
   DISPUTED
 }
 
+enum MatchEconomyMode {
+  REAL
+  DEMO
+}
+
+enum DemoTransactionType {
+  STARTER_GRANT
+  MATCH_STAKE
+  MATCH_STAKE_LOCK
+  MATCH_STAKE_RELEASE
+  MATCH_REFUND
+  MATCH_WIN
+  MATCH_FEE
+  BALANCE_ADJUSTMENT
+  MATCH_FEE_ADJUSTMENT
+  DISPUTE_ADJUSTMENT
+  DEBT_ADJUSTMENT
+}
+
+enum DemoWalletHoldStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum DemoMatchStartReservationStatus {
+  RESERVED
+  CONSUMED
+  RELEASED
+}
+
 enum MatchMode {
   SOLO_1V1
   TEAM_5V5
@@ -413,6 +444,13 @@ model User {
   collectionClaims   CollectionClaim[]
   adminRoleAssignment AdminRoleAssignment?
   adminRoleAssignmentsGiven AdminRoleAssignment[] @relation("AdminRoleAssignedBy")
+  demoWallet           DemoWallet?
+  demoTransactions     DemoTransaction[]
+  demoUserPolicy       DemoUserPolicy?
+  demoUserPoliciesChanged DemoUserPolicy[] @relation("DemoUserPolicyChangedBy")
+  demoModeSettingsChanged DemoModeSettings[] @relation("DemoModeSettingsChangedBy")
+  demoMatchStartReservations DemoMatchStartReservation[]
+  demoMatchUsages     DemoMatchUsage[]
 
   matchesAsPlayerOne   Match[]           @relation("PlayerOneMatches")
   matchesAsPlayerTwo   Match[]           @relation("PlayerTwoMatches")
@@ -644,6 +682,7 @@ model Match {
   winnerId      String?     @db.Uuid
   loserId       String?     @db.Uuid
   status        MatchStatus @default(CREATING)
+  economyMode   MatchEconomyMode @default(REAL)
   mode          MatchMode
   format        String       @default("1v1")
   weaponModifier String?
@@ -676,12 +715,140 @@ model Match {
   reports       Report[]
   challenges    Challenge[]
   tournamentMatches TournamentMatch[]
+  demoTransactions DemoTransaction[]
+  demoWalletHolds   DemoWalletHold[]
+  demoMatchStartReservations DemoMatchStartReservation[]
+  demoMatchUsages   DemoMatchUsage[]
 
   @@index([gameId])
   @@index([playerOneId])
   @@index([playerTwoId])
   @@index([status])
+  @@index([economyMode, status, createdAt])
   @@index([createdAt])
+}
+
+// DEMO credits are a separate, non-monetary ledger. They must never be routed
+// through the REAL Wallet/Transaction/WalletHold financial helpers.
+model DemoWallet {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @unique @db.Uuid
+  /// Spendable Demo Credits (DC); never a USD or withdrawable amount.
+  balance       Decimal  @default(0.0000) @db.Decimal(20, 4)
+  /// DC reserved in demo match holds and unavailable to spend.
+  lockedBalance Decimal  @default(0.0000) @db.Decimal(20, 4)
+  /// Non-spendable DEMO recovery liability; incoming DEMO match credits repay it first.
+  debtBalance   Decimal  @default(0.0000) @db.Decimal(20, 4)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  DemoTransaction[]
+  holds         DemoWalletHold[]
+
+  // Allows ledger rows to enforce that the wallet and user references agree.
+  @@unique([id, userId])
+  @@index([createdAt])
+}
+
+model DemoTransaction {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId       String?             @db.Uuid
+  userId         String?             @db.Uuid
+  matchId        String?             @db.Uuid
+  type           DemoTransactionType
+  /// Signed DC delta. MATCH_FEE is a virtual system entry and has no wallet balance snapshot.
+  amount         Decimal             @db.Decimal(20, 4)
+  balanceBefore  Decimal?            @db.Decimal(20, 4)
+  balanceAfter   Decimal?            @db.Decimal(20, 4)
+  idempotencyKey String              @unique
+  description    String?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+
+  wallet         DemoWallet? @relation(fields: [walletId, userId], references: [id, userId], onDelete: Restrict)
+  user           User?       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  match          Match?      @relation(fields: [matchId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, createdAt])
+  @@index([userId, createdAt])
+  @@index([matchId, type])
+  @@index([type, createdAt])
+}
+
+model DemoWalletHold {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId       String               @db.Uuid
+  matchId        String               @db.Uuid
+  amount         Decimal              @db.Decimal(20, 4)
+  status         DemoWalletHoldStatus @default(ACTIVE)
+  idempotencyKey String               @unique
+  createdAt      DateTime             @default(now())
+  closedAt       DateTime?
+
+  wallet         DemoWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  match          Match      @relation(fields: [matchId], references: [id], onDelete: Restrict)
+
+  @@unique([walletId, matchId])
+  @@index([walletId, status])
+  @@index([matchId, status])
+  @@index([createdAt])
+}
+
+model DemoModeSettings {
+  // SQL also checks this fixed ID, so the table can contain at most one row.
+  id            String   @id @default("global")
+  enabled       Boolean  @default(false)
+  dailyMatchLimit Int    @default(3)
+  timeZone      String   @default("Europe/Kyiv") @db.VarChar(64)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+  updatedById   String?  @db.Uuid
+
+  updatedBy User? @relation("DemoModeSettingsChangedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model DemoUserPolicy {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @unique @db.Uuid
+  blocked     Boolean  @default(false)
+  reason      String?  @db.VarChar(1000)
+  changedById String   @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  changedBy User @relation("DemoUserPolicyChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+}
+
+model DemoMatchStartReservation {
+  id          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  matchId     String                              @db.Uuid
+  userId      String                              @db.Uuid
+  localDay    DateTime                            @db.Date
+  status      DemoMatchStartReservationStatus     @default(RESERVED)
+  reservedAt  DateTime                            @default(now()) @db.Timestamptz(3)
+  consumedAt  DateTime?                           @db.Timestamptz(3)
+  releasedAt  DateTime?                           @db.Timestamptz(3)
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([matchId, userId])
+  @@index([userId, localDay, status])
+  @@index([matchId, status])
+}
+
+model DemoMatchUsage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  matchId   String   @db.Uuid
+  userId    String   @db.Uuid
+  localDay  DateTime @db.Date
+  startedAt DateTime @db.Timestamptz(3)
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([matchId, userId])
+  @@index([userId, localDay])
 }
 
 model Dispute {

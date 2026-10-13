@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { cancelMatchWithRefund, lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { MATCH_LIVE_TIMEOUT_MS, MATCH_SERVER_START_TIMEOUT_MS } from "@/lib/match-timers";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -17,7 +18,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       throw new Error("START_EXPIRED");
     }
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await withDemoPolicyTransaction(async ({ db: tx, policy }) => {
       const locked = await lockMatchForUpdate(tx, id);
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({
@@ -31,6 +32,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       if (!match) throw new Error("NOT_FOUND");
       if (![match.playerOneId, match.playerTwoId].includes(user.id)) throw new Error("FORBIDDEN");
       if (!match.playerTwoId) throw new Error("NOT_READY");
+      // On repeated START requests this validates/recovers the reservation.
+      // An existing RESERVED reservation remains valid while global DEMO is off.
+      if (match.economyMode === "DEMO") await policy.reserveDemoMatchStart(id);
       if (match.status === "STARTING" || match.gameServer) return { match, alreadyStarting: true, localTest: false };
       if (match.status !== "READY") throw new Error("NOT_READY");
 
@@ -43,6 +47,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       const localTestMode = process.env.NODE_ENV !== "production" && bothTestAccounts && process.env.DUELPLAY_LOCAL_TEST_MODE !== "false";
       if (localTestMode) {
         const startedAt = new Date();
+        if (match.economyMode === "DEMO") await policy.confirmDemoMatchLive(id, startedAt);
         const updated = await tx.match.update({
           where: { id },
           data: {
@@ -91,6 +96,8 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (code === "NOT_READY") return NextResponse.json({ error: "Матч не готов к старту" }, { status: 409 });
     if (code === "STEAM_REQUIRED") return NextResponse.json({ error: "Оба игрока должны привязать Steam", errorCode: "STEAM_REQUIRED" }, { status: 409 });
     if (code === "START_EXPIRED") return NextResponse.json({ error: "Время на запуск матча истекло. Матч отменён, ставки возвращены.", errorCode: "START_EXPIRED" }, { status: 409 });
+    if (code === "DEMO_DISABLED" || code === "DEMO_DAILY_LIMIT_REACHED") return NextResponse.json({ error: "Сейчас нельзя зарезервировать DEMO-старт", errorCode: code }, { status: 409 });
+    if (code.startsWith("DEMO_") || code === "REAL_MATCH_FORBIDDEN") return NextResponse.json({ error: "Невозможно подтвердить DEMO-старт", errorCode: code }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Не удалось запустить матч" }, { status: 500 });
   }

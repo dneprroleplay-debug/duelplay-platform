@@ -5,6 +5,7 @@ import { awardXp, updateMatchProgress, updateRatingAfterDuel, recordMatchStats }
 import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { recalculateTrust } from "@/lib/trust";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -20,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const winnerId = String(body.winnerId ?? "");
-    const result = await prisma.$transaction(async tx => {
+    const result = await withDemoPolicyTransaction(async ({ db: tx, demo }) => {
       const match = await tx.match.findUnique({
         where: { id },
         include: {
@@ -44,6 +45,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const pot = amount * 2;
       const fee = Number(match.commission);
       const payout = Number((pot - fee).toFixed(4));
+      if (match.economyMode === "DEMO") {
+        const demoPayout = match.betAmount.mul(2).minus(match.commission).toDecimalPlaces(4);
+        for (const userId of [winnerId, loserId].sort()) {
+          await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:local-test-hold:${match.id}:${userId}`, "CONSUMED");
+        }
+        await demo.creditDemoCredits(winnerId, demoPayout, `demo:local-test-win:${match.id}`, "MATCH_WIN", match.id, "DEMO local test result");
+        if (match.commission.gt(0)) await demo.recordDemoMatchFee(match.id, match.commission, `demo:local-test-fee:${match.id}`);
+        await tx.notification.create({ data: { userId: winnerId, type: "WIN", title: "DEMO victory", body: `The virtual match is complete. Received ${demoPayout.toFixed(2)} Demo Credits.`, payload: { matchId: match.id, payout: demoPayout.toString(), localTest: true, economyMode: "DEMO" } } });
+        await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "DEMO match finished", body: "The virtual match is complete.", payload: { matchId: match.id, localTest: true, economyMode: "DEMO" } } });
+        return tx.match.update({ where: { id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), serverConfig: { ...cfg, state: "FINISHED", resultSource: "LOCAL_TEST" } }, include: { winner: { select: { id: true, nickname: true, avatarUrl: true } } } });
+      }
       const wallets = await tx.wallet.findMany({ where: { userId: { in: [winnerId, loserId] } }, select: { userId: true } });
       if (wallets.length !== 2) throw new Error("WALLET");
       const winKey = `local-test:${match.id}:win`;

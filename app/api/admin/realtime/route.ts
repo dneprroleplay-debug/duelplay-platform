@@ -34,6 +34,7 @@ export async function GET() {
             select: {
               id: true,
               status: true,
+              economyMode: true,
               mapName: true,
               betAmount: true,
               createdAt: true,
@@ -43,12 +44,18 @@ export async function GET() {
           })
         : Promise.resolve([]),
     ]);
+    const matchCounts = canMatches ? await Promise.all([
+      prisma.match.count({ where: { economyMode: "REAL", createdAt: { gte: dayAgo } } }),
+      prisma.match.count({ where: { economyMode: "DEMO", createdAt: { gte: dayAgo } } }),
+      prisma.match.count({ where: { economyMode: "REAL", status: "LIVE" } }),
+      prisma.match.count({ where: { economyMode: "DEMO", status: "LIVE" } }),
+    ]).then(([real24h, demo24h, realLive, demoLive]) => ({ real24h, demo24h, realLive, demoLive })) : null;
 
     return NextResponse.json(
       {
         serverTime: now.toISOString(),
         permissions: { users: canUsers, matches: canMatches, finance: canFinance, servers: canServers, support: canSupport, security: canSecurity, reports: canReports },
-        counters: { users, online, matches24h, liveMatches, servers, openDisputes: disputes, openFraud: fraud, pendingWithdrawals, pendingDeposits },
+        counters: { users, online, matches24h, liveMatches, matchCounts, servers, openDisputes: disputes, openFraud: fraud, pendingWithdrawals, pendingDeposits },
         activeMatches,
       },
       { headers: { "Cache-Control": "no-store" } },

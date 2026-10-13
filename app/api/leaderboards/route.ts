@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     let rows = base;
     if (since) {
       const matches = await prisma.match.findMany({
-        where: { createdAt: { gte: since }, status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
+        where: { economyMode: "REAL", createdAt: { gte: since }, status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
         select: { winnerId: true, loserId: true, playerOneId: true, playerTwoId: true },
       });
       const matchStats = new Map<string, { wins: number; losses: number; played: number }>();
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
       rows = base.filter((x) => (matchStats.get(x.id)?.played ?? 0) > 0).map((x) => ({ ...x, ...(matchStats.get(x.id) as { wins: number; losses: number; played: number }) }));
     } else {
       const matches = await prisma.match.findMany({
-        where: { status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
+        where: { economyMode: "REAL", status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
         select: { winnerId: true, loserId: true },
       });
       const matchStats = new Map<string, { wins: number; losses: number; played: number }>();

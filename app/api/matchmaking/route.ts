@@ -6,6 +6,7 @@ import { getFeatureFlag, getPlatformNumber } from "@/lib/platform-settings";
 import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { DUEL_MODE_IDS, isDuelMode, type DuelModeId } from "@/lib/duel-modes";
 import { getDuelMap, isMapModeSupported } from "@/lib/duel-maps";
+import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
 
 const DEFAULT_STAKE = 3;
 const STAKE_TOLERANCE = 0.10;
@@ -65,6 +66,7 @@ async function findCandidates({
   rating,
   ratingWindow,
   mapName,
+  economyMode,
 }: {
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
   meId: string;
@@ -73,6 +75,7 @@ async function findCandidates({
   rating: number;
   ratingWindow: number;
   mapName: string | null;
+  economyMode: "REAL" | "DEMO";
 }) {
   const stakeMin = requestedStake * (1 - STAKE_TOLERANCE);
   const stakeMax = requestedStake * (1 + STAKE_TOLERANCE);
@@ -80,6 +83,7 @@ async function findCandidates({
   const rows = await tx.match.findMany({
     where: {
       status: "WAITING_FOR_PLAYERS",
+      economyMode,
       mode,
       playerTwoId: null,
       playerOneId: { not: meId },
@@ -129,6 +133,8 @@ export async function GET(request: NextRequest) {
 
   const modeValue = request.nextUrl.searchParams.get("mode") || "SOLO_1V1";
   if (!isDuelMode(modeValue)) return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
+  const economyMode = request.nextUrl.searchParams.get("economyMode") || "REAL";
+  if (economyMode !== "REAL" && economyMode !== "DEMO") return NextResponse.json({ error: "Invalid economy mode" }, { status: 400 });
 
   const minStake = await getPlatformNumber("MIN_STAKE", DEFAULT_STAKE);
   const requestedStake = numberParam(request.nextUrl.searchParams.get("stake"), minStake);
@@ -141,10 +147,11 @@ export async function GET(request: NextRequest) {
   if (mapName && !isMapModeSupported(mapName, modeValue)) return NextResponse.json({ error: "Mode is not supported on this map", errorCode: "MODE_NOT_SUPPORTED_FOR_MAP" }, { status: 400 });
   const ownStats = await prisma.playerStats.findUnique({ where: { userId: me.id }, select: { rating: true } });
   const rating = Number(ownStats?.rating ?? 0);
-  const candidates = await prisma.$transaction((tx) => findCandidates({ tx, meId: me.id, mode: modeValue as AllowedMode, requestedStake, rating, ratingWindow, mapName }));
+  const candidates = await prisma.$transaction((tx) => findCandidates({ tx, meId: me.id, mode: modeValue as AllowedMode, requestedStake, rating, ratingWindow, mapName, economyMode }));
 
   return NextResponse.json({
     mode: modeValue,
+    economyMode,
     requestedStake,
     rating,
     ratingWindow,
@@ -159,11 +166,13 @@ export async function POST(request: NextRequest) {
     if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!(await getFeatureFlag("MATCHMAKING", true))) return NextResponse.json({ error: "Matchmaking is temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
 
-    let body: { mode?: unknown; stake?: unknown; ratingWindow?: unknown; mapName?: unknown };
+    let body: { mode?: unknown; stake?: unknown; ratingWindow?: unknown; mapName?: unknown; economyMode?: unknown };
     try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
     const mode = String(body.mode || "SOLO_1V1") as AllowedMode;
     if (!isDuelMode(mode)) return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
+    const economyMode = body.economyMode === undefined ? "REAL" : body.economyMode;
+    if (economyMode !== "REAL" && economyMode !== "DEMO") return NextResponse.json({ error: "Invalid economy mode" }, { status: 400 });
 
     const minStake = await getPlatformNumber("MIN_STAKE", DEFAULT_STAKE);
     const maxStake = await getPlatformNumber("MAX_STAKE", 10_000);
@@ -176,7 +185,7 @@ export async function POST(request: NextRequest) {
     if (requestedMapName && !mapName) return NextResponse.json({ error: "Invalid map", errorCode: "INVALID_MAP" }, { status: 400 });
     if (mapName && !isMapModeSupported(mapName, mode)) return NextResponse.json({ error: "Mode is not supported on this map", errorCode: "MODE_NOT_SUPPORTED_FOR_MAP" }, { status: 400 });
 
-    const result = await prisma.$transaction(async (tx) => {
+    const execute = async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) => {
       // Serialize automatic claims so two simultaneous searches cannot select the same open duel.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:matchmaking-claim'))`;
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${me.id}::uuid FOR UPDATE`;
@@ -189,7 +198,7 @@ export async function POST(request: NextRequest) {
 
       const ownStats = await tx.playerStats.findUnique({ where: { userId: me.id }, select: { rating: true } });
       const rating = Number(ownStats?.rating ?? 0);
-      const candidates = await findCandidates({ tx, meId: me.id, mode, requestedStake, rating, ratingWindow, mapName });
+      const candidates = await findCandidates({ tx, meId: me.id, mode, requestedStake, rating, ratingWindow, mapName, economyMode });
 
       for (const candidate of candidates) {
         const candidateBusy = await tx.match.findFirst({
@@ -198,6 +207,8 @@ export async function POST(request: NextRequest) {
         });
         if (candidateBusy) continue;
 
+        if (demoContext) await demoContext.policy.assertDemoUserCanCreateOrJoin(me.id, "JOIN");
+
         const claimed = await tx.match.updateMany({
           where: { id: candidate.id, status: "WAITING_FOR_PLAYERS", playerTwoId: null },
           data: { playerTwoId: me.id, status: "READY", startDeadlineAt: deadlineFromNow(MATCH_START_TIMEOUT_MS) },
@@ -205,18 +216,13 @@ export async function POST(request: NextRequest) {
         if (claimed.count !== 1) continue;
 
         const amount = Number(candidate.betAmount);
-        const debit = await debitWallet(tx, me.id, amount, `match:${candidate.id}:player2`, "MATCH_BET", `Ставка на CS2 · ${candidate.mapName || "Duel"}`, candidate.id);
-        if (debit.idempotent) throw new Error("ALREADY_JOINED");
-
-        await lockWallet(
-          tx,
-          me.id,
-          amount,
-          `match-stake:matchmaking:${candidate.id}:${me.id}`,
-          "MATCH_STAKE",
-          candidate.id,
-          `Ставка зарезервирована · ${candidate.id.slice(0, 8)}`,
-        );
+        if (demoContext) {
+          await demoContext.demo.reserveDemoStake(me.id, candidate.id, String(candidate.betAmount), `match:${candidate.id}:player2`, `match-stake:matchmaking:${candidate.id}:${me.id}`);
+        } else {
+          const debit = await debitWallet(tx, me.id, amount, `match:${candidate.id}:player2`, "MATCH_BET", `Ставка на CS2 · ${candidate.mapName || "Duel"}`, candidate.id);
+          if (debit.idempotent) throw new Error("ALREADY_JOINED");
+          await lockWallet(tx, me.id, amount, `match-stake:matchmaking:${candidate.id}:${me.id}`, "MATCH_STAKE", candidate.id, `Ставка зарезервирована · ${candidate.id.slice(0, 8)}`);
+        }
 
         await tx.notification.create({
           data: {
@@ -234,7 +240,10 @@ export async function POST(request: NextRequest) {
       }
 
       return { match: null, joined: false, rating, requestedStake, ratingWindow };
-    });
+    };
+    const result = economyMode === "DEMO"
+      ? await withDemoPolicyTransaction(({ db, ...context }) => execute(db, context))
+      : await prisma.$transaction(tx => execute(tx));
 
     return NextResponse.json(result, { status: 200 });
   } catch (error: unknown) {
@@ -242,6 +251,9 @@ export async function POST(request: NextRequest) {
     if (code === "PLAYER_BUSY") return NextResponse.json({ error: "You already have an active match", errorCode: "PLAYER_BUSY" }, { status: 409 });
     if (code === "ALREADY_JOINED") return NextResponse.json({ error: "Already joined this match", errorCode: "ALREADY_JOINED" }, { status: 409 });
     if (code === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Insufficient balance", errorCode: "INSUFFICIENT_BALANCE" }, { status: 400 });
+    if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Insufficient Demo Credits", errorCode: code }, { status: 400 });
+    if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "DEMO matchmaking is unavailable for this account", errorCode: code }, { status: 403 });
+    if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Idempotency key conflict", errorCode: code }, { status: 409 });
     if (code === "WALLET_NOT_FOUND") return NextResponse.json({ error: "Wallet not found", errorCode: "WALLET_NOT_FOUND" }, { status: 409 });
     console.error("matchmaking failed", error);
     return NextResponse.json({ error: "Matchmaking failed" }, { status: 500 });

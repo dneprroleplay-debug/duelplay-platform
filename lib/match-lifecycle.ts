@@ -7,6 +7,7 @@ import { getPlatformNumber } from "@/lib/platform-settings";
 import { referralMultiplier } from "@/lib/promotions";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { MATCH_START_TIMEOUT_MS, MATCH_LIVE_TIMEOUT_MS, MATCH_HEARTBEAT_TIMEOUT_MS } from "@/lib/match-timers";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 
 const START_TIMEOUT_MS = MATCH_START_TIMEOUT_MS;
 const CONNECTION_TIMEOUT_MS = MATCH_LIVE_TIMEOUT_MS;
@@ -35,13 +36,21 @@ export async function lockMatchForUpdate(tx: Prisma.TransactionClient, matchId: 
 }
 
 export async function cancelMatchWithRefund(matchId: string, reason: string) {
-  return prisma.$transaction(async tx => {
+  return withDemoPolicyTransaction(async ({ db: tx, demo, policy }) => {
     const locked = await lockMatchForUpdate(tx, matchId);
     if (!locked) return null;
     const match = await tx.match.findUnique({ where: { id: matchId } });
     if (!match || ["FINISHED", "CANCELLED", "DISPUTED"].includes(match.status)) return null;
     const amount = Number(match.betAmount);
     const ids = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];
+    if (match.economyMode === "DEMO") {
+      if (match.status !== "LIVE" && match.playerTwoId) await policy.releaseDemoMatchReservation(match.id);
+      for (const userId of [...ids].sort()) {
+        await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:cancel-refund:${match.id}:${userId}`, "RELEASED");
+        await tx.notification.create({ data: { userId, type: "CANCELLATION", title: "DEMO match cancelled", body: "The DEMO match ended and your virtual stake was refunded.", payload: { matchId: match.id, reason, economyMode: "DEMO" } } });
+      }
+      return tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), startDeadlineAt: null, connectionDeadlineAt: null, liveDeadlineAt: null } });
+    }
     for (const userId of ids) {
       const wallet = await tx.wallet.findUnique({ where: { userId }, select: { id: true } });
       if (!wallet) throw new Error("WALLET");
@@ -69,7 +78,7 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
 }
 
 export async function resolveConnectionTimeout(matchId: string, connectedSteamId: string) {
-  return prisma.$transaction(async tx => {
+  return withDemoPolicyTransaction(async ({ db: tx, demo }) => {
     const locked = await lockMatchForUpdate(tx, matchId);
     if (!locked) return null;
     const full = await tx.match.findUnique({
@@ -100,6 +109,18 @@ export async function resolveConnectionTimeout(matchId: string, connectedSteamId
     const pot = Number(full.betAmount) * 2;
     const fee = Number(full.commission);
     const payout = Number((pot - fee).toFixed(4));
+    if (full.economyMode === "DEMO") {
+      const stake = full.betAmount.toString();
+      const demoPayout = full.betAmount.mul(2).minus(full.commission).toDecimalPlaces(4);
+      for (const userId of [winnerId, loserId].sort()) {
+        await demo.closeDemoWalletHold(userId, full.id, stake, `demo:forfeit-hold:${full.id}:${userId}`, "CONSUMED");
+      }
+      await demo.creditDemoCredits(winnerId, demoPayout, `demo:forfeit-win:${full.id}`, "MATCH_WIN", full.id, "DEMO technical win");
+      if (full.commission.gt(0)) await demo.recordDemoMatchFee(full.id, full.commission, `demo:forfeit-fee:${full.id}`);
+      await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "DEMO technical win", body: "You won the virtual match because the opponent did not connect.", payload: { matchId: full.id, economyMode: "DEMO" } } });
+      await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "DEMO match finished", body: "You lost the virtual match by forfeit after the connection timeout.", payload: { matchId: full.id, economyMode: "DEMO" } } });
+      return tx.match.update({ where: { id: full.id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), connectionPhaseCompleted: true, connectionDeadlineAt: null, liveDeadlineAt: null, serverConfig: { ...freshCfg, state: "FINISHED", resultSource: "CS2_SERVER" } } });
+    }
     const wallets = await tx.wallet.findMany({ where: { userId: { in: [winnerId, loserId] } }, select: { userId: true } });
     if (wallets.length !== 2) throw new Error("WALLET");
     const idem = `forfeit:${full.id}`;
