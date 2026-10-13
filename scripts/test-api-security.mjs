@@ -37,7 +37,12 @@ assert.match(read("prisma/schema.prisma"), /model AuditLog/);
 assert.match(read("prisma/schema.prisma"), /requestId\s+String\?/);
 assert.match(read("prisma/schema.prisma"), /result\s+String\?/);
 assert.match(read("prisma/schema.prisma"), /reason\s+String\?/);
-assert.match(read("prisma/migrations/20260920130000_audit_request_metadata/migration.sql"), /ADD COLUMN "requestId"/);
+const prismaSchema = read("prisma/schema.prisma");
+const baseline = read("prisma/migrations/00000000000000_duelplay_baseline/migration.sql");
+assert.match(baseline, /CREATE TABLE "AuditLog" \([\s\S]*?"requestId" VARCHAR\(128\)[\s\S]*?"result" VARCHAR\(32\)[\s\S]*?"reason" VARCHAR\(1000\)/);
+assert.match(baseline, /CREATE INDEX "AuditLog_requestId_idx" ON "AuditLog"\("requestId"\)/);
+assert.match(baseline, /CREATE INDEX "AuditLog_result_idx" ON "AuditLog"\("result"\)/);
+assert.match(prismaSchema, /@@index\(\[requestId\]\)/);
 
 assert.match(read("next.config.ts"), /Strict-Transport-Security/);
 assert.match(read("next.config.ts"), /X-Content-Type-Options/);

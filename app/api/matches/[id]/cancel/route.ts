@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser(); if (!user) return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
     const { id } = await params;
-    const result = await prisma.$transaction(async tx => {
+    const result = await withDemoPolicyTransaction(async ({ db: tx, demo, policy }) => {
       const locked = await lockMatchForUpdate(tx, id);
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
@@ -15,10 +16,18 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       if (match.playerOneId !== user.id) throw new Error("FORBIDDEN");
       if (match.gameServer) throw new Error("SERVER_BUSY");
       if (match.status !== "WAITING_FOR_PLAYERS") throw new Error("INVALID");
+      if (match.economyMode === "DEMO" && match.playerTwoId) await policy.releaseDemoMatchReservation(id);
       const claim = await tx.match.updateMany({where:{id,status:"WAITING_FOR_PLAYERS"},data:{status:"CANCELLED",endedAt:new Date(),startDeadlineAt:null,connectionDeadlineAt:null,liveDeadlineAt:null}});
       if(claim.count!==1) throw new Error("INVALID");
       const amount = Number(match.betAmount);
       const wallets = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];
+      if (match.economyMode === "DEMO") {
+        for (const userId of [...new Set(wallets)].sort()) {
+          await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:cancel-refund:${match.id}:${userId}`, "RELEASED");
+        }
+        await tx.notification.createMany({data:[...new Set(wallets)].map(userId=>({userId,type:"CANCELLATION",title:"DEMO match cancelled",body:"Your virtual stake was refunded.",payload:{matchId:id,economyMode:"DEMO"}}))});
+        return tx.match.findUniqueOrThrow({where:{id}});
+      }
       for (const userId of [...new Set(wallets)]) {
         const wallet = await tx.wallet.findUnique({ where: { userId }, select: { id: true } }); if (!wallet) throw new Error("WALLET");
         const idem = `refund:${match.id}:${userId}`;

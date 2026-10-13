@@ -10,7 +10,7 @@ export async function GET() {
       take: 5000,
     });
     const finishedMatches = await prisma.match.findMany({
-      where: { status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
+      where: { economyMode: "REAL", status: "FINISHED", playerTwoId: { not: null }, winnerId: { not: null } },
       select: { winnerId: true, loserId: true },
     });
     const resultStats = new Map<string, { wins: number; losses: number }>();

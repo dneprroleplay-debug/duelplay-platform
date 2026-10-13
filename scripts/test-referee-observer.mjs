@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 const manager = readFileSync('scripts/server-manager/server-manager.mjs', 'utf8');
 const serverRoute = readFileSync('app/api/matches/[id]/server/route.ts', 'utf8');
 const schema = readFileSync('prisma/schema.prisma', 'utf8');
-const migration = readFileSync('prisma/migrations/20260915180000_match_referee_events/migration.sql', 'utf8');
+const baseline = readFileSync('prisma/migrations/00000000000000_duelplay_baseline/migration.sql', 'utf8');
 
 const requiredGsiKeys = [
   '"map_round_wins" "1"',
@@ -24,9 +24,10 @@ for (const marker of ['resetRefereeState', 'observeRefereeState', 'queueRefereeE
 if (!serverRoute.includes('action === "referee-event"')) throw new Error('Referee event API action missing');
 if (!serverRoute.includes('matchRefereeEvent.create')) throw new Error('Referee event persistence missing');
 if (!serverRoute.includes('refereeState')) throw new Error('Referee state heartbeat missing');
-if (!schema.includes('model MatchRefereeEvent')) throw new Error('MatchRefereeEvent model missing');
+if (!/model MatchRefereeEvent\s*\{[\s\S]*?@@unique\(\[matchId, sequence\]\)/.test(schema)) throw new Error('MatchRefereeEvent model/idempotency constraint missing');
 if (!schema.includes('refereeEvents MatchRefereeEvent[]')) throw new Error('Match referee relation missing');
-if (!migration.includes('CREATE TABLE "MatchRefereeEvent"')) throw new Error('Referee migration missing');
-if (!migration.includes('"matchId", "sequence"')) throw new Error('Referee idempotency index missing');
+if (!/CREATE TABLE "MatchRefereeEvent" \([\s\S]*?"matchId" UUID NOT NULL[\s\S]*?"sequence" INTEGER NOT NULL[\s\S]*?CONSTRAINT "MatchRefereeEvent_pkey" PRIMARY KEY \("id"\)/.test(baseline)) throw new Error('Baseline referee table missing required columns');
+if (!baseline.includes('CREATE UNIQUE INDEX "MatchRefereeEvent_matchId_sequence_key" ON "MatchRefereeEvent"("matchId", "sequence")')) throw new Error('Baseline referee idempotency index missing');
+if (!baseline.includes('ALTER TABLE "MatchRefereeEvent" ADD CONSTRAINT "MatchRefereeEvent_matchId_fkey"')) throw new Error('Baseline referee match relation missing');
 
 console.log('Referee observer foundation: PASS');

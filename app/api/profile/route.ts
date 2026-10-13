@@ -7,16 +7,18 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Войдите в аккаунт" }, { status: 401 });
-  const [matches, wins, losses, active, referralCount, referralTransactions, achievements, acceptedFriends, finishedMatches] = await Promise.all([
+  const [matches, wins, losses, active, activeDemo, referralCount, referralTransactions, achievements, acceptedFriends, finishedMatches, demoFinishedMatches] = await Promise.all([
     prisma.match.findMany({ where: { OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, include: { game: true, playerOne: { select: { nickname: true } }, playerTwo: { select: { nickname: true } }, winner: { select: { nickname: true } } }, orderBy: { createdAt: "desc" }, take: 50 }),
-    prisma.match.count({ where: { winnerId: user.id, status: "FINISHED" } }),
-    prisma.match.count({ where: { loserId: user.id, status: "FINISHED" } }),
-    prisma.match.count({ where: { OR: [{ playerOneId: user.id }, { playerTwoId: user.id }], status: { in: ["WAITING_FOR_PLAYERS", "READY", "LIVE"] } } }),
+    prisma.match.count({ where: { economyMode: "REAL", winnerId: user.id, status: "FINISHED" } }),
+    prisma.match.count({ where: { economyMode: "REAL", loserId: user.id, status: "FINISHED" } }),
+    prisma.match.count({ where: { economyMode: "REAL", OR: [{ playerOneId: user.id }, { playerTwoId: user.id }], status: { in: ["WAITING_FOR_PLAYERS", "READY", "LIVE"] } } }),
+    prisma.match.count({ where: { economyMode: "DEMO", OR: [{ playerOneId: user.id }, { playerTwoId: user.id }], status: { in: ["WAITING_FOR_PLAYERS", "READY", "LIVE"] } } }),
     prisma.user.count({ where: { referredById: user.id, deletedAt: null } }),
     prisma.transaction.findMany({ where: { wallet: { userId: user.id }, type: "REFERRAL", status: "COMPLETED" }, select: { amount: true } }),
     prisma.userAchievement.findMany({where:{userId:user.id},include:{achievement:true},orderBy:{unlockedAt:"desc"}}),
     prisma.friend.count({where:{OR:[{senderId:user.id,status:"ACCEPTED"},{receiverId:user.id,status:"ACCEPTED"}]}}),
-    prisma.match.count({where:{OR:[{playerOneId:user.id},{playerTwoId:user.id}],status:"FINISHED"}}),
+    prisma.match.count({where:{economyMode:"REAL",OR:[{playerOneId:user.id},{playerTwoId:user.id}],status:"FINISHED"}}),
+    prisma.match.count({where:{economyMode:"DEMO",OR:[{playerOneId:user.id},{playerTwoId:user.id}],status:"FINISHED"}}),
   ]);
   const referralEarned = referralTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
   const completion = calculateProfileCompletion({ hasCustomAvatar: Boolean(user.avatarUrl), acceptedFriends, finishedMatches, achievements: achievements.length });
@@ -27,7 +29,7 @@ export async function GET() {
       update: {},
     });
   }
-  return NextResponse.json({ referralLink: `${process.env.NEXT_PUBLIC_APP_URL || ""}/login?ref=${encodeURIComponent(user.referralCode)}`, user: { id: user.id, nickname: user.nickname, steamId: user.steamId, email: user.email, avatarUrl: user.avatarUrl, steamAvatarUrl: user.steamAvatarUrl, themePreference: user.themePreference, profileVisibility: user.profileVisibility, showStatsPublic: user.showStatsPublic, allowChallenges: user.allowChallenges, allowMessages: user.allowMessages, level: user.level, xp: user.xp, reputation: user.reputation, trustScore: user.trustScore.toString(), referralCode: user.referralCode, balance: user.wallet?.balance.toString() ?? "0", lockedBalance: user.wallet?.lockedBalance.toString() ?? "0" }, stats: { matches: wins + losses, wins, losses, active, winRate: wins + losses ? Math.round(wins / (wins + losses) * 100) : 0, referralCount, referralEarned }, profileCompletion: completion.percent, profileCompletionProgress: { completed: completion.completed, total: completion.total, rewardUnlocked: completion.rewardUnlocked, friends: acceptedFriends, finishedMatches, achievements: achievements.length, hasCustomAvatar: Boolean(user.avatarUrl) }, achievements:achievements.map(x=>x.achievement), matches });
+  return NextResponse.json({ referralLink: `${process.env.NEXT_PUBLIC_APP_URL || ""}/login?ref=${encodeURIComponent(user.referralCode)}`, user: { id: user.id, nickname: user.nickname, steamId: user.steamId, email: user.email, avatarUrl: user.avatarUrl, steamAvatarUrl: user.steamAvatarUrl, themePreference: user.themePreference, profileVisibility: user.profileVisibility, showStatsPublic: user.showStatsPublic, allowChallenges: user.allowChallenges, allowMessages: user.allowMessages, level: user.level, xp: user.xp, reputation: user.reputation, trustScore: user.trustScore.toString(), referralCode: user.referralCode, balance: user.wallet?.balance.toString() ?? "0", lockedBalance: user.wallet?.lockedBalance.toString() ?? "0" }, stats: { matches: wins + losses, wins, losses, active, activeReal: active, activeDemo, demoFinishedMatches, winRate: wins + losses ? Math.round(wins / (wins + losses) * 100) : 0, referralCount, referralEarned }, profileCompletion: completion.percent, profileCompletionProgress: { completed: completion.completed, total: completion.total, rewardUnlocked: completion.rewardUnlocked, friends: acceptedFriends, finishedMatches, achievements: achievements.length, hasCustomAvatar: Boolean(user.avatarUrl) }, achievements:achievements.map(x=>x.achievement), matches });
 }
 
 export async function PATCH(request: Request) {

@@ -13,8 +13,9 @@ import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
 import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
 import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
-import { hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
+import { assertFinancialStatusUpdateSucceeded, canTransitionDepositStatus, canTransitionWithdrawalStatus, financialStatusPermission, hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
 import { getClientIp } from "@/lib/request-meta";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 
 const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
 function protectedOwner(u:{steamId:string|null;nickname:string;role:string}){
@@ -91,9 +92,15 @@ export async function GET(request:NextRequest){
     const background=typeof bgRow?.value==="object"&&bgRow?.value&&"id" in bgRow.value?String((bgRow.value as {id?:unknown}).id):"stars";
     const heroRow=settings.find(x=>x.key==="heroBackground");
     const heroBackground=typeof heroRow?.value==="object"&&heroRow?.value&&"id" in heroRow.value?String((heroRow.value as {id?:unknown}).id):"hero-01";
-    const completedTransactions=transactions.filter(t=>t.status==="COMPLETED");const revenueTypes=["COMMISSION","CASE_OPEN","COSMETIC_PURCHASE","PRIME_PURCHASE","DUELPASS_PURCHASE","EVENTPASS_PURCHASE","XP_BOOSTER_PURCHASE"];const expenseTypes=["REFERRAL","REFERRAL_RACE_PRIZE","TOURNAMENT_PRIZE"];const revenueByType=Object.fromEntries([...new Set([...revenueTypes,...expenseTypes])].map(type=>[type,completedTransactions.filter(t=>t.type===type).reduce((n,t)=>n+Math.max(0,Number(t.amount)),0)]));const revenue=revenueTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const expenses=expenseTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const dayAgo=new Date(Date.now()-86400000);const completedMatchVolume=matches.filter(m=>m.createdAt>=dayAgo&&["FINISHED","CANCELLED"].includes(m.status)).reduce((n,m)=>n+Number(m.betAmount)*2,0);const openDisputes=disputes.filter(x=>["OPEN","UNDER_REVIEW","AI_PROCESSED"].includes(x.status)).length;const openFraud=fraud.filter(x=>!["CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(x.status)).length;
-    const fullDashboard={users:users.length,online:onlineSessions,matchesToday:matches.filter(m=>m.createdAt>=dayAgo).length,liveMatches:matches.filter(m=>m.status==="LIVE").length,activeServers:servers.filter(s=>s.status==="BUSY"||s.status==="STARTING").length,volume:completedMatchVolume,revenue,deposits:completedTransactions.filter(t=>t.type==="DEPOSIT").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),withdrawals:completedTransactions.filter(t=>t.type==="WITHDRAW").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),referralPayouts:revenueByType.REFERRAL||0,creatorPayouts:creatorPayouts.filter(p=>p.status!=="REJECTED").reduce((n,p)=>n+Number(p.amount),0),pendingWithdrawals:withdrawals.filter(x=>x.status!=="COMPLETED"&&x.status!=="REJECTED"&&x.status!=="FAILED").length,pendingDeposits:deposits.filter(x=>x.status!=="COMPLETED"&&x.status!=="FAILED"&&x.status!=="EXPIRED").length,openDisputes,openFraud,revenueByType,expenses,netRevenue:revenue-expenses};
-    const dashboard=level>=3?fullDashboard:{users:level>=2?users.length:0,online:onlineSessions,matchesToday:level>=2?matches.filter(m=>m.createdAt>=dayAgo).length:0,liveMatches:level>=2?matches.filter(m=>m.status==="LIVE").length:0,activeServers:0,volume:0,revenue:0,deposits:0,withdrawals:0,referralPayouts:0,creatorPayouts:0,pendingWithdrawals:0,pendingDeposits:0,openDisputes:level>=2?openDisputes:0,openFraud:level>=2?openFraud:0,revenueByType:{},expenses:0,netRevenue:0};
+    const matchCounts=can("matches.view")?await Promise.all([
+      prisma.match.count({where:{economyMode:"REAL",createdAt:{gte:new Date(Date.now()-86400000)}}}),
+      prisma.match.count({where:{economyMode:"DEMO",createdAt:{gte:new Date(Date.now()-86400000)}}}),
+      prisma.match.count({where:{economyMode:"REAL",status:"LIVE"}}),
+      prisma.match.count({where:{economyMode:"DEMO",status:"LIVE"}}),
+    ]).then(([realToday,demoToday,realLive,demoLive])=>({realToday,demoToday,realLive,demoLive,totalToday:realToday+demoToday,totalLive:realLive+demoLive})):null;
+    const completedTransactions=transactions.filter(t=>t.status==="COMPLETED");const revenueTypes=["COMMISSION","CASE_OPEN","COSMETIC_PURCHASE","PRIME_PURCHASE","DUELPASS_PURCHASE","EVENTPASS_PURCHASE","XP_BOOSTER_PURCHASE"];const expenseTypes=["REFERRAL","REFERRAL_RACE_PRIZE","TOURNAMENT_PRIZE"];const revenueByType=Object.fromEntries([...new Set([...revenueTypes,...expenseTypes])].map(type=>[type,completedTransactions.filter(t=>t.type===type).reduce((n,t)=>n+Math.max(0,Number(t.amount)),0)]));const revenue=revenueTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const expenses=expenseTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const dayAgo=new Date(Date.now()-86400000);const completedMatchVolume=matches.filter(m=>m.economyMode==="REAL"&&m.createdAt>=dayAgo&&["FINISHED","CANCELLED"].includes(m.status)).reduce((n,m)=>n+Number(m.betAmount)*2,0);const openDisputes=disputes.filter(x=>["OPEN","UNDER_REVIEW","AI_PROCESSED"].includes(x.status)).length;const openFraud=fraud.filter(x=>!["CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(x.status)).length;
+    const fullDashboard={users:users.length,online:onlineSessions,matchesToday:matches.filter(m=>m.createdAt>=dayAgo).length,liveMatches:matches.filter(m=>m.status==="LIVE").length,matchCounts,activeServers:servers.filter(s=>s.status==="BUSY"||s.status==="STARTING").length,volume:completedMatchVolume,revenue,deposits:completedTransactions.filter(t=>t.type==="DEPOSIT").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),withdrawals:completedTransactions.filter(t=>t.type==="WITHDRAW").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),referralPayouts:revenueByType.REFERRAL||0,creatorPayouts:creatorPayouts.filter(p=>p.status!=="REJECTED").reduce((n,p)=>n+Number(p.amount),0),pendingWithdrawals:withdrawals.filter(x=>x.status!=="COMPLETED"&&x.status!=="REJECTED"&&x.status!=="FAILED").length,pendingDeposits:deposits.filter(x=>x.status!=="COMPLETED"&&x.status!=="FAILED"&&x.status!=="EXPIRED").length,openDisputes,openFraud,revenueByType,expenses,netRevenue:revenue-expenses};
+    const dashboard=level>=3?fullDashboard:{users:level>=2?users.length:0,online:onlineSessions,matchesToday:level>=2?matches.filter(m=>m.createdAt>=dayAgo).length:0,liveMatches:level>=2?matches.filter(m=>m.status==="LIVE").length:0,matchCounts:can("matches.view")?matchCounts:null,activeServers:0,volume:0,revenue:0,deposits:0,withdrawals:0,referralPayouts:0,creatorPayouts:0,pendingWithdrawals:0,pendingDeposits:0,openDisputes:level>=2?openDisputes:0,openFraud:level>=2?openFraud:0,revenueByType:{},expenses:0,netRevenue:0};
     return NextResponse.json({me:{nickname:me.nickname,role:access.roleCode||me.role,level:access.level,permissions:access.permissions},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:can("settings.manage")?platformSettings:[],featureFlags:can("feature_flags.manage")?featureFlags:[],creatorPayouts:can("finance.view")?creatorPayouts:[],withdrawals:can("withdrawals.review")||can("finance.view")?withdrawals:[],deposits:can("deposits.review")||can("finance.view")?deposits:[],dashboard,users:can("users.view")?userRows:[],matches:can("matches.view")?matches:[],transactions:can("ledger.view")||can("finance.view")?transactions:[],disputes:can("disputes.view")?disputes:[],fraud:can("risk.cases.review")||can("security.view")?fraud:[],tickets:can("support.view")?await hydrateTickets(tickets):[],topSkins:can("content.skins.manage")?topSkins:[],servers:can("servers.view")?servers:[],logs:can("admin.audit.view")||can("system.logs.view")?logs:[],avatarPresets:can("content.avatars.manage")?avatarPresets:[]});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
@@ -109,8 +116,25 @@ export async function PATCH(request:NextRequest){
     await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "ADMIN_ACTION", 60, 10 * 60_000));
     const body=await request.json();
     const action=String(body.action||"");
-    const requiredPermission=permissionForAdminAction(action);
-    const access=requiredPermission ? await requirePermission(requiredPermission) : null;
+    const status=String(body.status||"");
+    const isDepositStatusAction=action==="depositStatus";
+    const isWithdrawalStatusAction=action==="withdrawalStatus";
+    const requiredPermission=isDepositStatusAction||isWithdrawalStatusAction
+      ? financialStatusPermission(action,status)
+      : permissionForAdminAction(action);
+    if((isDepositStatusAction||isWithdrawalStatusAction)&&!requiredPermission){
+      return NextResponse.json({error:"Неверный статус"},{status:400});
+    }
+    let access=null;
+    if(requiredPermission){
+      try{access=await requirePermission(requiredPermission);}
+      catch(error){
+        if((isDepositStatusAction||isWithdrawalStatusAction)&&error instanceof Error&&error.message==="ADMIN_LOGIN_REQUIRED"){
+          return NextResponse.json({error:"Требуется вход администратора",errorCode:error.message},{status:401});
+        }
+        throw error;
+      }
+    }
     const legacyMe=access?.user || await requireAdmin(1);
     const me=legacyMe;
     await prisma.$transaction(tx=>enforceRateLimit(tx,me.id,"ADMIN_ACTION",30,60_000));
@@ -121,11 +145,17 @@ export async function PATCH(request:NextRequest){
       if(!disputeId||!["DRAW","WINNER_PLAYER_ONE","WINNER_PLAYER_TWO","CANCELLED_REFUND"].includes(decision)){
         return NextResponse.json({error:"Некорректное решение спора"},{status:400});
       }
-      const result=await prisma.$transaction(async tx=>{
-        const dispute=await tx.dispute.findUnique({where:{id:disputeId},include:{match:true}});
+      const result=await withDemoPolicyTransaction(async ({db:tx,demo})=>{
+        const disputeRows=await tx.$queryRaw<Array<{id:string;matchId:string;status:string;adminDecision:string|null}>>`SELECT id,"matchId",status,"adminDecision" FROM "Dispute" WHERE id=${disputeId}::uuid FOR UPDATE`;
+        const dispute=disputeRows[0];
         if(!dispute)return null;
-        if(dispute.status==="RESOLVED_BY_ADMIN"||dispute.status==="CLOSED")return dispute;
-        const match=dispute.match;
+        if(dispute.status==="RESOLVED_BY_ADMIN"||dispute.status==="CLOSED"){
+          if(dispute.adminDecision!==decision)throw new Error("DISPUTE_DECISION_CONFLICT");
+          return {id:dispute.id,idempotent:true};
+        }
+        const matchRows=await tx.$queryRaw<Array<any>>`SELECT * FROM "Match" WHERE id=${dispute.matchId}::uuid FOR UPDATE`;
+        const match=matchRows[0];
+        if(!match||match.status!=="DISPUTED")throw new Error("MATCH_STATE");
         if(!match.playerOneId||!match.playerTwoId)throw new Error("INVALID_MATCH_PLAYERS");
         const stake=Number(match.betAmount);
         const p1=match.playerOneId,p2=match.playerTwoId;
@@ -133,6 +163,16 @@ export async function PATCH(request:NextRequest){
         const winnerId=decision==="WINNER_PLAYER_ONE"?p1:decision==="WINNER_PLAYER_TWO"?p2:null;
         const loserId=winnerId?(winnerId===p1?p2:p1):null;
         const now=new Date();
+
+        if(match.economyMode==="DEMO"){
+          const demoStake=new Prisma.Decimal(match.betAmount.toString());
+          const demoFee=new Prisma.Decimal(match.commission.toString());
+          await demo.resolveDemoDispute(match.id,dispute.id,decision,winnerId,demoStake,demoFee);
+          const updated=await tx.match.update({where:{id:match.id},data:{status:winnerId?"FINISHED":"CANCELLED",winnerId,loserId,endedAt:now,connectionPhaseCompleted:true}});
+          const d=await tx.dispute.update({where:{id:dispute.id},data:{status:"RESOLVED_BY_ADMIN",adminDecision:decision,adminNotes:String(body.notes||"").slice(0,2000),resolvedAt:now}});
+          await auditRequest(request,me.id,"RESOLVE_DISPUTE","DISPUTE",dispute.id,{decision,matchId:match.id,winnerId,loserId});
+          return {dispute:d,match:updated,idempotent:false};
+        }
 
         if(!winnerId){
           for(const userId of refundIds){
@@ -182,9 +222,10 @@ export async function PATCH(request:NextRequest){
           data:{status:"RESOLVED_BY_ADMIN",adminDecision:decision,adminNotes:String(body.notes||"").slice(0,2000),resolvedAt:now}
         });
         await auditRequest(request, me.id,"RESOLVE_DISPUTE","DISPUTE",dispute.id,{decision,matchId:match.id,winnerId,loserId});
-        return {dispute:d,match:updated};
+        return {dispute:d,match:updated,idempotent:false};
       });
       if(!result)return NextResponse.json({error:"Спор не найден"},{status:404});
+      if(result.idempotent)return NextResponse.json({ok:true,...result});
       return NextResponse.json({ok:true,...result});
     }
 
@@ -409,11 +450,10 @@ export async function PATCH(request:NextRequest){
     }
 
     if(action==="withdrawalStatus"){
-      const id=String(body.id||""),status=String(body.status||"");
-      if(!["PROCESSING","COMPLETED","FAILED","REJECTED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});
-      const row=await prisma.$transaction(async tx=>{const w=await tx.withdrawal.findUnique({where:{id}});if(!w)throw new Error("NOT_FOUND");if(["COMPLETED","REJECTED","FAILED"].includes(w.status))return w;const wallet=await tx.wallet.findUnique({where:{id:w.walletId},select:{id:true,userId:true}});if(!wallet)throw new Error("WALLET");const amount=Number(w.amount);if(!Number.isFinite(amount)||amount<=0)throw new Error("INVALID_AMOUNT");const updated=await tx.withdrawal.update({where:{id},data:{status:status as never,reviewReason:String(body.reason||"").slice(0,1000)}});if(["REJECTED","FAILED"].includes(status)){await creditWallet(tx,wallet.userId,amount,`withdraw-refund:${w.id}`,"REFUND",`Withdrawal ${status.toLowerCase()} refund`,w.id);await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:${status}`,"WITHDRAWAL",w.id,"RELEASED",`Withdrawal ${status.toLowerCase()} — hold released`);}else if(status==="COMPLETED"){await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:COMPLETED`,"WITHDRAWAL",w.id,"CONSUMED","Withdrawal completed — hold consumed");}return updated;});await auditRequest(request, me.id,"WITHDRAWAL_STATUS","WITHDRAWAL",id,{status});return NextResponse.json(row);
+      const id=String(body.id||"");
+      const row=await prisma.$transaction(async tx=>{const w=await tx.withdrawal.findUnique({where:{id}});if(!w)throw new Error("NOT_FOUND");if(!canTransitionWithdrawalStatus(w.status,status))throw new Error("INVALID_WITHDRAWAL_TRANSITION");if(["COMPLETED","REJECTED","FAILED"].includes(w.status))return w;const wallet=await tx.wallet.findUnique({where:{id:w.walletId},select:{id:true,userId:true}});if(!wallet)throw new Error("WALLET");const amount=Number(w.amount);if(!Number.isFinite(amount)||amount<=0)throw new Error("INVALID_AMOUNT");const transition=await tx.withdrawal.updateMany({where:{id,status:w.status},data:{status:status as never,reviewReason:String(body.reason||"").slice(0,1000)}});assertFinancialStatusUpdateSucceeded(transition.count);const updated=await tx.withdrawal.findUniqueOrThrow({where:{id}});if(["REJECTED","FAILED"].includes(status)){await creditWallet(tx,wallet.userId,amount,`withdraw-refund:${w.id}`,"REFUND",`Withdrawal ${status.toLowerCase()} refund`,w.id);await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:${status}`,"WITHDRAWAL",w.id,"RELEASED",`Withdrawal ${status.toLowerCase()} — hold released`);}else if(status==="COMPLETED"){await releaseWalletHold(tx,wallet.userId,amount,`withdrawal-close:${w.id}:COMPLETED`,"WITHDRAWAL",w.id,"CONSUMED","Withdrawal completed — hold consumed");}return updated;});await auditRequest(request, me.id,"WITHDRAWAL_STATUS","WITHDRAWAL",id,{status});return NextResponse.json(row);
     }
-    if(action==="depositStatus"){const id=String(body.id||""),status=String(body.status||"");if(!["PROCESSING","COMPLETED","FAILED","EXPIRED"].includes(status))return NextResponse.json({error:"Неверный статус"},{status:400});const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(d.status==="COMPLETED")return d;const updated=await tx.deposit.update({where:{id},data:{status:status as never}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await auditRequest(request, me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
+    if(action==="depositStatus"){const id=String(body.id||"");const row=await prisma.$transaction(async tx=>{const d=await tx.deposit.findUnique({where:{id}});if(!d)throw new Error("NOT_FOUND");if(!canTransitionDepositStatus(d.status,status))throw new Error("INVALID_DEPOSIT_TRANSITION");if(d.status==="COMPLETED")return d;const transition=await tx.deposit.updateMany({where:{id,status:d.status},data:{status:status as never}});assertFinancialStatusUpdateSucceeded(transition.count);const updated=await tx.deposit.findUniqueOrThrow({where:{id}});if(status==="COMPLETED"){const owner=await tx.wallet.findUniqueOrThrow({where:{id:d.walletId},select:{userId:true}});await creditWallet(tx,owner.userId,Number(d.amount),`deposit:${d.providerTxId}`,"DEPOSIT","Deposit approved by admin",d.id);await grantDepositBonus(tx,owner.userId,d.id,Number(d.amount),String(d.provider));}return updated;});await auditRequest(request, me.id,"DEPOSIT_STATUS","DEPOSIT",id,{status});return NextResponse.json(row);
     }
 
     if(action==="supportReply"){
@@ -501,6 +541,11 @@ return NextResponse.json({error:"Неизвестное действие"},{stat
     if(e instanceof Error&&e.message==="OWNER_TARGET")return NextResponse.json({error:"Защищённый аккаунт владельца нельзя изменить"},{status:403});
     if(e instanceof Error&&e.message==="USER_NOT_FOUND")return NextResponse.json({error:"Пользователь не найден"},{status:404});
     if(e instanceof Error&&e.message==="OWNER_WALLET")return NextResponse.json({error:"Кошелёк владельца SUPERADMIN не найден"},{status:500});
+    if(e instanceof Error&&(e.message==="DISPUTE_DECISION_CONFLICT"||e.message==="DISPUTE_DECISION_MISMATCH"))return NextResponse.json({error:"Решение спора конфликтует с его текущим состоянием"},{status:409});
+    if(e instanceof Error&&e.message==="INVALID_MATCH_PLAYERS")return NextResponse.json({error:"Данные участников матча повреждены"},{status:409});
+    if(e instanceof Error&&e.message==="INVALID_DEPOSIT_TRANSITION")return NextResponse.json({error:"Недопустимый переход статуса депозита"},{status:409});
+    if(e instanceof Error&&e.message==="INVALID_WITHDRAWAL_TRANSITION")return NextResponse.json({error:"Недопустимый переход статуса вывода"},{status:409});
+    if(e instanceof Error&&e.message==="FINANCIAL_STATUS_CONFLICT")return NextResponse.json({error:"Финансовая запись уже изменена другим запросом; обновите страницу и повторите проверку"},{status:409});
     console.error(e);return NextResponse.json({error:"Операция не выполнена"},{status:500});
   }
 }

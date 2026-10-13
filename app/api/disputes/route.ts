@@ -7,6 +7,8 @@ import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { withDemoPolicyTransaction } from "@/lib/demo-policy";
+import { Prisma } from "@prisma/client";
 
 const DECISIONS = ["DRAW", "WINNER_PLAYER_ONE", "WINNER_PLAYER_TWO", "CANCELLED_REFUND"] as const;
 const EVIDENCE_TYPES = ["IMAGE", "VIDEO", "LOG_FILE", "DEMO_REPLAY"] as const;
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
   try {
     const dispute = await prisma.$transaction(async tx => {
       const matches = await tx.$queryRaw<Array<{ id: string; playerOneId: string; playerTwoId: string | null; status: string }>>`
-        SELECT id, "playerOneId", "playerTwoId", status FROM "Match" WHERE id = ${matchId} FOR UPDATE
+        SELECT id, "playerOneId", "playerTwoId", status FROM "Match" WHERE id = ${matchId}::uuid FOR UPDATE
       `;
       const match = matches[0];
       if (!match || ![match.playerOneId, match.playerTwoId].includes(me.id)) throw new Error("NOT_PARTICIPANT");
@@ -119,15 +121,18 @@ export async function PATCH(request: NextRequest) {
   if (!id || !isDecision(decisionValue)) return NextResponse.json({ error: "Invalid dispute decision" }, { status: 400 });
 
   try {
-    const result = await prisma.$transaction(async tx => {
+    const result = await withDemoPolicyTransaction(async ({ db: tx, demo }) => {
       const disputes = await tx.$queryRaw<Array<any>>`
-        SELECT id, "matchId", "reporterId", status, "adminDecision" FROM "Dispute" WHERE id = ${id} FOR UPDATE
+        SELECT id, "matchId", "reporterId", status, "adminDecision" FROM "Dispute" WHERE id = ${id}::uuid FOR UPDATE
       `;
       const d = disputes[0];
       if (!d) throw new Error("NOT_FOUND");
-      if (["RESOLVED_BY_ADMIN", "CLOSED"].includes(d.status)) return { id: d.id, idempotent: true };
+      if (["RESOLVED_BY_ADMIN", "CLOSED"].includes(d.status)) {
+        if (d.adminDecision !== decisionValue) throw new Error("DISPUTE_DECISION_CONFLICT");
+        return { id: d.id, idempotent: true };
+      }
 
-      const matches = await tx.$queryRaw<Array<any>>`SELECT * FROM "Match" WHERE id = ${d.matchId} FOR UPDATE`;
+      const matches = await tx.$queryRaw<Array<any>>`SELECT * FROM "Match" WHERE id = ${d.matchId}::uuid FOR UPDATE`;
       const match = matches[0];
       if (!match || match.status !== "DISPUTED") throw new Error("MATCH_STATE");
       const stake = Number(match.betAmount);
@@ -135,11 +140,20 @@ export async function PATCH(request: NextRequest) {
       const p1 = String(match.playerOneId), p2 = String(match.playerTwoId || "");
       if (!p2) throw new Error("INVALID_PLAYERS");
 
+      const winnerId = decisionValue === "WINNER_PLAYER_ONE" ? p1 : decisionValue === "WINNER_PLAYER_TWO" ? p2 : null;
+      const loserId = winnerId ? (winnerId === p1 ? p2 : p1) : null;
+      if (match.economyMode === "DEMO") {
+        const demoStake = new Prisma.Decimal(String(match.betAmount));
+        const demoFee = new Prisma.Decimal(String(match.commission));
+        await demo.resolveDemoDispute(match.id, id, decisionValue, winnerId, demoStake, demoFee);
+        const updatedMatch = await tx.match.update({ where: { id: match.id }, data: { status: winnerId ? "FINISHED" : "CANCELLED", winnerId, loserId, endedAt: new Date(), connectionPhaseCompleted: true } });
+        const updatedDispute = await tx.dispute.update({ where: { id }, data: { adminDecision: decisionValue, status: "RESOLVED_BY_ADMIN", adminNotes: String(body.notes || "").slice(0, 2000), resolvedAt: new Date() } });
+        return { dispute: updatedDispute, match: updatedMatch, idempotent: false };
+      }
+
       const wallets = await tx.wallet.findMany({ where: { userId: { in: [p1, p2] } }, select: { userId: true } });
       if (wallets.length !== 2) throw new Error("WALLET");
 
-      const winnerId = decisionValue === "WINNER_PLAYER_ONE" ? p1 : decisionValue === "WINNER_PLAYER_TWO" ? p2 : null;
-      const loserId = winnerId ? (winnerId === p1 ? p2 : p1) : null;
       if (winnerId) {
         const payout = Math.max(0, Number((stake * 2 - Number(match.commission)).toFixed(4)));
         const credited = await creditWallet(tx, winnerId, payout, `dispute-win:${id}`, "MATCH_WIN", "Dispute resolution payout", match.id);
@@ -168,6 +182,9 @@ export async function PATCH(request: NextRequest) {
     const code = error instanceof Error ? error.message : "";
     const map: Record<string, [string, number]> = { NOT_FOUND: ["Dispute not found", 404], MATCH_STATE: ["Match is not awaiting dispute resolution", 409], LOCKED_STAKE: ["Locked stake is unavailable", 409], INVALID_STAKE: ["Invalid match stake", 409], INVALID_PLAYERS: ["Match has invalid players", 409], WALLET: ["Player wallet not found", 500] };
     if (map[code]) return NextResponse.json({ error: map[code][0] }, { status: map[code][1] });
+      if (code === "DISPUTE_DECISION_CONFLICT" || code === "DISPUTE_DECISION_MISMATCH") return NextResponse.json({ error: "Dispute decision conflicts with its current state" }, { status: 409 });
+      if (code === "INVALID_MATCH_PLAYERS") return NextResponse.json({ error: "Match participant data is inconsistent" }, { status: 409 });
+      if (code.startsWith("DEMO_SETTLEMENT_") || code === "DEMO_DISPUTE_ADJUSTMENT_PARTIAL") return NextResponse.json({ error: "DEMO settlement data is inconsistent; no changes were applied", errorCode: code }, { status: 409 });
     console.error(error); return NextResponse.json({ error: "Failed to resolve dispute" }, { status: 500 });
   }
 }
