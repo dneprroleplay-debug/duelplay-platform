@@ -1,0 +1,14 @@
+[Unit]
+Description=DuelPlay shared CS2 installation daily update and readiness verification
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/duelplay-app
+EnvironmentFile=/home/ubuntu/duelplay-app/scripts/server-manager/.env
+ExecStart=/usr/bin/flock --nonblock /home/ubuntu/cs2/.duelplay-cs2-update.lock /usr/local/bin/node /home/ubuntu/duelplay-app/scripts/server-manager/update-all.mjs
+TimeoutStartSec=90min
+StandardOutput=journal
+StandardError=journal

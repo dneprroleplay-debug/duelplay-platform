@@ -8,6 +8,7 @@ import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { assertAccountCanPlay } from "@/lib/anti-fraud";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
+import { assertMatchmakingAvailable } from "@/lib/maintenance";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -20,6 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const idempotencyKey = `match-join:${user.id}:${id}:${clientKey}`;
 
     const join = async (tx: Prisma.TransactionClient, demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) => {
+      await assertMatchmakingAvailable(tx);
       await assertAccountCanPlay(tx, user.id);
       await enforceRateLimit(tx, user.id, "MATCH_JOIN", 20, 60_000);
       if (demoContext) {
@@ -81,6 +83,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json(updated);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "";
+    if (msg === "CS2_MAINTENANCE") return NextResponse.json({ error: "Идёт обновление серверов CS2. Пожалуйста, подождите", errorCode: msg }, { status: 503 });
     if (msg === "NOT_FOUND") return NextResponse.json({ error: "Матч не найден", errorCode: "MATCH_NOT_FOUND" }, { status: 404 });
     if (msg === "PLAYER_BUSY") return NextResponse.json({ error: "У вас уже есть активная дуэль. Сначала завершите текущую дуэль.", errorCode: msg }, { status: 409 });
     if (msg === "OWN_MATCH") return NextResponse.json({ error: "Нельзя присоединиться к своему матчу", errorCode: msg }, { status: 409 });

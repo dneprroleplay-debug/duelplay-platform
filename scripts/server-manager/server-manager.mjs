@@ -34,6 +34,7 @@ const MANAGER_PORT = Number(process.env.DUELPLAY_MANAGER_PORT || 3010);
 const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
 const HEARTBEAT_MS = 1000;
+const MANAGER_HEARTBEAT_MS = 10000;
 const CONNECT_TIMEOUT_MS = Number(process.env.DUELPLAY_CONNECTION_TIMEOUT_MS || 5 * 60 * 1000);
 const SERVER_START_TIMEOUT_MS = Number(process.env.DUELPLAY_SERVER_START_TIMEOUT_MS || 2 * 60 * 1000);
 const PORT_PROBE_TIMEOUT_MS = Number(process.env.DUELPLAY_PORT_PROBE_TIMEOUT_MS || 1500);
@@ -52,6 +53,8 @@ let connectedSteamIds = [];
 let connectionPhaseCompleted = false;
 let duelRulesAppliedAfterConnect = false;
 let lastHeartbeatSentAt = 0;
+let lastManagerHeartbeatAt = 0;
+let localServerHealthy = true;
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
@@ -209,34 +212,37 @@ function ensureMetamodGameInfo() {
 }
 
 function updateCs2Server() {
-  if (!CS2_AUTO_UPDATE) {
-    console.log('[DuelPlay] CS2_AUTO_UPDATE=false; using the installed CS2 server build');
-    return;
-  }
+  if (CS2_AUTO_UPDATE) {
+    console.log(`[DuelPlay] updating CS2 dedicated server via ${STEAMCMD_BIN} (app ${CS2_APP_ID})`);
+    const result = spawnSync(
+      STEAMCMD_BIN,
+      ['+force_install_dir', CS2_STEAMCMD_DIR, '+login', 'anonymous', '+app_update', String(CS2_APP_ID), 'validate', '+quit'],
+      { stdio: 'inherit', cwd: CS2_DIR, env: process.env }
+    );
 
-  console.log(`[DuelPlay] updating CS2 dedicated server via ${STEAMCMD_BIN} (app ${CS2_APP_ID})`);
-  const result = spawnSync(
-    STEAMCMD_BIN,
-    ['+force_install_dir', CS2_STEAMCMD_DIR, '+login', 'anonymous', '+app_update', String(CS2_APP_ID), 'validate', '+quit'],
-    { stdio: 'inherit', cwd: CS2_DIR, env: process.env }
-  );
+    if (result.error) {
+      throw new Error(`SteamCMD update failed to start: ${result.error.message}. Set STEAMCMD_BIN or CS2_AUTO_UPDATE=false if SteamCMD is installed elsewhere.`);
+    }
 
-  if (result.error) {
-    throw new Error(`SteamCMD update failed to start: ${result.error.message}. Set STEAMCMD_BIN or CS2_AUTO_UPDATE=false if SteamCMD is installed elsewhere.`);
-  }
-
-  if (result.status !== 0) {
-    throw new Error(`SteamCMD CS2 update failed with exit code ${result.status}`);
+    if (result.status !== 0) {
+      throw new Error(`SteamCMD CS2 update failed with exit code ${result.status}`);
+    }
+  } else {
+    console.log('[DuelPlay] CS2_AUTO_UPDATE=false; using the centrally updated shared CS2 installation');
   }
 
   ensureMetamodGameInfo();
-  console.log('[DuelPlay] CS2 dedicated server update/validation completed');
+  if (CS2_AUTO_UPDATE) console.log('[DuelPlay] CS2 dedicated server update/validation completed');
 }
 
 function writeConfigs() {
+  const writeIfMissing = (filePath, contents) => {
+    if (existsSync(filePath)) return;
+    writeFileSync(filePath, contents);
+  };
   const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
   mkdirSync(cfgDir, { recursive: true });
-  writeFileSync(join(cfgDir, 'gamemode_competitive_server.cfg'), [
+  writeIfMissing(join(cfgDir, 'gamemode_competitive_server.cfg'), [
     '// DuelPlay managed CS2 1v1 server',
     'bot_quota 0',
     'bot_quota_mode normal',
@@ -275,10 +281,11 @@ function writeConfigs() {
     ['duelplay_first_to_10.cfg', 'FIRST_TO_10', null],
   ]) {
     const rules = buildDuelModeCommands(mode, modifier);
-    writeFileSync(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
+    writeIfMissing(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
   }
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
-  writeFileSync(join(cfgDir, 'gamestate_integration_duelplay.cfg'), gsi);
+  const gsiPath = join(cfgDir, 'gamestate_integration_duelplay.cfg');
+  if (!existsSync(gsiPath) || readFileSync(gsiPath, 'utf8') !== gsi) writeFileSync(gsiPath, gsi);
 }
 
 function command(text) {
@@ -706,6 +713,7 @@ async function claimAndStart(match) {
 
   console.log(`[DuelPlay] starting ${match.id} on ${runtimeHost}:${runtimePort}${workshopId ? ` workshop=${workshopId}` : ''}`);
   const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: process.env });
+  localServerHealthy = false;
   current = {
     id: match.id,
     serverId: claimed.serverId,
@@ -760,6 +768,7 @@ async function claimAndStart(match) {
   });
   child.stderr.on('data', (chunk) => process.stderr.write(`[CS2:ERR] ${chunk}`));
   child.on('error', async (error) => {
+    localServerHealthy = false;
     console.error('[DuelPlay] CS2 process error', error);
     const failed = current;
     if (!failed) return;
@@ -772,6 +781,7 @@ async function claimAndStart(match) {
   child.on('exit', async (code, signal) => {
     clearCurrentTimers();
     const finished = current;
+    localServerHealthy = serverReadyAt > 0;
     current = null;
     if (!finished) return;
     console.log(`[DuelPlay] CS2 exited code=${code} signal=${signal}`);
@@ -815,6 +825,7 @@ async function claimAndStart(match) {
         body: JSON.stringify({ action: 'ready', serverId: current.serverId, host: runtimeHost, port: runtimePort, processId: current.process.pid })
       });
       serverReadyAt = Date.now();
+      localServerHealthy = true;
       connectedSteamIds = [];
       connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
@@ -895,6 +906,7 @@ async function claimAndStart(match) {
 
   startupDeadlineTimer = setTimeout(async () => {
     if (!current || current.id !== match.id || serverReadyAt || shuttingDown) return;
+    localServerHealthy = false;
     console.log(`[DuelPlay] server startup timeout for ${match.id}, cancelling match`);
     try {
       await api(`/api/matches/${match.id}/server`, {
@@ -906,6 +918,15 @@ async function claimAndStart(match) {
     }
     command('quit');
   }, SERVER_START_TIMEOUT_MS);
+}
+
+async function reportManagerHealth() {
+  if (current || Date.now() - lastManagerHeartbeatAt < MANAGER_HEARTBEAT_MS) return;
+  await api('/api/server-manager/health', {
+    method: 'POST',
+    body: JSON.stringify({ serverName: SERVER_ID, host: HOST, port: PORT, managerPort: MANAGER_PORT, ready: localServerHealthy })
+  });
+  lastManagerHeartbeatAt = Date.now();
 }
 
 async function reportWinner(winnerSteamId, reason) {
@@ -1171,7 +1192,8 @@ createServer((req, res) => {
 async function loop() {
   try {
     if (!current) {
-      const queue = await api('/api/server-manager/queue');
+      await reportManagerHealth();
+      const queue = await api(`/api/server-manager/queue?serverId=${encodeURIComponent(SERVER_ID)}`);
       if (queue.pending) await claimAndStart(queue.pending);
     } else {
       scanLatestServerLog();

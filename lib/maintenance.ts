@@ -1,8 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { hasAdminLevel } from "@/lib/role-policy";
+import type { Prisma } from "@prisma/client";
 
-export const MAINTENANCE_MESSAGE = "DuelPlay is temporarily under maintenance. Please try again soon.";
+export const MAINTENANCE_MESSAGE = "Идёт обновление серверов CS2. Пожалуйста, подождите";
+
+const MATCH_MAINTENANCE_LOCK = "duelplay:maintenance-match-ops";
+
+export async function assertMatchmakingAvailable(tx: Prisma.TransactionClient) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${MATCH_MAINTENANCE_LOCK}))`;
+  const maintenance = await tx.featureFlag.findUnique({ where: { key: "MAINTENANCE_MODE" } });
+  if (maintenance?.enabled) throw new Error("CS2_MAINTENANCE");
+}
+
+export async function lockMaintenanceChanges(tx: Prisma.TransactionClient) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${MATCH_MAINTENANCE_LOCK}))`;
+}
 
 export async function getMaintenanceState() {
   const row = await prisma.featureFlag.findUnique({ where: { key: "MAINTENANCE_MODE" } });
