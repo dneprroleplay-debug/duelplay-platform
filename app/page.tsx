@@ -121,7 +121,7 @@ function HomeContent(){
         <div className="hero-base-overlay absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,47,145,.14),transparent_34%),linear-gradient(180deg,rgba(5,5,7,.18),rgba(5,5,7,.10)_48%,rgba(5,5,7,.72)_100%)]"/>
         <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(5,5,7,.72)_0%,transparent_28%,transparent_72%,rgba(5,5,7,.22)_100%)]"/>
         <div className="home-hero-content relative z-10 mx-auto flex max-w-7xl flex-col items-center px-4 text-center sm:px-6">
-          <span className="pill">1V1 В· CS2 В· REAL MATCHES</span>
+          <span className="pill"><span data-no-i18n>1v1</span> · CS2 · REAL MATCHES</span>
           <h1 className="home-hero-title mt-3 max-w-5xl font-black uppercase tracking-[-.055em]">{t.heroTitleNew}</h1>
           <p className="home-hero-subtitle mt-2 max-w-4xl text-base leading-7 text-zinc-200 sm:text-lg">{t.heroTextNew}</p>
           <div className="home-hero-bottom">
@@ -131,7 +131,7 @@ function HomeContent(){
             </div>
             <div className="mt-4 grid w-full max-w-3xl grid-cols-3 gap-2 sm:gap-3">
               <Stat value={String(count)} label={t.activeDuels}/>
-              <Stat value="1С…1" label={t.formatLabel}/>
+              <Stat value={<span data-no-i18n>1v1</span>} label={t.formatLabel}/>
               <Stat value="10%" label={t.commissionLabel}/>
             </div>
           </div>
@@ -165,11 +165,11 @@ function HomeContent(){
         <div className="panel rounded-3xl p-8 sm:p-10"><div className="grid gap-8 lg:grid-cols-[1fr_1.5fr]"><div><span className="pill">RANKING</span><h2 className="mt-4 text-4xl font-black uppercase">{t.ratingTitle}</h2><p className="mt-3 text-zinc-500">{t.ratingText}</p></div><Ranking/></div></div>
       </section>
     </main>
-    <footer className="border-t border-white/5 py-8 text-center text-sm text-zinc-600">DUELPLAY В· CS2 1V1 В· 2026</footer>
+    <footer className="border-t border-white/5 py-8 text-center text-sm text-zinc-600">DUELPLAY · CS2 · <span data-no-i18n>1v1</span> · 2026</footer>
   </div>
 }
 
-function Stat({value,label}:{value:string;label:string}){return <div className="panel rounded-2xl border-white/10 bg-black/30 p-4"><div className="text-2xl font-black text-pink-400">{value}</div><div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">{label}</div></div>}
+function Stat({value,label}:{value:React.ReactNode;label:string}){return <div className="panel rounded-2xl border-white/10 bg-black/30 p-4"><div className="text-2xl font-black text-pink-400">{value}</div><div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">{label}</div></div>}
 function HowItWorks(){const{t}=useLanguage();return <div className="panel rounded-3xl p-7 sm:p-9"><span className="pill">{t.howItWorks}</span><h2 className="mt-4 text-3xl font-black uppercase">{t.fromDuelToWin}</h2><div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">{[["01",t.stepCreateMatchTitle,t.stepCreateMatchText],["02",t.stepFindOpponentTitle,t.stepFindOpponentText],["03",t.stepPlayTitle,t.stepPlayText],["04",t.stepWinningsTitle,t.stepWinningsText]].map(([n,x,d])=><div key={n} className="group rounded-2xl border border-white/5 bg-white/[.025] p-4 transition hover:-translate-y-0.5 hover:border-pink-400/20"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-pink-400/10 text-xs font-black text-pink-400">{n}</span><div className="font-bold">{x}</div></div><div className="mt-2 pl-11 text-xs leading-5 text-zinc-500">{d}</div></div>)}</div></div>}
 function Ranking(){const [users,setUsers]=useState<any[]>([]);useEffect(()=>{fetch("/api/ranking",{cache:"no-store"}).then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])).catch(()=>{})},[]);return <div className="grid gap-3 sm:grid-cols-3">{users.slice(0,3).map((u,i)=><div key={u.nickname} className={`rounded-2xl bg-white/[.03] p-4 transition hover:-translate-y-0.5 hover:bg-white/[.06] ${i===0?"ring-1 ring-pink-400/30":""}`}><div className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-pink-400/10 text-sm font-black text-pink-300">#{i+1}</span><div className="min-w-0"><div data-player-name className="truncate font-bold">{u.nickname}</div><div className="mt-1 text-xs text-zinc-500">Level {u.level}</div></div></div><div className="mt-4 text-xl font-black text-pink-400">{u.rating} <span className="text-xs text-zinc-600">RATING</span></div></div>)}</div>}
 

@@ -64,7 +64,7 @@ export default function DemoCreateMatch() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <label className="text-xs font-bold text-zinc-500">{copy.stake}<input className="input mt-2" type="number" min="3" max="10000" step="0.01" value={stake} onChange={event => setStake(event.target.value)} /></label>
         <label className="text-xs font-bold text-zinc-500">{copy.map}<select className="input mt-2" value={mapName} onChange={event => setMapName(event.target.value)}>{DUEL_MAPS.map(item => <option key={item.id} value={item.serverMapName}>{item.displayName}</option>)}</select></label>
-        <label className="text-xs font-bold text-zinc-500 sm:col-span-2">{copy.mode}<select className="input mt-2" value={mode} onChange={event => setMode(event.target.value as DuelModeId)}>{DUEL_MODES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <label className="text-xs font-bold text-zinc-500 sm:col-span-2">{copy.mode}<select className="input mt-2" value={mode} onChange={event => setMode(event.target.value as DuelModeId)}>{DUEL_MODES.map(item => <option data-no-i18n key={item.id} value={item.id}>{item.label}</option>)}</select></label>
       </div>
       {message && <p data-no-i18n role="alert" className="mt-4 text-sm text-red-300">{message}</p>}
       <button disabled={!wallet || busy || Number(stake) > Number(wallet.balance)} onClick={create} className="mt-6 w-full rounded-xl bg-pink-400 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-40">{busy ? "…" : copy.create}</button>

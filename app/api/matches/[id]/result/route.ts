@@ -113,7 +113,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const winnerWeapon = typeof winnerStats.weapon === 'string' ? winnerStats.weapon : null;
       await evaluateAndUnlockAchievements(tx, winnerId, { matchId: match.id, won: true, weapon: winnerWeapon });
       await evaluateAndUnlockAchievements(tx, loserId, { matchId: match.id, won: false, weapon: typeof loserStats.weapon === 'string' ? loserStats.weapon : null });
-      await tx.notification.create({ data: { userId: winnerId, type: "WIN", title: "Победа в дуэли", body: `Ты победил в CS2 1х1 и получил $${payout.toFixed(2)}.`, payload: { matchId: match.id, payout } } });
+      await tx.notification.create({ data: { userId: winnerId, type: "WIN", title: "Победа в дуэли", body: `Ты победил в CS2 1v1 и получил $${payout.toFixed(2)}.`, payload: { matchId: match.id, payout } } });
       await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "Матч завершён", body: "Дуэль завершена. Победитель подтверждён игровым сервером.", payload: { matchId: match.id } } });
 
       const serverCfg = record(match.serverConfig);
