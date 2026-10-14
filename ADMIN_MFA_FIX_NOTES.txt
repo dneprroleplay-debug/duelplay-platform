@@ -1,0 +1,13 @@
+DuelPlay Admin MFA fix notes
+
+Changes:
+- Admin login password visibility toggle.
+- Admin MFA setup generates a QR code locally on the server from the exact otpauth:// URI. No third-party QR service receives the secret.
+- Added copy buttons for the MFA secret and otpauth URI in the current MFA gate and legacy admin panel.
+- Admin Center stops realtime polling while MFA setup/verification is required, recognizes MFA errors from access and realtime endpoints, and displays the MFA gate instead of remaining on the loading screen.
+- Preserved the admin invite refresh fix present in duelplay-app-admin-invite-fix.zip.
+
+Validation:
+- TypeScript/TSX syntax transpilation passed for all changed TypeScript files.
+- QR encoder smoke test passed (37x37 QR matrix generated from an otpauth URI).
+- Full Next.js production build could not be completed in this environment: npm dependency installation timed out and `npm run build` stopped because Prisma CLI was unavailable. Run `npm ci` then `npm run build` locally or in CI before deploying.

@@ -1,0 +1,952 @@
+﻿
+===== FILE: app/admin/access/page.tsx =====
+
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useTheme } from "@/components/Common/ThemeProvider";
+import { LegacyAdminPanel } from "@/components/Admin";
+import { formatMatchAmount } from "@/lib/match-currency";
+
+type Role = { code: string; level: number; title: string; description: string; permissions: string[] };
+type AccessData = {
+  me: { id: string; nickname: string; roleCode: string | null; level: number; permissions: string[] };
+  founder: boolean;
+  roles: Role[];
+  assignments: Array<{ id: string; userId: string; roleCode: string; level: number; user: { id: string; nickname: string; steamId: string | null; role: string; status: string } }>;
+  users: Array<{ id: string; nickname: string; steamId: string | null; role: string; status: string }>;
+};
+type LiveData = {
+  counters: { users: number | null; online: number | null; matches24h: number | null; liveMatches: number | null; matchCounts?: { real24h: number; demo24h: number; realLive: number; demoLive: number } | null; servers: number | null; openDisputes: number | null; openFraud: number | null; pendingWithdrawals: number | null; pendingDeposits: number | null };
+  activeMatches: Array<{ id: string; status: string; economyMode: "REAL" | "DEMO"; mapName: string | null; betAmount: unknown; createdAt: string; playerOne: { nickname: string }; playerTwo: { nickname: string } | null }>;
+};
+type Command = { permission: string; title: string; description: string; group: string; icon: string; tab?: string; danger?: boolean };
+
+const ROLE_COLORS: Record<string, string> = {
+  SUPERADMIN: "border-pink-400/45 bg-pink-400/[.08]",
+  FINANCIAL_ADMIN: "border-emerald-400/30 bg-emerald-400/[.05]",
+  ADMIN: "border-sky-400/25 bg-sky-400/[.04]",
+  MODERATOR: "border-violet-400/25 bg-violet-400/[.04]",
+  SUPPORT: "border-cyan-400/25 bg-cyan-400/[.04]",
+  AUDITOR: "border-zinc-400/20 bg-white/[.025]",
+  TECH_ADMIN: "border-blue-400/25 bg-blue-400/[.04]",
+  CONTENT_ADMIN: "border-fuchsia-400/25 bg-fuchsia-400/[.04]",
+  ANALYST: "border-indigo-400/25 bg-indigo-400/[.04]",
+  SECURITY_ADMIN: "border-red-400/30 bg-red-400/[.04]",
+  FOUNDER: "border-amber-400/60 bg-amber-400/[.07] shadow-[0_0_60px_rgba(245,196,81,.12)]",
+};
+
+const COMMANDS: Command[] = ([
+  ["users.view","РџРѕР»СЊР·РѕРІР°С‚РµР»Рё","РџСЂРѕСЃРјРѕС‚СЂ СЃРїРёСЃРєР° РёРіСЂРѕРєРѕРІ, РїСЂРѕС„РёР»РµР№ Рё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°.","РџРѕР»СЊР·РѕРІР°С‚РµР»Рё","в™џ","users"],
+  ["users.restrict","РћРіСЂР°РЅРёС‡РµРЅРёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№","Р‘Р»РѕРєРёСЂРѕРІРєР°, РїСЂРёРѕСЃС‚Р°РЅРѕРІРєР° Рё СЃРЅСЏС‚РёРµ РѕРіСЂР°РЅРёС‡РµРЅРёР№ СЃ Р°РєРєР°СѓРЅС‚РѕРІ.","РџРѕР»СЊР·РѕРІР°С‚РµР»Рё","в›”","users",true],
+  ["matches.view","РњР°С‚С‡Рё","РџСЂРѕСЃРјРѕС‚СЂ Р°РєС‚РёРІРЅС‹С…, РѕР¶РёРґР°СЋС‰РёС… Рё Р·Р°РІРµСЂС€С‘РЅРЅС‹С… РјР°С‚С‡РµР№.","РњР°С‚С‡Рё","вљ”","matches"],
+  ["matches.cancel","РћС‚РјРµРЅР° РјР°С‚С‡Р°","РћС‚РјРµРЅР° Р°РєС‚РёРІРЅРѕРіРѕ РјР°С‚С‡Р° СЃ С€С‚Р°С‚РЅС‹Рј РІРѕР·РІСЂР°С‚РѕРј СЃС‚Р°РІРѕРє.","РњР°С‚С‡Рё","Г—","matches",true],
+  ["matches.investigate","Р Р°СЃСЃР»РµРґРѕРІР°РЅРёРµ РјР°С‚С‡Р°","РџСЂРѕРІРµСЂРєР° С…РѕРґР° РјР°С‚С‡Р°, РёРіСЂРѕРєРѕРІ Рё РґРѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІ.","РњР°С‚С‡Рё","вЊ•","matches"],
+  ["disputes.view","РЎРїРѕСЂС‹","РџСЂРѕСЃРјРѕС‚СЂ РѕС‚РєСЂС‹С‚С‹С… Рё Р·Р°РІРµСЂС€С‘РЅРЅС‹С… СЃРїРѕСЂРѕРІ.","РЎРїРѕСЂС‹","вљ–","security"],
+  ["disputes.resolve","Р РµС€РµРЅРёРµ СЃРїРѕСЂР°","Р Р°Р·Р±РѕСЂ РґРѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІ Рё С„РёРєСЃР°С†РёСЏ СЂРµС€РµРЅРёСЏ СЃРїРѕСЂР°.","РЎРїРѕСЂС‹","вњ“","security",true],
+  ["evidence.view","Р”РѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІР°","РџСЂРѕСЃРјРѕС‚СЂ РјР°С‚РµСЂРёР°Р»РѕРІ, РїСЂРёРєСЂРµРїР»С‘РЅРЅС‹С… Рє СЃРїРѕСЂСѓ РёР»Рё СЂР°СЃСЃР»РµРґРѕРІР°РЅРёСЋ.","РЎРїРѕСЂС‹","в–Ј","security"],
+  ["evidence.manage","РЈРїСЂР°РІР»РµРЅРёРµ РґРѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІР°РјРё","Р”РѕР±Р°РІР»РµРЅРёРµ Рё РёР·РјРµРЅРµРЅРёРµ РјР°С‚РµСЂРёР°Р»РѕРІ СЂР°СЃСЃР»РµРґРѕРІР°РЅРёСЏ.","РЎРїРѕСЂС‹","вњ¦","security",true],
+  ["incidents.view","РРЅС†РёРґРµРЅС‚С‹","РџСЂРѕСЃРјРѕС‚СЂ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹С… Рё security-РёРЅС†РёРґРµРЅС‚РѕРІ.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","!","security"],
+  ["incidents.manage","РЈРїСЂР°РІР»РµРЅРёРµ РёРЅС†РёРґРµРЅС‚Р°РјРё","Р Р°Р±РѕС‚Р° СЃ РёРЅС†РёРґРµРЅС‚Р°РјРё Рё РёС… СЃС‚Р°С‚СѓСЃР°РјРё.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","!","security",true],
+  ["risk.cases.review","Risk cases","РџСЂРѕРІРµСЂРєР° fraud/risk-РєРµР№СЃРѕРІ Рё СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃСЃР»РµРґРѕРІР°РЅРёСЏ.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","в—€","security",true],
+  ["security.view","Security Center","РћР±Р·РѕСЂ security-СЃРѕР±С‹С‚РёР№ Рё СЃРѕСЃС‚РѕСЏРЅРёСЏ Р·Р°С‰РёС‚С‹.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","рџ›Ў","security"],
+  ["security.manage","РЈРїСЂР°РІР»РµРЅРёРµ Р±РµР·РѕРїР°СЃРЅРѕСЃС‚СЊСЋ","РР·РјРµРЅРµРЅРёРµ security-РЅР°СЃС‚СЂРѕРµРє Рё СЂРµР°РєС†РёСЏ РЅР° СѓРіСЂРѕР·С‹.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","вЊ¬","security",true],
+  ["security.sessions.revoke","РћС‚РѕР·РІР°С‚СЊ СЃРµСЃСЃРёСЋ","Р—Р°РІРµСЂС€РёС‚СЊ РІС‹Р±СЂР°РЅРЅСѓСЋ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєСѓСЋ СЃРµСЃСЃРёСЋ.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","в†Є","security",true],
+  ["security.sessions.revoke_all","РћС‚РѕР·РІР°С‚СЊ РІСЃРµ СЃРµСЃСЃРёРё","Р­РєСЃС‚СЂРµРЅРЅС‹Р№ logout Р°РєС‚РёРІРЅС‹С… СЃРµСЃСЃРёР№.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","вЏЏ","security",true],
+  ["security.mfa.manage","MFA","РЈРїСЂР°РІР»РµРЅРёРµ MFA РґР»СЏ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","#","security",true],
+  ["security.devices.view","РЈСЃС‚СЂРѕР№СЃС‚РІР°","РџСЂРѕСЃРјРѕС‚СЂ РїСЂРёРІСЏР·Р°РЅРЅС‹С… СѓСЃС‚СЂРѕР№СЃС‚РІ Рё РєРѕРЅС‚РµРєСЃС‚Р° Р±РµР·РѕРїР°СЃРЅРѕСЃС‚Рё.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","вЊЃ","security"],
+  ["security.login_history.view","РСЃС‚РѕСЂРёСЏ РІС…РѕРґРѕРІ","РџСЂРѕСЃРјРѕС‚СЂ РёСЃС‚РѕСЂРёРё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹С… РІС…РѕРґРѕРІ.","Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ","в—·","security"],
+  ["finance.view","Р¤РёРЅР°РЅСЃС‹","РџСЂРѕСЃРјРѕС‚СЂ С„РёРЅР°РЅСЃРѕРІРѕРіРѕ С†РµРЅС‚СЂР° Рё РґРµРЅРµР¶РЅС‹С… РѕРїРµСЂР°С†РёР№.","Р¤РёРЅР°РЅСЃС‹","$","finance"],
+  ["ledger.view","Ledger","РџСЂРѕСЃРјРѕС‚СЂ РЅРµРёР·РјРµРЅСЏРµРјРѕР№ С„РёРЅР°РЅСЃРѕРІРѕР№ РёСЃС‚РѕСЂРёРё.","Р¤РёРЅР°РЅСЃС‹","в–¤","finance"],
+  ["deposits.review","Р”РµРїРѕР·РёС‚С‹","РџСЂРѕРІРµСЂРєР° РґРµРїРѕР·РёС‚РЅС‹С… РѕРїРµСЂР°С†РёР№ Рё РёС… СЃС‚Р°С‚СѓСЃРѕРІ.","Р¤РёРЅР°РЅСЃС‹","в†“","finance"],
+  ["withdrawals.review","Р’С‹РІРѕРґС‹","РџСЂРѕРІРµСЂРєР° Р·Р°СЏРІРѕРє РЅР° РІС‹РІРѕРґ СЃСЂРµРґСЃС‚РІ.","Р¤РёРЅР°РЅСЃС‹","в†‘","finance"],
+  ["withdrawals.approve","РћРґРѕР±СЂРµРЅРёРµ РІС‹РІРѕРґР°","РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ РІС‹РїР»Р°С‚С‹ РїРѕСЃР»Рµ РїСЂРѕРІРµСЂРєРё.","Р¤РёРЅР°РЅСЃС‹","вњ“","finance",true],
+  ["withdrawals.reject","РћС‚РєР»РѕРЅРµРЅРёРµ РІС‹РІРѕРґР°","РћС‚РєР»РѕРЅРµРЅРёРµ РІС‹РІРѕРґР° СЃ РІРѕР·РІСЂР°С‚РѕРј СѓРґРµСЂР¶Р°РЅРёСЏ РїРѕ РїСЂР°РІРёР»Р°Рј.","Р¤РёРЅР°РЅСЃС‹","Г—","finance",true],
+  ["finance.wallet.adjust","РР·РјРµРЅРµРЅРёРµ Р±Р°Р»Р°РЅСЃР°","РђРґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅР°СЏ РєРѕСЂСЂРµРєС‚РёСЂРѕРІРєР° Р±Р°Р»Р°РЅСЃР° СЃ Р°СѓРґРёС‚РѕРј РїСЂРёС‡РёРЅС‹.","Р¤РёРЅР°РЅСЃС‹","в—€","users",true],
+  ["finance.freeze","Р—Р°РјРѕСЂРѕР·РєР° С„РёРЅР°РЅСЃРѕРІ","РџСЂРёРѕСЃС‚Р°РЅРѕРІРєР° С„РёРЅР°РЅСЃРѕРІС‹С… РѕРїРµСЂР°С†РёР№ РІ СЂР°РјРєР°С… СЂР°СЃСЃР»РµРґРѕРІР°РЅРёСЏ.","Р¤РёРЅР°РЅСЃС‹","вќ„","finance",true],
+  ["finance.reconciliation.view","РЎРІРµСЂРєР°","РџСЂРѕСЃРјРѕС‚СЂ С„РёРЅР°РЅСЃРѕРІРѕР№ СЃРІРµСЂРєРё.","Р¤РёРЅР°РЅСЃС‹","в‰‹","finance"],
+  ["creator.payouts.manage","Р’С‹РїР»Р°С‚С‹ Р°РІС‚РѕСЂР°Рј","РЈРїСЂР°РІР»РµРЅРёРµ РІС‹РїР»Р°С‚Р°РјРё Creator-РїСЂРѕРіСЂР°РјРјС‹.","Р¤РёРЅР°РЅСЃС‹","в—€","creator",true],
+  ["finance.source_of_funds.view","Source of Funds","РџСЂРѕСЃРјРѕС‚СЂ РёСЃС‚РѕС‡РЅРёРєР° СЃСЂРµРґСЃС‚РІ Рё РєРѕРЅС‚РµРєСЃС‚Р° РїСЂРѕРІРµСЂРєРё.","Р¤РёРЅР°РЅСЃС‹","в—Ћ","finance"],
+  ["servers.view","РЎРµСЂРІРµСЂС‹","РџСЂРѕСЃРјРѕС‚СЂ СЃРѕСЃС‚РѕСЏРЅРёСЏ, РґРѕСЃС‚СѓРїРЅРѕСЃС‚Рё Рё С‚РµРєСѓС‰РµР№ Р·Р°РіСЂСѓР·РєРё CS2-СЃРµСЂРІРµСЂРѕРІ.","РЎРµСЂРІРµСЂС‹","в—€","serverView"],
+  ["servers.manage","РЈРїСЂР°РІР»РµРЅРёРµ СЃРµСЂРІРµСЂР°РјРё","РўРµС…РЅРёС‡РµСЃРєРёР№ СЂР°Р·РґРµР» СЃРµСЂРІРµСЂРѕРІ: СЃРѕСЃС‚РѕСЏРЅРёРµ РїСЂРѕС†РµСЃСЃРѕРІ, РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рё РїР°СЂР°РјРµС‚СЂС‹, РґРѕСЃС‚СѓРїРЅС‹Рµ С‚РµРєСѓС‰РµР№ СЃРёСЃС‚РµРјРµ.","РЎРµСЂРІРµСЂС‹","вљ™","serverManage",true],
+  ["system.logs.view","РўРµС…РЅРёС‡РµСЃРєРёРµ Р»РѕРіРё","РџСЂРѕСЃРјРѕС‚СЂ С‚РµС…РЅРёС‡РµСЃРєРёС… Р»РѕРіРѕРІ Рё РґРёР°РіРЅРѕСЃС‚РёС‡РµСЃРєРѕР№ РёРЅС„РѕСЂРјР°С†РёРё.","РЎРµСЂРІРµСЂС‹","в‰Ў","logs"],
+  ["system.maintenance","Maintenance","РЎРёСЃС‚РµРјРЅРѕРµ РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ Рё СЂРµР¶РёРјС‹ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ.","РЎРµСЂРІРµСЂС‹","вЊ","settings",true],
+  ["system.incidents.view","РЎРёСЃС‚РµРјРЅС‹Рµ РёРЅС†РёРґРµРЅС‚С‹","РџСЂРѕСЃРјРѕС‚СЂ Р°РІР°СЂРёР№РЅС‹С… СЃРёСЃС‚РµРјРЅС‹С… СЃРѕР±С‹С‚РёР№.","РЎРµСЂРІРµСЂС‹","вљ ","security"],
+  ["content.manage","РљРѕРЅС‚РµРЅС‚","РЈРїСЂР°РІР»РµРЅРёРµ РїСѓР±Р»РёС‡РЅС‹Рј РєРѕРЅС‚РµРЅС‚РѕРј DuelPlay.","РљРѕРЅС‚РµРЅС‚","вњ¦","settings"],
+  ["maps.manage","РљР°СЂС‚С‹","РЈРїСЂР°РІР»РµРЅРёРµ РїСѓР»РѕРј РєР°СЂС‚.","РљРѕРЅС‚РµРЅС‚","в–¦","settings"],
+  ["modes.manage","Р РµР¶РёРјС‹","РЈРїСЂР°РІР»РµРЅРёРµ РёРіСЂРѕРІС‹РјРё СЂРµР¶РёРјР°РјРё.","РљРѕРЅС‚РµРЅС‚","в—‰","settings"],
+  ["seasons.manage","РЎРµР·РѕРЅС‹","Р—Р°РїСѓСЃРє СЃРµР·РѕРЅРЅС‹С… СЌС„С„РµРєС‚РѕРІ Рё РєР°Р»РµРЅРґР°СЂСЏ.","РљРѕРЅС‚РµРЅС‚","вќ„","seasons"],
+  ["notifications.send","РЈРІРµРґРѕРјР»РµРЅРёСЏ","РћС‚РїСЂР°РІРєР° СЃРёСЃС‚РµРјРЅС‹С… СѓРІРµРґРѕРјР»РµРЅРёР№ РёРіСЂРѕРєР°Рј.","РљРѕРЅС‚РµРЅС‚","в—‰","notifications"],
+  ["content.skins.manage","РўРѕРї СЃРєРёРЅС‹","РЈРїСЂР°РІР»РµРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёРјРё СЃРєРёРЅР°РјРё.","РљРѕРЅС‚РµРЅС‚","в—‡","skins"],
+  ["content.avatars.manage","РђРІР°С‚Р°СЂС‹","РЈРїСЂР°РІР»РµРЅРёРµ РѕР±С‰РёРј РЅР°Р±РѕСЂРѕРј Р°РІР°С‚Р°СЂРѕРІ.","РљРѕРЅС‚РµРЅС‚","вњ¦","avatars"],
+  ["settings.content.manage","РЎС‚РёР»СЊ DuelPlay","Р“Р»РѕР±Р°Р»СЊРЅР°СЏ РІРёР·СѓР°Р»СЊРЅР°СЏ С‚РµРјР°, С„РѕРЅ Рё РєРѕРЅС‚РµРЅС‚РЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё.","РќР°СЃС‚СЂРѕР№РєРё","в—Њ","settings"],
+  ["settings.manage","РџР»Р°С‚С„РѕСЂРјРµРЅРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё","РР·РјРµРЅРµРЅРёРµ СЃРёСЃС‚РµРјРЅС‹С… РїР°СЂР°РјРµС‚СЂРѕРІ РїР»Р°С‚С„РѕСЂРјС‹.","РќР°СЃС‚СЂРѕР№РєРё","вљ™","settings",true],
+  ["feature_flags.manage","Feature Flags","Р’РєР»СЋС‡РµРЅРёРµ Рё РІС‹РєР»СЋС‡РµРЅРёРµ СЌРєСЃРїРµСЂРёРјРµРЅС‚Р°Р»СЊРЅС‹С… С„СѓРЅРєС†РёР№.","РќР°СЃС‚СЂРѕР№РєРё","вљЎ","settings",true],
+  ["support.view","РџРѕРґРґРµСЂР¶РєР°","РџСЂРѕСЃРјРѕС‚СЂ РѕР±СЂР°С‰РµРЅРёР№ РёРіСЂРѕРєРѕРІ Рё РєРѕРЅС‚РµРєСЃС‚Р° С‚РёРєРµС‚РѕРІ.","РџРѕРґРґРµСЂР¶РєР°","?","support"],
+  ["support.tickets.reply","РћС‚РІРµС‚ РёРіСЂРѕРєСѓ","РћС‚РІРµС‚ РЅР° РѕР±СЂР°С‰РµРЅРёРµ РёРіСЂРѕРєР°.","РџРѕРґРґРµСЂР¶РєР°","в†©","support"],
+  ["support.tickets.manage","РЎС‚Р°С‚СѓСЃС‹ С‚РёРєРµС‚РѕРІ","РќР°Р·РЅР°С‡РµРЅРёРµ, РїРµСЂРµРІРѕРґ Рё Р·Р°РєСЂС‹С‚РёРµ РѕР±СЂР°С‰РµРЅРёР№.","РџРѕРґРґРµСЂР¶РєР°","вњ“","support",true],
+  ["support.tickets.delete","РЈРґР°Р»РµРЅРёРµ С‚РёРєРµС‚Р°","РЈРґР°Р»РµРЅРёРµ СѓСЃС‚Р°СЂРµРІС€РµРіРѕ С‚РёРєРµС‚Р°.","РџРѕРґРґРµСЂР¶РєР°","Г—","support",true],
+  ["reports.view","РћС‚С‡С‘С‚С‹","РџСЂРѕСЃРјРѕС‚СЂ РІРЅСѓС‚СЂРµРЅРЅРёС… РѕС‚С‡С‘С‚РѕРІ Рё Р°СѓРґРёС‚Р°.","РђРЅР°Р»РёС‚РёРєР°","в–¤","logs"],
+  ["analytics.view","РђРЅР°Р»РёС‚РёРєР°","РњРµС‚СЂРёРєРё РїР»Р°С‚С„РѕСЂРјС‹ Рё РѕРїРµСЂР°С†РёРѕРЅРЅС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё.","РђРЅР°Р»РёС‚РёРєР°","в—”","dashboard"],
+  ["admin.audit.view","РђСѓРґРёС‚","РџСЂРѕСЃРјРѕС‚СЂ РёСЃС‚РѕСЂРёРё РґРµР№СЃС‚РІРёР№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ.","РђРЅР°Р»РёС‚РёРєР°","в‰Ў","logs"],
+  ["admin.audit.write","Р—Р°РїРёСЃСЊ Р°СѓРґРёС‚Р°","Р¤РёРєСЃР°С†РёСЏ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹С… РґРµР№СЃС‚РІРёР№ Рё СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ.","РђРЅР°Р»РёС‚РёРєР°","вњЋ","logs",true],
+  ["roles.manage","РЈРїСЂР°РІР»РµРЅРёРµ СЂРѕР»СЏРјРё","РќР°Р·РЅР°С‡РµРЅРёРµ СЂРѕР»РµР№ Рё РєРѕРЅС‚СЂРѕР»СЊ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅРѕРіРѕ РґРѕСЃС‚СѓРїР°.","РђРґРјРёРЅРёСЃС‚СЂРёСЂРѕРІР°РЅРёРµ","в™›","roles",true],
+  ["roles.assign","РќР°Р·РЅР°С‡РµРЅРёРµ СЂРѕР»РµР№","РР·РјРµРЅРµРЅРёРµ СЂРѕР»Рё СЃРѕС‚СЂСѓРґРЅРёРєР° С‡РµСЂРµР· RBAC.","РђРґРјРёРЅРёСЃС‚СЂРёСЂРѕРІР°РЅРёРµ","в™™","roles",true],
+  ["staff.admin_invite","РџСЂРёРіР»Р°С€РµРЅРёСЏ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ","Р’С‹РґР°С‡Р° РѕРґРЅРѕСЂР°Р·РѕРІРѕР№ СЃСЃС‹Р»РєРё РґР»СЏ СЃРѕР·РґР°РЅРёСЏ Р°РґРјРёРЅ-РїР°СЂРѕР»СЏ.","РђРґРјРёРЅРёСЃС‚СЂРёСЂРѕРІР°РЅРёРµ","вњ‰","roles",true],
+] as Array<[string,string,string,string,string,string,boolean?]>).map((x)=>({permission:x[0],title:x[1],description:x[2],group:x[3],icon:x[4],tab:x[5],danger:Boolean(x[6])}));
+
+const GROUP_ICONS: Record<string,string> = { РџРѕР»СЊР·РѕРІР°С‚РµР»Рё:"в™џ", РњР°С‚С‡Рё:"вљ”", РЎРїРѕСЂС‹:"вљ–", Р¤РёРЅР°РЅСЃС‹:"$", РЎРµСЂРІРµСЂС‹:"в—€", РљРѕРЅС‚РµРЅС‚:"вњ¦", РџРѕРґРґРµСЂР¶РєР°:"?", Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ:"рџ›Ў", РђРЅР°Р»РёС‚РёРєР°:"в—”", РќР°СЃС‚СЂРѕР№РєРё:"вљ™", РђРґРјРёРЅРёСЃС‚СЂРёСЂРѕРІР°РЅРёРµ:"в™›" };
+
+function humanRole(code:string){return code.replaceAll("_"," ");}
+
+export default function AdminAccessPage(){
+  const router = useRouter();
+  const { themePreference } = useTheme();
+  const [data,setData]=useState<AccessData|null>(null);
+  const [live,setLive]=useState<LiveData|null>(null);
+  const [error,setError]=useState(""); const [errorCode,setErrorCode]=useState("");
+  const [mfaCode,setMfaCode]=useState("");
+  const [mfaSecret,setMfaSecret]=useState("");
+  const [mfaUri,setMfaUri]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [firstRun,setFirstRun]=useState(()=>{
+    if(typeof window==="undefined") return false;
+    const key="duelplay:admin-onboarding:v2";
+    try{return window.localStorage.getItem(key)!==key}catch{return true}
+  });
+  const [workspace,setWorkspace]=useState<string|null>(null);
+  const [selectedRoleCode,setSelectedRoleCode]=useState<string|null>(null);
+  const [command,setCommand]=useState<Command|null>(null);
+  const [tick,setTick]=useState(0);
+  const [toast,setToast]=useState<string|null>(null);
+  const [adminInviteUrl,setAdminInviteUrl]=useState<string|null>(null);
+  const [inviteCopyStatus,setInviteCopyStatus]=useState("");
+
+  const loadAccess=useCallback(async()=>{
+    try{
+      const r=await fetch("/api/admin/access",{cache:"no-store"});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){
+        if(r.status===401||j.errorCode==="ADMIN_LOGIN_REQUIRED"){router.push("/admin/login");return null;}
+        setErrorCode(j.errorCode||""); setError(j.error||"Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ");
+        return null;
+      }
+      setData(j);
+      setError("");
+      return j as AccessData;
+    }catch{setError("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Admin Center");return null;}
+  },[router]);
+
+  const loadLive=useCallback(async()=>{
+    try{
+      const r=await fetch(`/api/admin/realtime?ts=${Date.now()}`,{cache:"no-store"});
+      if(!r.ok)return;
+      const j=await r.json();
+      setLive(j);
+    }catch{}
+  },[]);
+
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>{void loadAccess();void loadLive()},0);
+    return()=>window.clearTimeout(timer);
+  },[loadAccess,loadLive]);
+  useEffect(()=>{
+    const timer=window.setInterval(()=>{void loadLive(); if(workspace||command)setTick(v=>v+1)},3500);
+    return()=>window.clearInterval(timer);
+  },[loadLive,workspace,command]);
+  useEffect(()=>{
+    const onKey=(e:KeyboardEvent)=>{
+      if(e.key==="Escape"){
+        e.preventDefault();
+        if(command){setCommand(null);setWorkspace("role");}
+        else if(workspace){setWorkspace(null);setSelectedRoleCode(null);}
+      }
+    };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[command,workspace]);
+  useEffect(()=>{
+    if(!data)return;
+    const me = data.me.roleCode;
+    if(me && firstRun===false)return;
+  },[data,firstRun]);
+
+  const roleCommands=useCallback((roleCode:string)=>{
+    const role=data?.roles.find(r=>r.code===roleCode);
+    if(!role)return [] as Command[];
+    if(role.permissions.includes("*"))return COMMANDS;
+    const set=new Set(role.permissions);
+    return COMMANDS.filter(x=>set.has(x.permission));
+  },[data]);
+  const available = useMemo(()=>{
+    if(!data)return [] as Command[];
+    if(data.me.permissions.includes("*"))return COMMANDS;
+    const set=new Set(data.me.permissions);
+    return COMMANDS.filter(x=>set.has(x.permission));
+  },[data]);
+  const selectedRole=useMemo(()=>data?.roles.find(r=>r.code===(selectedRoleCode||data?.me.roleCode))||null,[data,selectedRoleCode]);
+  const selectedRoleCommands=useMemo(()=>selectedRole?roleCommands(selectedRole.code):available,[selectedRole,roleCommands,available]);
+  const groups = useMemo(()=>{
+    const map=new Map<string,Command[]>();
+    for(const c of available)map.set(c.group,[...(map.get(c.group)||[]),c]);
+    return [...map.entries()];
+  },[available]);
+
+  function finishFirstRun(){
+    try{window.localStorage.setItem("duelplay:admin-onboarding:v2","duelplay:admin-onboarding:v2")}catch{}
+    setFirstRun(false);
+  }
+
+  async function verifyMfa(){
+    setBusy(true);setError("");
+    try{
+      const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"verify",code:mfaCode})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"РќРµРІРµСЂРЅС‹Р№ РєРѕРґ MFA");return;}
+      setMfaCode("");
+      await loadAccess();
+      await loadLive();
+    }catch{setError("РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ MFA")}finally{setBusy(false)}
+  }
+  async function setupMfa(){
+    setBusy(true);setError("");
+    try{
+      const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup"})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ MFA");return;}
+      setMfaSecret(String(j.secret||""));setMfaUri(String(j.otpauthUri||""));
+    }catch{setError("РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ MFA")}finally{setBusy(false)}
+  }
+
+  async function assignRole(userId:string,roleCode:string){
+    if(!data)return;
+    setBusy(true);setError("");
+    setAdminInviteUrl(null);setInviteCopyStatus("");
+    try{
+      const r=await fetch("/api/admin/access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId,roleCode})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setToast(j.error||"Р РѕР»СЊ РЅРµ РёР·РјРµРЅРµРЅР°");return;}
+      await loadAccess();
+      if(typeof j.adminInviteUrl==="string"&&j.adminInviteUrl){
+        setAdminInviteUrl(j.adminInviteUrl);
+        setToast(null);
+      }else setToast(`Р РѕР»СЊ ${humanRole(roleCode)} РЅР°Р·РЅР°С‡РµРЅР°`);
+    }catch{setToast("РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ СЂРѕР»СЊ")}finally{setBusy(false)}
+  }
+  async function removeRole(userId:string){
+    setBusy(true);setError("");
+    try{
+      const r=await fetch(`/api/admin/access?userId=${encodeURIComponent(userId)}`,{method:"DELETE"});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){setToast(j.error||"Р РѕР»СЊ РЅРµ СЃРЅСЏС‚Р°");return;}
+      await loadAccess();
+      setToast("RBAC-РЅР°Р·РЅР°С‡РµРЅРёРµ СЃРЅСЏС‚Рѕ");
+    }catch{setToast("РќРµ СѓРґР°Р»РѕСЃСЊ СЃРЅСЏС‚СЊ СЂРѕР»СЊ")}finally{setBusy(false)}
+  }
+
+  const currentRole = data?.roles.find(r=>r.code===data.me.roleCode) || data?.roles.find(r=>r.code==="SUPERADMIN");
+  const roleCards=(data?.roles||[]).slice().sort((a,b)=>a.level-b.level);
+
+  if(!data){
+    const mfaNeeds = error.includes("MFA");
+    return <main className="min-h-[calc(100vh-72px)] bg-black px-4 pb-20 pt-24 text-white"><div className="mx-auto max-w-2xl">{mfaNeeds?<MfaGate error={error} errorCode={errorCode} code={mfaCode} setCode={setMfaCode} secret={mfaSecret} uri={mfaUri} busy={busy} onSetup={setupMfa} onVerify={verifyMfa}/>:<div className="panel rounded-3xl p-8"><div className="text-xs font-black uppercase tracking-[.28em] text-pink-400">DUELPLAY ADMIN</div><h1 className="mt-3 text-3xl font-black">{error||"Р—Р°РіСЂСѓР·РєР° С†РµРЅС‚СЂР° СѓРїСЂР°РІР»РµРЅРёСЏвЂ¦"}</h1><p className="mt-3 text-sm text-zinc-500">РџСЂРѕРІРµСЂСЏРµРј Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅСѓСЋ СЃРµСЃСЃРёСЋ Рё РїСЂР°РІР° РґРѕСЃС‚СѓРїР°.</p></div>}</div></main>
+  }
+
+  if(firstRun){
+    return <main className="fixed inset-0 z-[80] overflow-auto bg-[#050507] text-white"><div className="pointer-events-none absolute inset-0 opacity-50 [background:radial-gradient(circle_at_15%_20%,var(--theme-accent-bg),transparent_35%),radial-gradient(circle_at_85%_75%,rgba(141,255,82,.08),transparent_35%)]"/><div className="relative mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6 py-20"><div className="grid w-full gap-8 lg:grid-cols-[1.05fr_.95fr]"><section className="self-center"><div className="text-xs font-black uppercase tracking-[.3em] text-[var(--theme-accent)]">DUELPLAY ADMIN</div><h1 className="mt-5 text-5xl font-black tracking-tight sm:text-6xl">Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ,<br/><span className="text-[var(--theme-accent)]">{data.me.nickname}</span></h1><p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-400">РўРІРѕР№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹Р№ С†РµРЅС‚СЂ РіРѕС‚РѕРІ. Р—РґРµСЃСЊ СЃРѕР±СЂР°РЅС‹ С‚РѕР»СЊРєРѕ С‚Рµ РєРѕРјР°РЅРґС‹, РєРѕС‚РѕСЂС‹Рµ РїСЂРёРЅР°РґР»РµР¶Р°С‚ С‚РІРѕРµР№ СЂРѕР»Рё.</p><div className="mt-8 flex flex-wrap gap-3"><span className="rounded-full border border-[var(--theme-accent)]/30 bg-[var(--theme-accent-bg)] px-4 py-2 text-sm font-black text-[var(--theme-accent)]">{data.me.roleCode} В· LEVEL {data.me.level}</span><span className="rounded-full border border-white/10 bg-white/[.03] px-4 py-2 text-sm text-zinc-400">{available.length===COMMANDS.length?"РџРѕР»РЅС‹Р№ РґРѕСЃС‚СѓРї":`${available.length} РєРѕРјР°РЅРґ`}</span></div><button autoFocus onClick={finishFirstRun} onKeyDown={e=>{if(e.key==="Enter")finishFirstRun()}} className="mt-10 inline-flex items-center gap-3 rounded-2xl bg-[var(--theme-accent)] px-7 py-4 font-black text-black shadow-[0_0_36px_var(--theme-glow)]">ENTER <span className="text-black/60">в†’</span></button><p className="mt-3 text-xs text-zinc-600">Enter вЂ” РїСЂРѕРґРѕР»Р¶РёС‚СЊ В· Esc вЂ” РЅРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РЅР° СЌС‚РѕРј СЌРєСЂР°РЅРµ</p></section><section className="rounded-[32px] border border-white/10 bg-white/[.025] p-4 shadow-2xl"><div className="rounded-[26px] border border-white/8 bg-black/30 p-5"><div className="flex items-center justify-between"><div className="text-xs font-black uppercase tracking-widest text-zinc-600">РўР’РћР РљРћРњРђРќР”Р«</div><div className="text-xs text-zinc-600">РђРљРўРЈРђР›Р¬РќРћ</div></div><div className="mt-4 space-y-2">{groups.map(([name,items])=><div key={name} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]">{GROUP_ICONS[name]||"вЂў"}</span><div><b>{name}</b><div className="mt-1 text-xs text-zinc-600">{items.length} РєРѕРјР°РЅРґ</div></div></div><span className="text-zinc-700">в†’</span></div>)}</div></div></section></div></div></main>
+  }
+
+  return <main className="min-h-[calc(100vh-72px)] bg-transparent px-4 pb-20 pt-6 text-white sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[1500px]">
+      <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 backdrop-blur-xl sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-[var(--theme-accent)]/30 bg-[var(--theme-accent-bg)] px-3 py-1 text-[10px] font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">DUELPLAY ADMIN</span><span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.18em] text-zinc-500">{themePreference}</span></div><h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Р¦РµРЅС‚СЂ СѓРїСЂР°РІР»РµРЅРёСЏ</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">Р’С‹Р±РёСЂР°Р№ СЃРІРѕР№ СѓСЂРѕРІРµРЅСЊ, РѕС‚РєСЂС‹РІР°Р№ РєРѕРјР°РЅРґСѓ РЅР° РІРµСЃСЊ СЌРєСЂР°РЅ Рё СЂР°Р±РѕС‚Р°Р№ Р±РµР· РїРµСЂРµР·Р°РіСЂСѓР·РєРё СЃС‚СЂР°РЅРёС†С‹.</p></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            <MiniStat label="РћРЅР»Р°Р№РЅ" value={live?.counters.online}/><MiniStat label="REAL В· 24С‡" value={live?.counters.matchCounts?.real24h}/><MiniStat label="DEMO В· 24С‡" value={live?.counters.matchCounts?.demo24h}/><MiniStat label="REAL В· LIVE" value={live?.counters.matchCounts?.realLive}/><MiniStat label="DEMO В· LIVE" value={live?.counters.matchCounts?.demoLive}/><MiniStat label="РЎРµСЂРІРµСЂС‹" value={live?.counters.servers}/>
+          </div>
+        </div>
+      </div>
+
+      <section className="mt-6">
+        <div className="flex items-end justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-pink-400">РЈР РћР’РќР Р”РћРЎРўРЈРџРђ</div><h2 className="mt-2 text-2xl font-black">10 СѓСЂРѕРІРЅРµР№ + рџ‘‘ Founder 999</h2></div><div className="text-xs text-zinc-600">Р”РѕСЃС‚СѓРїРЅС‹Рµ РґР»СЏ РїСЂРѕСЃРјРѕС‚СЂР° СѓСЂРѕРІРЅРё</div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {roleCards.map(role=>{
+            const isMe=role.code===data.me.roleCode;
+            const isFounder=role.code==="FOUNDER";
+            const clickable=isMe||data.me.roleCode==="FOUNDER";
+            return <button key={role.code} type="button" disabled={!clickable} onClick={()=>{if(!clickable)return;setSelectedRoleCode(role.code);setCommand(null);setWorkspace("role")}} className={`group relative overflow-hidden rounded-3xl border p-5 text-left transition ${ROLE_COLORS[role.code]||"border-white/8 bg-white/[.025]"} ${clickable?"cursor-pointer hover:-translate-y-0.5 hover:border-[var(--theme-accent)]/50 hover:shadow-[0_0_40px_var(--theme-glow)]":"cursor-not-allowed opacity-55"}`}>
+              <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="text-sm font-black">{isFounder?"рџ‘‘ ":""}{role.title}</span>{isMe&&<span className="rounded-full bg-[var(--theme-accent)] px-2 py-0.5 text-[9px] font-black text-black">РўР«</span>}{isFounder&&!data.founder&&<span className="rounded-full border border-amber-400/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-300">LOCKED</span>}</div><span className={`text-xs font-black ${isFounder?"text-amber-300":"text-[var(--theme-accent)]"}`}>LEVEL {role.level}</span></div>
+              <p className="mt-3 min-h-12 text-sm leading-6 text-zinc-500">{role.description}</p>
+              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-zinc-600">{role.permissions.includes("*")?"ALL PERMISSIONS":`${role.permissions.length} РєРѕРјР°РЅРґ`}</span><span className={isMe?"text-[var(--theme-accent)]":"text-zinc-700"}>{clickable?"РћРўРљР Р«РўР¬ в†’":"рџ”’"}</span></div>
+            </button>
+          })}
+        </div>
+      </section>
+
+      <section className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">{data.me.roleCode} В· LEVEL {data.me.level}</div><h2 className="mt-2 text-3xl font-black">РўРІРѕР№ СЂР°Р±РѕС‡РёР№ С†РµРЅС‚СЂ</h2><p className="mt-1 text-sm text-zinc-500">РќР°Р¶РјРё РЅР° РєРѕРјР°РЅРґСѓ СЃРїСЂР°РІР°. Р’РЅСѓС‚СЂРё РѕРЅР° РѕС‚РєСЂС‹РІР°РµС‚СЃСЏ РЅР° РІРµСЃСЊ СЌРєСЂР°РЅ.</p></div><div className="rounded-2xl border border-white/8 bg-white/[.025] px-4 py-3 text-right"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Р”РѕСЃС‚СѓРї</div><div className="mt-1 text-lg font-black">{available.length===COMMANDS.length?"FULL":available.length}</div></div></div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {(live?.activeMatches||[]).slice(0,6).map(m=><div key={m.id} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-center justify-between gap-2"><span className={`text-[10px] font-black uppercase tracking-widest ${m.status==="LIVE"?"text-emerald-300":"text-zinc-500"}`}>{m.status} В· {m.economyMode}</span><span className="text-[10px] text-zinc-600">#{m.id.slice(0,8)}</span></div><div className="mt-3 text-sm font-black"><span data-player-name>{m.playerOne.nickname}</span> <span className="text-[var(--theme-accent)]">VS</span> <span data-player-name>{m.playerTwo?.nickname||"вЂ”"}</span></div><div className="mt-2 flex items-center justify-between text-xs text-zinc-500"><span>{m.mapName||"вЂ”"}</span><b data-no-i18n className="text-white">{formatMatchAmount(m.economyMode,String(m.betAmount))}</b></div></div>)}
+            {!live?.activeMatches?.length&&<div className="sm:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-white/8 p-10 text-center text-sm text-zinc-600">РђРєС‚РёРІРЅС‹С… РјР°С‚С‡РµР№ СЃРµР№С‡Р°СЃ РЅРµС‚. Р­С‚РѕС‚ Р±Р»РѕРє РѕР±РЅРѕРІР»СЏРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё.</div>}
+          </div>
+        </div>
+
+        <aside className="rounded-3xl border border-white/8 bg-black/20 p-4 sm:p-5 lg:sticky lg:top-24 lg:h-fit">
+          <div className="flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">Р”РћРЎРўРЈРџРќР«Р• Р¤РЈРќРљР¦РР</div><h3 className="mt-1 text-xl font-black">Р”РѕСЃС‚СѓРїРЅС‹Рµ С„СѓРЅРєС†РёРё</h3></div><span className="rounded-full bg-[var(--theme-accent-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--theme-accent)]">{available.length}</span></div>
+          <div className="mt-4 max-h-[620px] space-y-4 overflow-auto pr-1">
+            {groups.map(([group,items])=><div key={group}><div className="mb-2 flex items-center justify-between px-1"><span className="text-[10px] font-black uppercase tracking-[.2em] text-zinc-600">{GROUP_ICONS[group]||"вЂў"} {group}</span><span className="text-[10px] text-zinc-700">{items.length}</span></div><div className="space-y-1.5">{items.map(c=><button key={c.permission} type="button" onClick={()=>{setSelectedRoleCode(data.me.roleCode||null);setCommand(c);setWorkspace(c.tab||"dashboard")}} className="group flex w-full items-center gap-3 rounded-2xl border border-white/6 bg-white/[.02] p-3 text-left transition hover:border-[var(--theme-accent)]/30 hover:bg-[var(--theme-accent-bg)]"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${c.danger?"bg-red-400/10 text-red-300":"bg-white/[.035] text-[var(--theme-accent)]"}`}>{c.icon}</span><span className="min-w-0 flex-1"><b className="block truncate text-sm">{c.title}</b><span className="mt-0.5 block truncate text-[10px] text-zinc-600">{c.permission}</span></span><span className="text-zinc-700 transition group-hover:text-[var(--theme-accent)]">в†’</span></button>)}</div></div>)}
+          </div>
+          <div className="mt-4 border-t border-white/6 pt-4 text-xs text-zinc-600">Enter вЂ” РѕС‚РєСЂС‹С‚СЊ РІС‹Р±СЂР°РЅРЅСѓСЋ РєРѕРјР°РЅРґСѓ В· Esc вЂ” Р·Р°РєСЂС‹С‚СЊ СЌРєСЂР°РЅ</div>
+        </aside>
+      </section>
+
+      <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">РђРљРўРЈРђР›Р¬РќР«Р• Р”РђРќРќР«Р•</div><h3 className="mt-1 text-xl font-black">Р”Р°РЅРЅС‹Рµ РѕР±РЅРѕРІР»СЏСЋС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё</h3><p className="mt-1 text-sm leading-6 text-zinc-500">РњР°С‚С‡Рё, РѕРЅР»Р°Р№РЅ, СЃРµСЂРІРµСЂС‹ Рё РѕРїРµСЂР°С†РёРѕРЅРЅС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё РґРѕСЃС‚СѓРїРЅС‹ Р·РґРµСЃСЊ Р±РµР· РїРµСЂРµС…РѕРґР° РІ РґСЂСѓРіРёРµ СЂР°Р·РґРµР»С‹.</p></div><div className="flex flex-wrap gap-2"><LivePill text="РђРљРўРЈРђР›Р¬РќР«Р• Р”РђРќРќР«Р•"/><LivePill text="РћР‘РќРћР’Р›РЇР•РўРЎРЇ"/><LivePill text="РљР›РђР’РРђРўРЈР Рђ"/></div></div></section>
+
+      <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-[.22em] text-zinc-600">Р”РћРЎРўРЈРџРќР«Р• Р¤РЈРќРљР¦РР</div><div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{available.slice(0,9).map(c=><div key={c.permission} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]">{c.icon}</span><div><b>{c.title}</b><p className="mt-1 text-xs leading-5 text-zinc-600">{c.description}</p></div></div></div>)}</div>{available.length>9&&<div className="mt-4 text-center text-xs text-zinc-700">+ РµС‰С‘ {available.length-9} РєРѕРјР°РЅРґ вЂ” РІСЃРµ РґРѕСЃС‚СѓРїРЅС‹ СЃРїСЂР°РІР°.</div>}</section>
+    </div>
+
+    {workspace&&<div className="fixed inset-0 z-[100] overflow-hidden bg-[#050507]/[.985] backdrop-blur-2xl"><div className="flex h-full flex-col"><div className="flex min-h-16 shrink-0 items-center justify-between border-b border-white/8 bg-black/70 px-4 sm:px-6"><div className="min-w-0"><div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300"/><span className="text-[10px] font-black uppercase tracking-[.22em] text-zinc-600">РђР”РњРРќ-Р РђР—Р”Р•Р›</span></div><div className="mt-1 truncate text-lg font-black">{command?.title||"Р¦РµРЅС‚СЂ СѓРїСЂР°РІР»РµРЅРёСЏ"}</div></div><div className="flex items-center gap-2"><span className="hidden rounded-xl border border-white/8 px-3 py-2 text-xs text-zinc-500 sm:block">ESC</span><button autoFocus type="button" onClick={()=>{setCommand(null);setWorkspace(null);setSelectedRoleCode(null)}} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black hover:border-[var(--theme-accent)]/40 hover:text-[var(--theme-accent)]">Р—Р°РєСЂС‹С‚СЊ</button></div></div><div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5 lg:p-6"><div className="mx-auto max-w-[1500px]">{workspace==="role"&&!command&&selectedRole?<RoleWorkspace role={selectedRole} commands={selectedRoleCommands} actualRole={data.me.roleCode||"ADMIN"} founder={data.me.roleCode==="FOUNDER"} onCommand={(c)=>{setCommand(c);setWorkspace(c.tab||"dashboard")}}/>:command?.tab==="roles"?<RolesWorkspace data={data} busy={busy} onAssign={assignRole} onRemove={removeRole}/>:command?.tab==="dashboard"?<RealtimeWorkspace data={live} role={selectedRole?.title||currentRole?.title||data.me.roleCode||"ADMIN"}/>:<LegacyAdminPanel embedded embeddedTab={command?.tab||"dashboard"} refreshKey={tick}/>}</div></div></div></div>}
+
+    {adminInviteUrl&&<div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-labelledby="admin-invite-title" className="w-full max-w-xl rounded-3xl border border-white/10 bg-[#09090c] p-6 shadow-2xl sm:p-8"><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">РџР•Р Р’Р«Р™ Р’РҐРћР”</div><h2 id="admin-invite-title" className="mt-3 text-2xl font-black">РЎСЃС‹Р»РєР° РґР»СЏ СЃРѕР·РґР°РЅРёСЏ РїР°СЂРѕР»СЏ</h2><p className="mt-3 text-sm leading-6 text-zinc-400">Р РѕР»СЊ РЅР°Р·РЅР°С‡РµРЅР°. РџРµСЂРµРґР°Р№ СЌС‚Сѓ РїРµСЂСЃРѕРЅР°Р»СЊРЅСѓСЋ СЃСЃС‹Р»РєСѓ СЃР°РјРѕРјСѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ: РѕРЅ СЃРѕР·РґР°СЃС‚ СЃРѕР±СЃС‚РІРµРЅРЅС‹Р№ РїР°СЂРѕР»СЊ РґР»СЏ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРіРѕ Р°РєРєР°СѓРЅС‚Р°. РЎСЃС‹Р»РєР° РѕРґРЅРѕСЂР°Р·РѕРІР°СЏ Рё РґРµР№СЃС‚РІСѓРµС‚ 30 РјРёРЅСѓС‚. РџР°СЂРѕР»СЊ С‚РµР±Рµ РЅРµ РїРѕРєР°Р·С‹РІР°РµС‚СЃСЏ.</p><input aria-label="РЎСЃС‹Р»РєР° РґР»СЏ РїРµСЂРІРѕРіРѕ РІС…РѕРґР°" readOnly value={adminInviteUrl} onFocus={e=>e.currentTarget.select()} className="input mt-5"/><p className="mt-2 text-xs text-zinc-600">РЎРєРѕРїРёСЂСѓР№ СЃСЃС‹Р»РєСѓ Рё РїРµСЂРµРґР°Р№ РµС‘ Р»РёС‡РЅРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ. РќРµ РїСѓР±Р»РёРєСѓР№ РµС‘ РІ РѕР±С‰РёС… С‡Р°С‚Р°С….</p>{inviteCopyStatus&&<p role="status" className="mt-3 text-sm text-emerald-300">{inviteCopyStatus}</p>}<div className="mt-6 flex flex-wrap justify-end gap-3"><button type="button" onClick={()=>{setAdminInviteUrl(null);setInviteCopyStatus("")}} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-300">Р—Р°РєСЂС‹С‚СЊ</button><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(adminInviteUrl);setInviteCopyStatus("РЎСЃС‹Р»РєР° СЃРєРѕРїРёСЂРѕРІР°РЅР°.")}catch{setInviteCopyStatus("РђРІС‚РѕРєРѕРїРёСЂРѕРІР°РЅРёРµ РЅРµРґРѕСЃС‚СѓРїРЅРѕ. Р’С‹РґРµР»Рё СЃСЃС‹Р»РєСѓ РІС‹С€Рµ Рё СЃРєРѕРїРёСЂСѓР№ РµС‘ РІСЂСѓС‡РЅСѓСЋ.")}}} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 text-sm font-black text-black">РљРѕРїРёСЂРѕРІР°С‚СЊ СЃСЃС‹Р»РєСѓ</button></div></section></div>}
+
+    {toast&&<div className="fixed right-4 top-20 z-[130] w-[min(420px,calc(100vw-2rem))]"><div className="rounded-2xl border border-red-400/25 bg-[#11070c]/95 p-4 shadow-2xl backdrop-blur-xl"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-400/10 text-red-300">!</span><div className="flex-1"><b>РћРїРµСЂР°С†РёСЏ</b><p className="mt-1 text-sm leading-5 text-zinc-400">{toast}</p></div><button onClick={()=>setToast(null)} className="text-zinc-600 hover:text-white">Г—</button></div></div></div>}
+  </main>
+}
+
+function RoleWorkspace({role,commands,actualRole,founder,onCommand}:{role:Role;commands:Command[];actualRole:string;founder:boolean;onCommand:(c:Command)=>void}){
+  return <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 sm:p-8">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">LEVEL {role.level}</div><h2 className="mt-2 text-4xl font-black">{role.title}</h2><p className="mt-2 max-w-3xl text-zinc-500">{role.description}</p></div><div className="rounded-2xl border border-white/8 bg-white/[.025] px-4 py-3 text-sm"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">РўРµРєСѓС‰РёР№ РґРѕСЃС‚СѓРї</div><div className="mt-1 font-black text-[var(--theme-accent)]">{actualRole}</div></div></div>
+    {founder&&role.code!==actualRole&&<div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-400/[.04] p-4 text-sm leading-6 text-amber-100/80">Р’С‹ РїСЂРѕСЃРјР°С‚СЂРёРІР°РµС‚Рµ СЃС‚СЂСѓРєС‚СѓСЂСѓ РІС‹Р±СЂР°РЅРЅРѕРіРѕ СѓСЂРѕРІРЅСЏ. Р’Р°С€Рё С„Р°РєС‚РёС‡РµСЃРєРёРµ РїСЂР°РІР° РѕСЃС‚Р°СЋС‚СЃСЏ РїСЂР°РІР°РјРё Founder.</div>}
+    <div className="mt-7 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{commands.map(c=><button key={c.permission} type="button" onClick={()=>onCommand(c)} className="group rounded-2xl border border-white/7 bg-white/[.025] p-4 text-left transition hover:-translate-y-0.5 hover:border-[var(--theme-accent)]/40 hover:bg-[var(--theme-accent-bg)]"><div className="flex items-start gap-3"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${c.danger?"bg-red-400/10 text-red-300":"bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]"}`}>{c.icon}</span><span className="min-w-0 flex-1"><b className="block">{c.title}</b><span className="mt-1 block text-xs leading-5 text-zinc-500">{c.description}</span></span><span className="text-zinc-700 group-hover:text-[var(--theme-accent)]">в†’</span></div></button>)}{!commands.length&&<div className="col-span-full rounded-2xl border border-dashed border-white/8 p-8 text-center text-sm text-zinc-600">Р”Р»СЏ СЌС‚РѕРіРѕ СѓСЂРѕРІРЅСЏ РїРѕРєР° РЅРµС‚ РЅР°Р·РЅР°С‡РµРЅРЅС‹С… РєРѕРјР°РЅРґ РІ С‚РµРєСѓС‰РµР№ СЃРёСЃС‚РµРјРµ.</div>}</div>
+  </div>
+}
+
+function MiniStat({label,value}:{label:string;value:number|null|undefined}){return <div className="rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5"><div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-1 text-lg font-black">{value??"вЂ”"}</div></div>}
+function LivePill({text}:{text:string}){return <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-300">в—Џ {text}</span>}
+
+function MfaGate({error,errorCode,code,setCode,secret,uri,busy,onSetup,onVerify}:{error:string;errorCode:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
+  const setup=errorCode==="ADMIN_MFA_SETUP_REQUIRED";
+  return <div className="panel rounded-[32px] p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">DUELPLAY ADMIN SECURITY</div><h1 className="mt-3 text-3xl font-black">Р—Р°С‰РёС‰С‘РЅРЅС‹Р№ РІС…РѕРґ</h1><p className="mt-2 text-sm leading-6 text-zinc-500">РђРґРјРёРЅРєР° С‚СЂРµР±СѓРµС‚ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ MFA. РџРѕСЃР»Рµ РІРІРѕРґР° РєРѕРґР° РґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РЅР°Р¶Р°С‚СЊ Enter.</p>{error&&<div className="mt-5 rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4 text-sm text-red-300">{error}</div>}{setup&&!secret?<button autoFocus onClick={onSetup} disabled={busy} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"РЎРѕР·РґР°РЅРёРµвЂ¦":"РЎРѕР·РґР°С‚СЊ MFA"}</button>:<form onSubmit={e=>{e.preventDefault();if(code.length===6&&!busy)onVerify()}}><>{secret&&<div className="mt-5 space-y-3"><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">РЎРµРєСЂРµС‚</div><code className="block overflow-auto rounded-xl bg-black p-3 text-sm text-white">{secret}</code></div><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">OTPAUTH URI</div><code className="block max-h-28 overflow-auto rounded-xl bg-black p-3 text-xs text-zinc-400">{uri}</code></div></div>}<label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РљРѕРґ РёР· РїСЂРёР»РѕР¶РµРЅРёСЏ</span><input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="input text-center text-3xl tracking-[.5em]" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000"/></label><button type="submit" disabled={busy||code.length!==6} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"РџСЂРѕРІРµСЂРєР°вЂ¦":"РџРѕРґС‚РІРµСЂРґРёС‚СЊ MFA В· ENTER"}</button></></form>}</div>
+}
+
+function RealtimeWorkspace({data,role}:{data:LiveData|null;role:string}){return <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">{role}</div><h2 className="mt-2 text-4xl font-black">РћР±Р·РѕСЂ РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё</h2><p className="mt-2 text-zinc-500">Р”Р°РЅРЅС‹Рµ РїР°РЅРµР»Рё РїРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ РІ Р°РєС‚СѓР°Р»СЊРЅРѕРј СЃРѕСЃС‚РѕСЏРЅРёРё.</p><div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{["users","online","matches24h","liveMatches"].map((k)=><div key={k} className="rounded-2xl border border-white/6 bg-white/[.025] p-5"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{k==="matches24h"?"matches24h В· REAL+DEMO":k==="liveMatches"?"liveMatches В· REAL+DEMO":k}</div><div className="mt-2 text-3xl font-black">{(k==="users"?data?.counters.users:k==="online"?data?.counters.online:k==="matches24h"?data?.counters.matches24h:data?.counters.liveMatches)??"вЂ”"}</div></div>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["REAL В· 24С‡",data?.counters.matchCounts?.real24h],["DEMO В· 24С‡",data?.counters.matchCounts?.demo24h],["REAL В· LIVE",data?.counters.matchCounts?.realLive],["DEMO В· LIVE",data?.counters.matchCounts?.demoLive]].map(([label,value])=><div key={String(label)} className="rounded-2xl border border-white/6 bg-white/[.025] p-4"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-2 text-2xl font-black">{value??"вЂ”"}</div></div>)}</div><div className="mt-7"><div className="mb-3 text-sm font-black">РђРєС‚РёРІРЅС‹Рµ РјР°С‚С‡Рё</div><div className="grid gap-3 md:grid-cols-2">{(data?.activeMatches||[]).map(m=><div key={m.id} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">{m.status} В· {m.economyMode}</span><span className="text-[10px] text-zinc-700">#{m.id.slice(0,8)}</span></div><div className="mt-3 font-black">{m.playerOne.nickname} <span className="text-[var(--theme-accent)]">VS</span> {m.playerTwo?.nickname||"вЂ”"}</div><div className="mt-2 text-xs text-zinc-600">{m.mapName||"вЂ”"} В· <span data-no-i18n>{formatMatchAmount(m.economyMode,String(m.betAmount))}</span></div></div>)}{!data?.activeMatches?.length&&<div className="rounded-2xl border border-dashed border-white/8 p-10 text-center text-sm text-zinc-600">РђРєС‚РёРІРЅС‹С… РјР°С‚С‡РµР№ РЅРµС‚.</div>}</div></div></div>}
+
+function RolesWorkspace({data,busy,onAssign,onRemove}:{data:AccessData;busy:boolean;onAssign:(u:string,r:string)=>void;onRemove:(u:string)=>void}){
+  const [userId,setUserId]=useState(""); const [role,setRole]=useState("ADMIN");
+  const canManage=data.me.permissions.includes("*")||data.me.permissions.includes("roles.manage");
+  return <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">ADMINISTRATION</div><h2 className="mt-2 text-4xl font-black">РЈРїСЂР°РІР»РµРЅРёРµ СЂРѕР»СЏРјРё</h2><p className="mt-2 text-zinc-500">RBAC РЅР°Р·РЅР°С‡Р°РµС‚СЃСЏ Р·РґРµСЃСЊ. Founder РЅРµ СЏРІР»СЏРµС‚СЃСЏ РѕР±С‹С‡РЅРѕР№ РЅР°Р·РЅР°С‡Р°РµРјРѕР№ СЂРѕР»СЊСЋ.</p>{canManage&&<div className="mt-7 grid gap-3 lg:grid-cols-[1fr_280px_auto]"><select value={userId} onChange={e=>setUserId(e.target.value)} className="input"><option value="">Р’С‹Р±РµСЂРёС‚Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏвЂ¦</option>{data.users.filter(u=>u.id!==data.me.id).map(u=><option key={u.id} value={u.id}>{u.nickname} В· {u.role}</option>)}</select><select value={role} onChange={e=>setRole(e.target.value)} className="input">{data.roles.filter(r=>r.code!=="FOUNDER").map(r=><option key={r.code}>{r.code}</option>)}</select><button disabled={!userId||busy} onClick={()=>onAssign(userId,role)} className="rounded-2xl bg-[var(--theme-accent)] px-5 py-3 font-black text-black disabled:opacity-40">РќР°Р·РЅР°С‡РёС‚СЊ В· ENTER</button></div>}
+  <div className="mt-8 overflow-x-auto rounded-3xl border border-white/8"><table className="w-full min-w-[760px] text-sm"><thead className="bg-white/[.03] text-left text-zinc-600"><tr><th className="p-4">РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ</th><th className="p-4">RBAC</th><th className="p-4">Level</th><th className="p-4">РЎС‚Р°С‚СѓСЃ</th><th className="p-4">Р”РµР№СЃС‚РІРёРµ</th></tr></thead><tbody>{data.assignments.map(a=><tr key={a.id} className="border-t border-white/6"><td className="p-4 font-bold">{a.user.nickname}</td><td className="p-4 text-[var(--theme-accent)]">{a.roleCode}</td><td className="p-4">{a.level}</td><td className="p-4 text-zinc-600">{a.user.status}</td><td className="p-4"><button disabled={busy||a.userId===data.me.id} onClick={()=>onRemove(a.userId)} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-30">РЎРЅСЏС‚СЊ RBAC</button></td></tr>)}{!data.assignments.length&&<tr><td className="p-10 text-center text-zinc-600" colSpan={5}>РќР°Р·РЅР°С‡РµРЅРёР№ РЅРµС‚. Р”Р»СЏ legacy-СЂРѕР»РµР№ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ Р±Р°Р·РѕРІР°СЏ СЂРѕР»СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.</td></tr>}</tbody></table></div></div>
+}
+
+===== FILE: app/admin/login/page.tsx =====
+
+"use client";
+import { useState } from "react";
+
+export default function AdminLoginPage() {
+  const [nickname, setNickname] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function login() {
+    setBusy(true); setError("");
+    try {
+      const r = await fetch("/api/admin/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname, password }) });
+      const x = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(x.error || "РќРµ СѓРґР°Р»РѕСЃСЊ РІРѕР№С‚Рё."); return; }
+      window.location.href = "/admin";
+    } catch { setError("РќРµ СѓРґР°Р»РѕСЃСЊ РІРѕР№С‚Рё."); } finally { setBusy(false); }
+  }
+  return <main className="mx-auto min-h-screen max-w-md px-4 pb-20 pt-28"><div className="panel rounded-3xl p-6 sm:p-8"><div className="pill">DUELPLAY ADMIN</div><h1 className="mt-4 text-3xl font-black">Р’С…РѕРґ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°</h1><p className="mt-3 text-sm leading-6 text-zinc-400">РСЃРїРѕР»СЊР·СѓР№ РЅРёРєРЅРµР№Рј СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРіРѕ Р°РєРєР°СѓРЅС‚Р° Рё СЃРІРѕР№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹Р№ РїР°СЂРѕР»СЊ. Р”РѕСЃС‚СѓРї РѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ РЅР°Р·РЅР°С‡РµРЅРЅРѕР№ СЂРѕР»СЊСЋ.</p><div className="mt-4 rounded-2xl border border-white/8 bg-white/[.025] p-4 text-sm leading-6 text-zinc-400"><b className="text-white">РџРµСЂРІС‹Р№ РІС…РѕРґ?</b><br/>Р•СЃР»Рё С‚РµР±Рµ РЅРµРґР°РІРЅРѕ РЅР°Р·РЅР°С‡РёР»Рё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅСѓСЋ СЂРѕР»СЊ Рё РїР°СЂРѕР»СЊ РµС‰С‘ РЅРµ СЃРѕР·РґР°РЅ, РїРѕРїСЂРѕСЃРё С‚РѕРіРѕ, РєС‚Рѕ РЅР°Р·РЅР°С‡РёР» СЂРѕР»СЊ, РІС‹РґР°С‚СЊ РїРµСЂСЃРѕРЅР°Р»СЊРЅСѓСЋ СЃСЃС‹Р»РєСѓ РґР»СЏ РїРµСЂРІРѕРіРѕ РІС…РѕРґР°. РџРѕ РЅРµР№ С‚С‹ СЃР°Рј СЃРѕР·РґР°С€СЊ РїР°СЂРѕР»СЊ, Р·Р°С‚РµРј РІРµСЂРЅС‘С€СЊСЃСЏ СЃСЋРґР° РґР»СЏ РІС…РѕРґР°.</div>{error&&<div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</div>}<label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РќРёРєРЅРµР№Рј</span><input className="input" autoComplete="username" value={nickname} onChange={e=>setNickname(e.target.value)} /></label><label className="mt-4 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РџР°СЂРѕР»СЊ</span><input className="input" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void login();}} /></label><button disabled={busy||!nickname||!password} onClick={()=>void login()} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Р’С…РѕРґвЂ¦":"Р’РѕР№С‚Рё"}</button></div></main>;
+}
+
+===== FILE: app/admin/setup/page.tsx =====
+
+"use client";
+import { useEffect, useState } from "react";
+
+export default function AdminSetupPage() {
+  const [token, setToken] = useState(""); const [nickname, setNickname] = useState(""); const [role, setRole] = useState(""); const [password, setPassword] = useState(""); const [confirm, setConfirm] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState(false);
+  useEffect(()=>{const t=new URLSearchParams(window.location.search).get("token")||"";setToken(t);if(!t)return;window.history.replaceState({},"","/admin/setup");fetch(`/api/admin/auth/setup?token=${encodeURIComponent(t)}`,{cache:"no-store"}).then(async r=>{const x=await r.json().catch(()=>({}));if(!r.ok){setError(x.error||"РЎСЃС‹Р»РєР° РЅРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅР°.");return}setNickname(x.nickname||"");setRole(x.role||"");}).catch(()=>setError("РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕРІРµСЂРёС‚СЊ РїСЂРёРіР»Р°С€РµРЅРёРµ."));},[]);
+  async function save(){setBusy(true);setError("");try{const r=await fetch("/api/admin/auth/setup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,password,confirmPassword:confirm})});const x=await r.json().catch(()=>({}));if(!r.ok){setError(x.error||"РќРµ СѓРґР°Р»РѕСЃСЊ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РїР°СЂРѕР»СЊ.");return}setDone(true);}catch{setError("РќРµ СѓРґР°Р»РѕСЃСЊ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РїР°СЂРѕР»СЊ.");}finally{setBusy(false)}}
+  if(done)return <main className="mx-auto min-h-screen max-w-md px-4 pb-20 pt-28"><div className="panel rounded-3xl p-6 sm:p-8 text-center"><div className="pill">DUELPLAY ADMIN</div><h1 className="mt-4 text-3xl font-black">РџР°СЂРѕР»СЊ СЃРѕР·РґР°РЅ</h1><p className="mt-3 text-sm leading-6 text-zinc-400">РўРµРїРµСЂСЊ РІРѕР№РґРё РІ Admin Center РїРѕРґ Р°РєРєР°СѓРЅС‚РѕРј <b className="text-white">{nickname}</b>. Р”РѕСЃС‚СѓРїРЅС‹Рµ РґРµР№СЃС‚РІРёСЏ РѕРїСЂРµРґРµР»СЏСЋС‚СЃСЏ РЅР°Р·РЅР°С‡РµРЅРЅРѕР№ СЂРѕР»СЊСЋ.</p><a href="/admin/login" className="mt-6 block rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black">РџРµСЂРµР№С‚Рё РєРѕ РІС…РѕРґСѓ</a></div></main>;
+  return <main className="mx-auto min-h-screen max-w-md px-4 pb-20 pt-28"><div className="panel rounded-3xl p-6 sm:p-8"><div className="pill">DUELPLAY ADMIN INVITE</div><h1 className="mt-4 text-3xl font-black">РЎРѕР·РґР°Р№ СЃРІРѕР№ РїР°СЂРѕР»СЊ</h1><p className="mt-3 text-sm leading-6 text-zinc-400">РўС‹ РїРѕР»СѓС‡РёР» РїРµСЂСЃРѕРЅР°Р»СЊРЅРѕРµ РїСЂРёРіР»Р°С€РµРЅРёРµ РІ РєРѕРјР°РЅРґСѓ DuelPlay. РџСЂРёРґСѓРјР°Р№ СЃРѕР±СЃС‚РІРµРЅРЅС‹Р№ РїР°СЂРѕР»СЊ вЂ” РѕР±С‰РµРіРѕ РїР°СЂРѕР»СЏ РґР»СЏ Р°РґРјРёРЅРѕРІ РЅРµС‚.</p>{nickname&&<div className="mt-5 rounded-2xl bg-white/[.03] p-4"><div className="text-xs text-zinc-500">РђРєРєР°СѓРЅС‚</div><div className="mt-1 font-black">{nickname}</div><div className="mt-1 text-xs text-zinc-500">Р РѕР»СЊ: {role}</div></div>}{error&&<div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</div>}{token&&<><label className="mt-5 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ</span><input className="input" type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} /></label><label className="mt-4 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РџРѕРІС‚РѕСЂ РїР°СЂРѕР»СЏ</span><input className="input" type="password" autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)} /></label><p className="mt-3 text-xs leading-5 text-zinc-500">РњРёРЅРёРјСѓРј 12 СЃРёРјРІРѕР»РѕРІ: Р·Р°РіР»Р°РІРЅР°СЏ, СЃС‚СЂРѕС‡РЅР°СЏ, С†РёС„СЂР° Рё СЃРїРµС†РёР°Р»СЊРЅС‹Р№ СЃРёРјРІРѕР».</p><button disabled={busy||!password||password!==confirm} onClick={()=>void save()} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"РЎРѕС…СЂР°РЅСЏРµРјвЂ¦":"РЎРѕР·РґР°С‚СЊ РїР°СЂРѕР»СЊ"}</button></>}</div></main>;
+}
+
+===== FILE: app/api/admin/mfa/route.ts =====
+
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { resolveAdminAccess } from "@/lib/admin-rbac";
+import { getCurrentAdminSession } from "@/lib/admin-auth";
+import { buildOtpAuthUri, generateTotpSecret, verifyTotp } from "@/lib/totp";
+import { decryptSecret, encryptSecret } from "@/lib/secret-crypto";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { getAuditContext } from "@/lib/request-meta";
+
+function responseMessage(errorCode: string) {
+  if (errorCode === "MFA_ENCRYPTION_KEY_MISSING") return "MFA encryption key is not configured on the server.";
+  if (errorCode === "ADMIN_MFA_SETUP_REQUIRED") return "Set up an authenticator before using the admin panel.";
+  return "Admin MFA request failed.";
+}
+
+export async function GET() {
+  try {
+    const session = await getCurrentAdminSession();
+    if (!session?.user) return NextResponse.json({ error: "РўСЂРµР±СѓРµС‚СЃСЏ РІС…РѕРґ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°", errorCode: "ADMIN_LOGIN_REQUIRED" }, { status: 401 });
+    if (!(await resolveAdminAccess(session.user.id))?.level) return NextResponse.json({ error: "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ" }, { status: 403 });
+    return NextResponse.json({
+      enabled: session.user.twoFactorEnabled,
+      verified: Boolean(session.adminMfaVerifiedAt && Date.now() - session.adminMfaVerifiedAt.getTime() <= 8 * 60 * 60 * 1000),
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    return NextResponse.json({ error: responseMessage(code) }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getCurrentAdminSession();
+    if (!session?.user) return NextResponse.json({ error: "РўСЂРµР±СѓРµС‚СЃСЏ РІС…РѕРґ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°", errorCode: "ADMIN_LOGIN_REQUIRED" }, { status: 401 });
+    if (!(await resolveAdminAccess(session.user.id))?.level) return NextResponse.json({ error: "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ" }, { status: 403 });
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action || "");
+
+    if (action === "setup") {
+      await prisma.$transaction(tx => enforceRateLimit(tx, session.user.id, "ADMIN_MFA_SETUP", 3, 10 * 60_000));
+      if (session.user.twoFactorEnabled) return NextResponse.json({ error: "MFA СѓР¶Рµ РІРєР»СЋС‡РµРЅР°." }, { status: 409 });
+      const secret = generateTotpSecret();
+      const encrypted = encryptSecret(secret);
+      const auditContext = getAuditContext(request);
+      await prisma.$transaction(async tx => {
+        await tx.user.update({ where: { id: session.user.id }, data: { twoFactorSecret: encrypted, twoFactorEnabled: false } });
+        await tx.auditLog.create({ data: { userId: session.user.id, action: "ADMIN_MFA_SETUP", targetType: "USER", targetId: session.user.id, ipAddress: auditContext.ipAddress, userAgent: auditContext.userAgent, requestId: auditContext.requestId, result: "SUCCESS", payload: {} } });
+      });
+      return NextResponse.json({ ok: true, secret, otpauthUri: buildOtpAuthUri(secret, session.user.nickname) }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    if (action === "verify") {
+      await prisma.$transaction(tx => enforceRateLimit(tx, session.user.id, "ADMIN_MFA_VERIFY", 5, 5 * 60_000));
+      const code = String(body.code || "").trim();
+      if (!/^\d{6}$/.test(code)) return NextResponse.json({ error: "РљРѕРґ РґРѕР»Р¶РµРЅ СЃРѕРґРµСЂР¶Р°С‚СЊ 6 С†РёС„СЂ." }, { status: 400 });
+      const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true, nickname: true, twoFactorEnabled: true, twoFactorSecret: true } });
+      if (!user?.twoFactorSecret) return NextResponse.json({ error: "РЎРЅР°С‡Р°Р»Р° СЃРѕР·РґР°Р№С‚Рµ РЅР°СЃС‚СЂРѕР№РєСѓ MFA." }, { status: 409 });
+      const secret = decryptSecret(user.twoFactorSecret);
+      if (!verifyTotp(secret, code)) {
+        await prisma.securityEvent.create({ data: { userId: user.id, eventType: "ADMIN_MFA_FAILED", severity: "WARNING", ipAddress: request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "application", metadata: { reason: "INVALID_TOTP" } } });
+        return NextResponse.json({ error: "РќРµРІРµСЂРЅС‹Р№ РєРѕРґ MFA." }, { status: 401 });
+      }
+
+      await prisma.$transaction(async tx => {
+        await tx.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true } });
+        await tx.userSession.update({ where: { id: session.id }, data: { adminMfaVerifiedAt: new Date() } });
+        const auditContext = getAuditContext(request);
+        await tx.auditLog.create({ data: { userId: user.id, action: user.twoFactorEnabled ? "ADMIN_MFA_VERIFIED" : "ADMIN_MFA_ENABLED", targetType: "USER", targetId: user.id, ipAddress: auditContext.ipAddress, userAgent: auditContext.userAgent, requestId: auditContext.requestId, result: "SUCCESS", payload: {} } });
+      });
+      return NextResponse.json({ ok: true, enabled: true, verified: true }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    return NextResponse.json({ error: "РќРµРёР·РІРµСЃС‚РЅРѕРµ РґРµР№СЃС‚РІРёРµ MFA." }, { status: 400 });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "MFA_ENCRYPTION_KEY_MISSING") return NextResponse.json({ error: responseMessage(code), errorCode: code }, { status: 503 });
+    console.error(error);
+    return NextResponse.json({ error: responseMessage(code) }, { status: 500 });
+  }
+}
+
+===== FILE: components/Admin/LegacyAdminPanel.tsx =====
+
+"use client";
+import {useEffect,useRef,useState} from "react";
+import CenterModal from "@/components/Common/CenterModal";
+import ConfirmModal from "@/components/Common/ConfirmModal";
+import {useLanguage} from "@/components/Common/LanguageContext";
+import {THEMES} from "@/lib/themes";
+import {SEASON_PRESETS} from "@/lib/season-presets";
+
+type AdminData={me:{nickname:string;role:string;level:number;permissions?:string[]};demoModeSettings?:{enabled:boolean;dailyMatchLimit:number;timeZone:string}|null;mfaRequired?:boolean;mfaSetupRequired?:boolean;themes:any[];standardTheme:string;backgroundTheme:string;heroBackground:string;users:any[];matches:any[];transactions:any[];disputes:any[];fraud:any[];tickets:any[];topSkins:any[];servers:any[];logs:any[];avatarPresets:any[];withdrawals:any[];deposits:any[];platformSettings:any[];featureFlags:any[];creatorPayouts:any[];dashboard:any};
+const BG=[{id:"stars",name:"Neon Stars",img:"/theme-backgrounds/stars.svg"},{id:"blue-nebula",name:"Blue Nebula",img:"/theme-backgrounds/blue-nebula.svg"},{id:"green-aurora",name:"Green Aurora",img:"/theme-backgrounds/green-aurora.svg"},{id:"purple-galaxy",name:"Purple Galaxy",img:"/theme-backgrounds/purple-galaxy.svg"},{id:"gold-space",name:"Gold Space",img:"/theme-backgrounds/gold-space.svg"}];
+const HERO=[{"id":"hero-01","name":"Arena 01","img":"/hero-backgrounds/hero-01.jpg"},{"id":"hero-02","name":"Arena 02","img":"/hero-backgrounds/hero-02.jpg"},{"id":"hero-03","name":"Arena 03","img":"/hero-backgrounds/hero-03.jpg"},{"id":"hero-04","name":"Arena 04","img":"/hero-backgrounds/hero-04.jpg"},{"id":"hero-05","name":"Arena 05","img":"/hero-backgrounds/hero-05.jpg"},{"id":"hero-06","name":"Arena 06","img":"/hero-backgrounds/hero-06.jpg"},{"id":"hero-07","name":"Arena 07","img":"/hero-backgrounds/hero-07.jpg"},{"id":"hero-08","name":"Arena 08","img":"/hero-backgrounds/hero-08.jpg"},{"id":"hero-09","name":"Arena 09","img":"/hero-backgrounds/hero-09.jpg"},{"id":"hero-10","name":"Arena 10","img":"/hero-backgrounds/hero-10.jpg"}];
+export type LegacyAdminPanelProps={embeddedTab?:string; embedded?:boolean; refreshKey?:number};
+
+export default function LegacyAdminPanel({embeddedTab, embedded=false, refreshKey=0}:LegacyAdminPanelProps){
+ const{language,t}=useLanguage();
+ const ADMIN_UI:any={
+ RU:{users:"РџРѕР»СЊР·РѕРІР°С‚РµР»Рё",matches:"РњР°С‚С‡Рё",finance:"Р¤РёРЅР°РЅСЃС‹",security:"Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ",support:"РџРѕРґРґРµСЂР¶РєР°",settings:"РќР°СЃС‚СЂРѕР№РєРё",notifications:"РЈРІРµРґРѕРјР»РµРЅРёСЏ",skins:"РўРѕРї СЃРєРёРЅС‹",balance:"Р‘Р°Р»Р°РЅСЃ",locked:"Р—Р°Р±Р»РѕРєРёСЂРѕРІР°РЅРѕ",search:"РџРѕРёСЃРє",credit:"РџРѕРїРѕР»РЅРёС‚СЊ",debit:"РЎРїРёСЃР°С‚СЊ",amount:"РЎСѓРјРјР°, USD",reason:"РџСЂРёС‡РёРЅР°",close:"Р—Р°РєСЂС‹С‚СЊ",save:"РЎРѕС…СЂР°РЅРёС‚СЊ",send:"РћС‚РїСЂР°РІРёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёРµ",title:"Р—Р°РіРѕР»РѕРІРѕРє",message:"РўРµРєСЃС‚",all:"Р’СЃРµ РїРѕР»СЊР·РѕРІР°С‚РµР»Рё",transactions:"РўСЂР°РЅР·Р°РєС†РёРё",servers:"РЎРµСЂРІРµСЂС‹",seasons:"РЎРµР·РѕРЅС‹",logs:"Р›РѕРіРё",avatars:"РђРІР°С‚Р°СЂС‹",creator:"РЎРѕР·РґР°С‚РµР»Рё",creatorDesc:"Р’С‹РїР»Р°С‚С‹ Р°РІС‚РѕСЂР°Рј Рё РѕРїРµСЂР°С†РёРё Creator-РїСЂРѕРіСЂР°РјРјС‹.",approve:"РћРґРѕР±СЂРёС‚СЊ",reject:"РћС‚РєР»РѕРЅРёС‚СЊ",markPaid:"РћС‚РјРµС‚РёС‚СЊ РєР°Рє РІС‹РїР»Р°С‡РµРЅРЅСѓСЋ",payout:"Р’С‹РїР»Р°С‚Р°",pending:"Р—Р°СЏРІРѕРє РЅР° РІС‹РїР»Р°С‚Сѓ РЅРµС‚",levels:"РЈСЂРѕРІРЅРё Р°РґРјРёРЅРѕРє",center:"Р¦Р•РќРўР  РЈРџР РђР’Р›Р•РќРРЇ",centerTitle:"Р¦РµРЅС‚СЂ СѓРїСЂР°РІР»РµРЅРёСЏ",centerDesc:"РРіСЂРѕРєРё, РјР°С‚С‡Рё, С„РёРЅР°РЅСЃС‹, СѓРІРµРґРѕРјР»РµРЅРёСЏ, СЃРµСЂРІРµСЂС‹ Рё РѕС„РѕСЂРјР»РµРЅРёРµ DuelPlay.",player:"РРіСЂРѕРє",role:"Р РѕР»СЊ",status:"РЎС‚Р°С‚СѓСЃ",actions:"Р”РµР№СЃС‚РІРёСЏ",cancel:"РћС‚РјРµРЅРёС‚СЊ",hero:"Р“Р»Р°РІРЅР°СЏ РєР°СЂС‚РёРЅРєР°",heroDesc:"Р’С‹Р±РµСЂРё С„РѕРЅ РїРµСЂРІРѕРіРѕ СЌРєСЂР°РЅР°. РќР°СЃС‚СЂРѕР№РєР° СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ Рё РїСЂРёРјРµРЅСЏРµС‚СЃСЏ РІСЃРµРј РїРѕСЃРµС‚РёС‚РµР»СЏРј.",heroNote:"РР·РјРµРЅСЏС‚СЊ РіР»Р°РІРЅСѓСЋ РєР°СЂС‚РёРЅРєСѓ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ SUPERADMIN.",notifyDesc:"РћС‚РїСЂР°РІР»СЏР№ СЃРёСЃС‚РµРјРЅС‹Рµ РѕР±СЉСЏРІР»РµРЅРёСЏ Рѕ РґРѕСЂР°Р±РѕС‚РєР°С…, РёР·РјРµРЅРµРЅРёСЏС…, РїСЂРѕС„РёР»Р°РєС‚РёРєРµ Рё РІР°Р¶РЅС‹С… СЃРѕР±С‹С‚РёСЏС….",skinsDesc:"Р—Р°РіСЂСѓР¶Р°Р№ Р»СѓС‡С€РёРµ СЂР°Р±РѕС‚С‹ СЃРѕРѕР±С‰РµСЃС‚РІР°. РџРѕСЃР»Рµ РїСѓР±Р»РёРєР°С†РёРё РѕРЅРё РїРѕСЏРІР»СЏСЋС‚СЃСЏ РІ РѕР±С‰РµРј Р±Р»РѕРєРµ РЅР° РіР»Р°РІРЅРѕР№.",avatarsDesc:"Р”РѕР±Р°РІР»СЏР№ Р»СѓС‡С€РёРµ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ СЃРѕРѕР±С‰РµСЃС‚РІР° РІ РѕР±С‰РёР№ РІС‹Р±РѕСЂ Р°РІР°С‚Р°СЂРѕРІ РїСЂРѕС„РёР»СЏ.",add:"Р”РѕР±Р°РІРёС‚СЊ",name:"РќР°Р·РІР°РЅРёРµ",image:"РР·РѕР±СЂР°Р¶РµРЅРёРµ",supportWorkflow:"Р Р°Р±РѕС‡РёР№ РїСЂРѕС†РµСЃСЃ РїРѕРґРґРµСЂР¶РєРё",supportFlow:"Р’РѕРїСЂРѕСЃ РёРіСЂРѕРєР° в†’ РѕС‚РІРµС‚ РєРѕРјР°РЅРґС‹ в†’ Р·Р°РєСЂС‹С‚РёРµ",supportDesc:"РРіСЂРѕРєРё РїРёС€СѓС‚ С‡РµСЂРµР· РєРЅРѕРїРєСѓ В«РџРѕРјРѕС‰СЊ РёРіСЂРѕРєР°РјВ» РІ РїСЂР°РІРѕРј РЅРёР¶РЅРµРј СѓРіР»Сѓ. Р—РґРµСЃСЊ РѕР±СЂР°С‰РµРЅРёРµ РјРѕР¶РЅРѕ РѕС‚РєСЂС‹С‚СЊ, РїСЂРѕС‡РёС‚Р°С‚СЊ РІСЃСЋ РїРµСЂРµРїРёСЃРєСѓ, РѕС‚РІРµС‚РёС‚СЊ Рё РёР·РјРµРЅРёС‚СЊ СЃС‚Р°С‚СѓСЃ.",openTicket:"РћС‚РєСЂС‹С‚СЊ РѕР±СЂР°С‰РµРЅРёРµ",delete:"РЈРґР°Р»РёС‚СЊ",noTickets:"РђРєС‚РёРІРЅС‹С… РѕР±СЂР°С‰РµРЅРёР№ РЅРµС‚.",levelsTitle:"РЈСЂРѕРІРЅРё Р°РґРјРёРЅРѕРє",important:"Р’Р°Р¶РЅРѕ РґР»СЏ РєРѕРјР°РЅРґС‹",levelsDesc:"Р›СЋР±РѕРµ РґРµР№СЃС‚РІРёРµ РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ С‚РѕР»СЊРєРѕ РїРѕ РїСЂР°РІРёР»Р°Рј DuelPlay Рё СЃ РјРёРЅРёРјР°Р»СЊРЅРѕ РЅРµРѕР±С…РѕРґРёРјС‹РјРё РїСЂР°РІР°РјРё. РќРµ РјРµРЅСЏР№С‚Рµ Р±Р°Р»Р°РЅСЃ, СЃС‚Р°С‚СѓСЃ, СЂРѕР»СЊ РёР»Рё СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Р° Р±РµР· РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅРѕР№ РїСЂРёС‡РёРЅС‹. Р¤РёРЅР°РЅСЃРѕРІС‹Рµ Рё РјРѕРґРµСЂР°С†РёРѕРЅРЅС‹Рµ РґРµР№СЃС‚РІРёСЏ РґРѕР»Р¶РЅС‹ Р±С‹С‚СЊ РїСЂРѕРІРµСЂСЏРµРјС‹РјРё С‡РµСЂРµР· Р°СѓРґРёС‚.",userRole:"РРіСЂРѕРє",userRoleDesc:"РћР±С‹С‡РЅС‹Р№ Р°РєРєР°СѓРЅС‚. РќРµС‚ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹С… С„СѓРЅРєС†РёР№.",supportRole:"Support Admin",supportRoleDesc:"Р Р°Р±РѕС‚Р° СЃ РѕР±СЂР°С‰РµРЅРёСЏРјРё РёРіСЂРѕРєРѕРІ: РїСЂРѕСЃРјРѕС‚СЂ, РѕС‚РІРµС‚С‹, СЃС‚Р°С‚СѓСЃС‹. РќРµ СѓРїСЂР°РІР»СЏРµС‚ Р±Р°Р»Р°РЅСЃРѕРј, СЂРѕР»СЏРјРё Рё СЂРµР·СѓР»СЊС‚Р°С‚Р°РјРё РјР°С‚С‡РµР№.",modRole:"Moderator",modRoleDesc:"РњРѕРґРµСЂР°С†РёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№ Рё СЃРїРѕСЂРЅС‹С… СЃРёС‚СѓР°С†РёР№ РІ РїСЂРµРґРµР»Р°С… РІС‹РґР°РЅРЅС‹С… РїРѕР»РЅРѕРјРѕС‡РёР№. Р¤РёРЅР°РЅСЃРѕРІС‹Рµ РѕРїРµСЂР°С†РёРё РѕРіСЂР°РЅРёС‡РµРЅС‹.",adminRole:"Admin",adminRoleDesc:"Р Р°СЃС€РёСЂРµРЅРЅРѕРµ СѓРїСЂР°РІР»РµРЅРёРµ РјР°С‚С‡Р°РјРё, С„РёРЅР°РЅСЃР°РјРё Рё Р±РµР·РѕРїР°СЃРЅРѕСЃС‚СЊСЋ РїРѕ РІРЅСѓС‚СЂРµРЅРЅРёРј РїСЂР°РІРёР»Р°Рј. Р’СЃРµ РєСЂРёС‚РёС‡РµСЃРєРёРµ РґРµР№СЃС‚РІРёСЏ Р»РѕРіРёСЂСѓСЋС‚СЃСЏ.",superRole:"Super Admin",superRoleDesc:"РџРѕР»РЅС‹Р№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹Р№ РґРѕСЃС‚СѓРї: РЅР°СЃС‚СЂРѕР№РєРё СЃР°Р№С‚Р°, СЂРѕР»Рё, СЃРµСЂРІРµСЂС‹ Рё РєСЂРёС‚РёС‡РµСЃРєРёРµ РѕРїРµСЂР°С†РёРё. Р“Р»Р°РІРЅС‹Р№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ Р·Р°С‰РёС‰С‘РЅ РѕС‚РґРµР»СЊРЅРѕ.",forbidden:"Р—Р°РїСЂРµС‰РµРЅРѕ",f1:"РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ Р°РґРјРёРЅРєСѓ РґР»СЏ Р»РёС‡РЅРѕР№ РІС‹РіРѕРґС‹ РёР»Рё В«РїРѕРјРѕС‰Рё Р·РЅР°РєРѕРјС‹РјВ».",f2:"РњРµРЅСЏС‚СЊ Р±Р°Р»Р°РЅСЃ Р±РµР· РїРѕРЅСЏС‚РЅРѕР№ РїСЂРёС‡РёРЅС‹ Рё Р·Р°РїРёСЃРё РІ Р°СѓРґРёС‚Рµ.",f3:"РЎР°РјРѕСЃС‚РѕСЏС‚РµР»СЊРЅРѕ РїРѕРґРјРµРЅСЏС‚СЊ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅС‹Р№ СЃРµСЂРІРµСЂРѕРј СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Р°.",f4:"РџРµСЂРµРґР°РІР°С‚СЊ СЃРІРѕРё СѓС‡С‘С‚РЅС‹Рµ РґР°РЅРЅС‹Рµ РґСЂСѓРіРѕРјСѓ С‡РµР»РѕРІРµРєСѓ.",f5:"РџС‹С‚Р°С‚СЊСЃСЏ РёР·РјРµРЅРёС‚СЊ РёР»Рё Р·Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ РіР»Р°РІРЅРѕРіРѕ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°.",ticket:"РћР±СЂР°С‰РµРЅРёРµ",replyPlaceholder:"РћС‚РІРµС‚ РёРіСЂРѕРєСѓ...",reply:"РћС‚РІРµС‚РёС‚СЊ",openStatus:"РћС‚РєСЂС‹С‚Рѕ",assignedStatus:"РќР°Р·РЅР°С‡РµРЅРѕ",progressStatus:"Р’ СЂР°Р±РѕС‚Рµ",waitingStatus:"Р–РґС‘Рј РёРіСЂРѕРєР°",resolvedStatus:"Р РµС€РµРЅРѕ",closedStatus:"Р—Р°РєСЂС‹С‚Рѕ",walletDebit:"РЎРїРёСЃР°РЅРёРµ СЃСЂРµРґСЃС‚РІ",walletCredit:"РџРѕРїРѕР»РЅРµРЅРёРµ Р±Р°Р»Р°РЅСЃР°",reasonPlaceholder:"РќР°РїСЂРёРјРµСЂ: РєРѕРјРїРµРЅСЃР°С†РёСЏ / РЅР°СЂСѓС€РµРЅРёРµ РїСЂР°РІРёР»",debitNote:"РЎСѓРјРјР° Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРµСЂРµРІРѕРґРёС‚СЃСЏ РІ РєРѕС€РµР»С‘Рє РІР»Р°РґРµР»СЊС†Р° SUPERADMIN.",creditNote:"РђРґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅРѕРµ Р·Р°С‡РёСЃР»РµРЅРёРµ РїРѕРїР°РґС‘С‚ РІ РёСЃС‚РѕСЂРёСЋ С‚СЂР°РЅР·Р°РєС†РёР№ Рё Р°СѓРґРёС‚.",cancelMatch:"РћС‚РјРµРЅР° РјР°С‚С‡Р°",confirmation:"РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ",cancelQuestion:"РћС‚РјРµРЅРёС‚СЊ СЌС‚РѕС‚ РјР°С‚С‡?",cancelText:"РЎС‚Р°РІРєРё РѕР±РѕРёС… РёРіСЂРѕРєРѕРІ Р±СѓРґСѓС‚ РІРѕР·РІСЂР°С‰РµРЅС‹, СЃРµСЂРІРµСЂ РѕСЃРІРѕР±РѕРґРёС‚СЃСЏ, Р° РјР°С‚С‡ РїРѕР»СѓС‡РёС‚ СЃС‚Р°С‚СѓСЃ В«CANCELLEDВ». Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµР»СЊР·СЏ РѕС‚РјРµРЅРёС‚СЊ.",doNotCancel:"РќРµ РѕС‚РјРµРЅСЏС‚СЊ",yesCancel:"Р”Р°, РѕС‚РјРµРЅРёС‚СЊ РјР°С‚С‡",cancelling:"РћС‚РјРµРЅР°вЂ¦",loading:"Р—Р°РіСЂСѓР·РєР°вЂ¦",accessDenied:"Р”РѕСЃС‚СѓРї Р·Р°РїСЂРµС‰С‘РЅ",operationFailed:"РћРїРµСЂР°С†РёСЏ РЅРµ РІС‹РїРѕР»РЅРµРЅР°"},
+ UA:{users:"РљРѕСЂРёСЃС‚СѓРІР°С‡С–",matches:"РњР°С‚С‡С–",finance:"Р¤С–РЅР°РЅСЃРё",security:"Р‘РµР·РїРµРєР°",support:"РџС–РґС‚СЂРёРјРєР°",settings:"РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ",notifications:"РЎРїРѕРІС–С‰РµРЅРЅСЏ",skins:"РўРѕРї СЃРєС–РЅС–РІ",balance:"Р‘Р°Р»Р°РЅСЃ",locked:"Р—Р°Р±Р»РѕРєРѕРІР°РЅРѕ",search:"РџРѕС€СѓРє",credit:"РџРѕРїРѕРІРЅРёС‚Рё",debit:"РЎРїРёСЃР°С‚Рё",amount:"РЎСѓРјР°, USD",reason:"РџСЂРёС‡РёРЅР°",close:"Р—Р°РєСЂРёС‚Рё",save:"Р—Р±РµСЂРµРіС‚Рё",send:"РќР°РґС–СЃР»Р°С‚Рё СЃРїРѕРІС–С‰РµРЅРЅСЏ",title:"Р—Р°РіРѕР»РѕРІРѕРє",message:"РўРµРєСЃС‚",all:"РЈСЃС– РєРѕСЂРёСЃС‚СѓРІР°С‡С–",transactions:"РўСЂР°РЅР·Р°РєС†С–С—",servers:"РЎРµСЂРІРµСЂРё",seasons:"РЎРµР·РѕРЅРё",logs:"Р›РѕРіРё",avatars:"РђРІР°С‚Р°СЂРё",levels:"Р С–РІРЅС– Р°РґРјС–РЅС–РІ",center:"Р¦Р•РќРўР  РљР•Р РЈР’РђРќРќРЇ",centerTitle:"Р¦РµРЅС‚СЂ РєРµСЂСѓРІР°РЅРЅСЏ",centerDesc:"Р“СЂР°РІС†С–, РјР°С‚С‡С–, С„С–РЅР°РЅСЃРё, СЃРїРѕРІС–С‰РµРЅРЅСЏ, СЃРµСЂРІРµСЂРё С‚Р° РѕС„РѕСЂРјР»РµРЅРЅСЏ DuelPlay.",player:"Р“СЂР°РІРµС†СЊ",role:"Р РѕР»СЊ",status:"РЎС‚Р°С‚СѓСЃ",actions:"Р”С–С—",cancel:"РЎРєР°СЃСѓРІР°С‚Рё",hero:"Р“РѕР»РѕРІРЅРµ Р·РѕР±СЂР°Р¶РµРЅРЅСЏ",heroDesc:"РћР±РµСЂРё С„РѕРЅ РїРµСЂС€РѕРіРѕ РµРєСЂР°РЅР°. РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ Р·Р±РµСЂС–РіР°С”С‚СЊСЃСЏ С‚Р° Р·Р°СЃС‚РѕСЃРѕРІСѓС”С‚СЊСЃСЏ РґРѕ РІСЃС–С… РІС–РґРІС–РґСѓРІР°С‡С–РІ.",heroNote:"Р—РјС–РЅСЋРІР°С‚Рё РіРѕР»РѕРІРЅРµ Р·РѕР±СЂР°Р¶РµРЅРЅСЏ РјРѕР¶Рµ Р»РёС€Рµ SUPERADMIN.",notifyDesc:"РќР°РґСЃРёР»Р°Р№ СЃРёСЃС‚РµРјРЅС– РѕРіРѕР»РѕС€РµРЅРЅСЏ РїСЂРѕ РѕРЅРѕРІР»РµРЅРЅСЏ, Р·РјС–РЅРё, РїСЂРѕС„С–Р»Р°РєС‚РёРєСѓ С‚Р° РІР°Р¶Р»РёРІС– РїРѕРґС–С—.",skinsDesc:"Р”РѕРґР°РІР°Р№ РЅР°Р№РєСЂР°С‰С– СЂРѕР±РѕС‚Рё СЃРїС–Р»СЊРЅРѕС‚Рё. РџС–СЃР»СЏ РїСѓР±Р»С–РєР°С†С–С— РІРѕРЅРё Р·вЂ™СЏРІР»СЏС‚СЊСЃСЏ РІ Р·Р°РіР°Р»СЊРЅРѕРјСѓ Р±Р»РѕС†С– РЅР° РіРѕР»РѕРІРЅС–Р№.",avatarsDesc:"Р”РѕРґР°РІР°Р№ РЅР°Р№РєСЂР°С‰С– Р·РѕР±СЂР°Р¶РµРЅРЅСЏ СЃРїС–Р»СЊРЅРѕС‚Рё РґРѕ Р·Р°РіР°Р»СЊРЅРѕРіРѕ РІРёР±РѕСЂСѓ Р°РІР°С‚Р°СЂС–РІ РїСЂРѕС„С–Р»СЋ.",add:"Р”РѕРґР°С‚Рё",name:"РќР°Р·РІР°",image:"Р—РѕР±СЂР°Р¶РµРЅРЅСЏ",supportWorkflow:"РџСЂРѕС†РµСЃ РїС–РґС‚СЂРёРјРєРё",supportFlow:"РџРёС‚Р°РЅРЅСЏ РіСЂР°РІС†СЏ в†’ РІС–РґРїРѕРІС–РґСЊ РєРѕРјР°РЅРґРё в†’ Р·Р°РєСЂРёС‚С‚СЏ",supportDesc:"Р“СЂР°РІС†С– РїРёС€СѓС‚СЊ С‡РµСЂРµР· РєРЅРѕРїРєСѓ В«Р”РѕРїРѕРјРѕРіР° РіСЂР°РІС†СЏРјВ» Сѓ РїСЂР°РІРѕРјСѓ РЅРёР¶РЅСЊРѕРјСѓ РєСѓС‚С–. РўСѓС‚ Р·РІРµСЂРЅРµРЅРЅСЏ РјРѕР¶РЅР° РІС–РґРєСЂРёС‚Рё, РїСЂРѕС‡РёС‚Р°С‚Рё РІСЃСЋ РїРµСЂРµРїРёСЃРєСѓ, РІС–РґРїРѕРІС–СЃС‚Рё С‚Р° Р·РјС–РЅРёС‚Рё СЃС‚Р°С‚СѓСЃ.",openTicket:"Р’С–РґРєСЂРёС‚Рё Р·РІРµСЂРЅРµРЅРЅСЏ",delete:"Р’РёРґР°Р»РёС‚Рё",noTickets:"РђРєС‚РёРІРЅРёС… Р·РІРµСЂРЅРµРЅСЊ РЅРµРјР°С”.",levelsTitle:"Р С–РІРЅС– Р°РґРјС–РЅС–РІ",important:"Р’Р°Р¶Р»РёРІРѕ РґР»СЏ РєРѕРјР°РЅРґРё",levelsDesc:"Р‘СѓРґСЊ-СЏРєР° РґС–СЏ РІРёРєРѕРЅСѓС”С‚СЊСЃСЏ Р»РёС€Рµ Р·Р° РїСЂР°РІРёР»Р°РјРё DuelPlay С– Р· РјС–РЅС–РјР°Р»СЊРЅРѕ РЅРµРѕР±С…С–РґРЅРёРјРё РїСЂР°РІР°РјРё. РќРµ Р·РјС–РЅСЋР№С‚Рµ Р±Р°Р»Р°РЅСЃ, СЃС‚Р°С‚СѓСЃ, СЂРѕР»СЊ Р°Р±Рѕ СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Сѓ Р±РµР· РїС–РґС‚РІРµСЂРґР¶РµРЅРѕС— РїСЂРёС‡РёРЅРё. Р¤С–РЅР°РЅСЃРѕРІС– С‚Р° РјРѕРґРµСЂР°С†С–Р№РЅС– РґС–С— РјР°СЋС‚СЊ Р±СѓС‚Рё РїРµСЂРµРІС–СЂРЅРёРјРё С‡РµСЂРµР· Р°СѓРґРёС‚.",userRole:"Р“СЂР°РІРµС†СЊ",userRoleDesc:"Р—РІРёС‡Р°Р№РЅРёР№ Р°РєР°СѓРЅС‚. РђРґРјС–РЅС–СЃС‚СЂР°С‚РёРІРЅРёС… С„СѓРЅРєС†С–Р№ РЅРµРјР°С”.",supportRole:"Support Admin",supportRoleDesc:"Р РѕР±РѕС‚Р° Р·С– Р·РІРµСЂРЅРµРЅРЅСЏРјРё РіСЂР°РІС†С–РІ: РїРµСЂРµРіР»СЏРґ, РІС–РґРїРѕРІС–РґС–, СЃС‚Р°С‚СѓСЃРё. РќРµ РєРµСЂСѓС” Р±Р°Р»Р°РЅСЃРѕРј, СЂРѕР»СЏРјРё С‚Р° СЂРµР·СѓР»СЊС‚Р°С‚Р°РјРё РјР°С‚С‡С–РІ.",modRole:"Moderator",modRoleDesc:"РњРѕРґРµСЂР°С†С–СЏ РєРѕСЂРёСЃС‚СѓРІР°С‡С–РІ С– СЃРїС–СЂРЅРёС… СЃРёС‚СѓР°С†С–Р№ Сѓ РјРµР¶Р°С… РЅР°РґР°РЅРёС… РїРѕРІРЅРѕРІР°Р¶РµРЅСЊ. Р¤С–РЅР°РЅСЃРѕРІС– РѕРїРµСЂР°С†С–С— РѕР±РјРµР¶РµРЅС–.",adminRole:"Admin",adminRoleDesc:"Р РѕР·С€РёСЂРµРЅРµ РєРµСЂСѓРІР°РЅРЅСЏ РјР°С‚С‡Р°РјРё, С„С–РЅР°РЅСЃР°РјРё С‚Р° Р±РµР·РїРµРєРѕСЋ Р·Р° РІРЅСѓС‚СЂС–С€РЅС–РјРё РїСЂР°РІРёР»Р°РјРё. РЈСЃС– РєСЂРёС‚РёС‡РЅС– РґС–С— Р»РѕРіСѓСЋС‚СЊСЃСЏ.",superRole:"Super Admin",superRoleDesc:"РџРѕРІРЅРёР№ Р°РґРјС–РЅС–СЃС‚СЂР°С‚РёРІРЅРёР№ РґРѕСЃС‚СѓРї: РЅР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ СЃР°Р№С‚Сѓ, СЂРѕР»С–, СЃРµСЂРІРµСЂРё С‚Р° РєСЂРёС‚РёС‡РЅС– РѕРїРµСЂР°С†С–С—. Р“РѕР»РѕРІРЅРёР№ Р°РґРјС–РЅС–СЃС‚СЂР°С‚РѕСЂ Р·Р°С…РёС‰РµРЅРёР№ РѕРєСЂРµРјРѕ.",forbidden:"Р—Р°Р±РѕСЂРѕРЅРµРЅРѕ",f1:"Р’РёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё Р°РґРјС–РЅРєСѓ РґР»СЏ РѕСЃРѕР±РёСЃС‚РѕС— РІРёРіРѕРґРё Р°Р±Рѕ В«РґРѕРїРѕРјРѕРіРё Р·РЅР°Р№РѕРјРёРјВ».",f2:"Р—РјС–РЅСЋРІР°С‚Рё Р±Р°Р»Р°РЅСЃ Р±РµР· Р·СЂРѕР·СѓРјС–Р»РѕС— РїСЂРёС‡РёРЅРё С‚Р° Р·Р°РїРёСЃСѓ РІ Р°СѓРґРёС‚С–.",f3:"РЎР°РјРѕСЃС‚С–Р№РЅРѕ РїС–РґРјС–РЅСЏС‚Рё РїС–РґС‚РІРµСЂРґР¶РµРЅРёР№ СЃРµСЂРІРµСЂРѕРј СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Сѓ.",f4:"РџРµСЂРµРґР°РІР°С‚Рё СЃРІРѕС— РѕР±Р»С–РєРѕРІС– РґР°РЅС– С–РЅС€С–Р№ Р»СЋРґРёРЅС–.",f5:"РќР°РјР°РіР°С‚РёСЃСЏ Р·РјС–РЅРёС‚Рё Р°Р±Рѕ Р·Р°Р±Р»РѕРєСѓРІР°С‚Рё РіРѕР»РѕРІРЅРѕРіРѕ Р°РґРјС–РЅС–СЃС‚СЂР°С‚РѕСЂР°.",ticket:"Р—РІРµСЂРЅРµРЅРЅСЏ",replyPlaceholder:"Р’С–РґРїРѕРІС–РґСЊ РіСЂР°РІС†СЋ...",reply:"Р’С–РґРїРѕРІС–СЃС‚Рё",openStatus:"Р’С–РґРєСЂРёС‚Рѕ",assignedStatus:"РџСЂРёР·РЅР°С‡РµРЅРѕ",progressStatus:"РЈ СЂРѕР±РѕС‚С–",waitingStatus:"Р§РµРєР°С”РјРѕ РЅР° РіСЂР°РІС†СЏ",resolvedStatus:"Р’РёСЂС–С€РµРЅРѕ",closedStatus:"Р—Р°РєСЂРёС‚Рѕ",walletDebit:"РЎРїРёСЃР°РЅРЅСЏ РєРѕС€С‚С–РІ",walletCredit:"РџРѕРїРѕРІРЅРµРЅРЅСЏ Р±Р°Р»Р°РЅСЃСѓ",reasonPlaceholder:"РќР°РїСЂРёРєР»Р°Рґ: РєРѕРјРїРµРЅСЃР°С†С–СЏ / РїРѕСЂСѓС€РµРЅРЅСЏ РїСЂР°РІРёР»",debitNote:"РЎСѓРјР° Р°РІС‚РѕРјР°С‚РёС‡РЅРѕ РїРµСЂРµРІРѕРґРёС‚СЊСЃСЏ РІ РіР°РјР°РЅРµС†СЊ РІР»Р°СЃРЅРёРєР° SUPERADMIN.",creditNote:"РђРґРјС–РЅС–СЃС‚СЂР°С‚РёРІРЅРµ Р·Р°СЂР°С…СѓРІР°РЅРЅСЏ РїРѕС‚СЂР°РїРёС‚СЊ РІ С–СЃС‚РѕСЂС–СЋ С‚СЂР°РЅР·Р°РєС†С–Р№ С‚Р° Р°СѓРґРёС‚.",cancelMatch:"РЎРєР°СЃСѓРІР°РЅРЅСЏ РјР°С‚С‡Сѓ",confirmation:"РџС–РґС‚РІРµСЂРґР¶РµРЅРЅСЏ",cancelQuestion:"РЎРєР°СЃСѓРІР°С‚Рё С†РµР№ РјР°С‚С‡?",cancelText:"РЎС‚Р°РІРєРё РѕР±РѕС… РіСЂР°РІС†С–РІ Р±СѓРґРµ РїРѕРІРµСЂРЅРµРЅРѕ, СЃРµСЂРІРµСЂ Р·РІС–Р»СЊРЅРёС‚СЊСЃСЏ, Р° РјР°С‚С‡ РѕС‚СЂРёРјР°С” СЃС‚Р°С‚СѓСЃ В«CANCELLEDВ». Р¦СЋ РґС–СЋ РЅРµ РјРѕР¶РЅР° СЃРєР°СЃСѓРІР°С‚Рё.",doNotCancel:"РќРµ СЃРєР°СЃРѕРІСѓРІР°С‚Рё",yesCancel:"РўР°Рє, СЃРєР°СЃСѓРІР°С‚Рё РјР°С‚С‡",cancelling:"РЎРєР°СЃСѓРІР°РЅРЅСЏвЂ¦",loading:"Р—Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏвЂ¦",accessDenied:"Р”РѕСЃС‚СѓРї Р·Р°Р±РѕСЂРѕРЅРµРЅРѕ",operationFailed:"РћРїРµСЂР°С†С–СЋ РЅРµ РІРёРєРѕРЅР°РЅРѕ"},
+ EN:{users:"Users",matches:"Matches",finance:"Finance",security:"Security",support:"Support",settings:"Settings",notifications:"Notifications",skins:"Top skins",balance:"Balance",locked:"Locked",search:"Search",credit:"Add funds",debit:"Subtract",amount:"Amount, USD",reason:"Reason",close:"Close",save:"Save",send:"Send notification",title:"Title",message:"Text",all:"All users",transactions:"Transactions",servers:"Servers",seasons:"Seasons",logs:"Logs",avatars:"Avatars",creator:"Creators",creatorDesc:"Creator program payouts and operations.",approve:"Approve",reject:"Reject",markPaid:"Mark paid",payout:"Payout",pending:"No payout requests",levels:"Admin levels",center:"CONTROL CENTER",centerTitle:"Control center",centerDesc:"Players, matches, finance, notifications, servers and DuelPlay appearance.",player:"Player",role:"Role",status:"Status",actions:"Actions",cancel:"Cancel",hero:"Hero image",heroDesc:"Choose the first-screen background. The setting is saved and applied to all visitors.",heroNote:"Only SUPERADMIN can change the hero image.",notifyDesc:"Send system announcements about updates, changes, maintenance and important events.",skinsDesc:"Upload the best community work. After publishing, it appears in the main page block.",avatarsDesc:"Add the best community images to the shared profile avatar selection.",add:"Add",name:"Name",image:"Image",supportWorkflow:"Support workflow",supportFlow:"Player question в†’ team reply в†’ closure",supportDesc:"Players write through the В«Player SupportВ» button in the bottom-right corner. Here you can open a ticket, read the full conversation, reply and change its status.",openTicket:"Open ticket",delete:"Delete",noTickets:"No active tickets.",levelsTitle:"Admin levels",important:"Important for the team",levelsDesc:"Every action follows DuelPlay rules and uses only the minimum required permissions. Do not change balances, status, roles or match results without a confirmed reason. Financial and moderation actions must be auditable.",userRole:"Player",userRoleDesc:"Regular account. No administrative functions.",supportRole:"Support Admin",supportRoleDesc:"Handles player tickets: viewing, replies and statuses. Does not manage balances, roles or match results.",modRole:"Moderator",modRoleDesc:"Moderates users and disputes within assigned permissions. Financial operations are limited.",adminRole:"Admin",adminRoleDesc:"Extended control over matches, finance and security under internal rules. Critical actions are logged.",superRole:"Super Admin",superRoleDesc:"Full administrative access: site settings, roles, servers and critical operations. The main administrator is protected separately.",forbidden:"Forbidden",f1:"Use the admin panel for personal gain or to В«help friendsВ».",f2:"Change balances without a clear reason and an audit record.",f3:"Replace a server-confirmed match result manually.",f4:"Share your account credentials with another person.",f5:"Attempt to change or block the main administrator.",ticket:"Ticket",replyPlaceholder:"Reply to player...",reply:"Reply",openStatus:"Open",assignedStatus:"Assigned",progressStatus:"In progress",waitingStatus:"Waiting for player",resolvedStatus:"Resolved",closedStatus:"Closed",walletDebit:"Subtract funds",walletCredit:"Add funds",reasonPlaceholder:"For example: compensation / rule violation",debitNote:"The amount is automatically transferred to the SUPERADMIN owner's wallet.",creditNote:"The administrative credit is added to transaction history and audit.",cancelMatch:"Cancel match",confirmation:"Confirmation",cancelQuestion:"Cancel this match?",cancelText:"Both players' stakes will be refunded, the server will be released, and the match will receive В«CANCELLEDВ». This action cannot be undone.",doNotCancel:"Do not cancel",yesCancel:"Yes, cancel match",cancelling:"CancellingвЂ¦",loading:"LoadingвЂ¦",accessDenied:"Access denied",operationFailed:"Operation failed"},
+ PL:{users:"UЕјytkownicy",matches:"Mecze",finance:"Finanse",security:"BezpieczeЕ„stwo",support:"Wsparcie",settings:"Ustawienia",notifications:"Powiadomienia",skins:"Top skiny",balance:"Saldo",locked:"Zablokowane",search:"Szukaj",credit:"Dodaj Е›rodki",debit:"Odejmij",amount:"Kwota, USD",reason:"PowГіd",close:"Zamknij",save:"Zapisz",send:"WyЕ›lij powiadomienie",title:"TytuЕ‚",message:"TreЕ›Д‡",all:"Wszyscy uЕјytkownicy",transactions:"Transakcje",servers:"Serwery",seasons:"Sezony",logs:"Logi",avatars:"Awatary",creator:"TwГіrcy",creatorDesc:"WypЕ‚aty i operacje programu Creator.",approve:"ZatwierdЕє",reject:"OdrzuД‡",markPaid:"Oznacz jako wypЕ‚acone",payout:"WypЕ‚ata",pending:"Brak wnioskГіw o wypЕ‚atД™",levels:"Poziomy administratorГіw",center:"CENTRUM ZARZД„DZANIA",centerTitle:"Centrum zarzД…dzania",centerDesc:"Gracze, mecze, finanse, powiadomienia, serwery i wyglД…d DuelPlay.",player:"Gracz",role:"Rola",status:"Status",actions:"DziaЕ‚ania",cancel:"Anuluj",hero:"GЕ‚Гіwne zdjД™cie",heroDesc:"Wybierz tЕ‚o pierwszego ekranu. Ustawienie jest zapisywane i stosowane dla wszystkich odwiedzajД…cych.",heroNote:"Tylko SUPERADMIN moЕјe zmieniaД‡ gЕ‚Гіwne zdjД™cie.",notifyDesc:"WysyЕ‚aj systemowe komunikaty o aktualizacjach, zmianach, konserwacji i waЕјnych wydarzeniach.",skinsDesc:"Dodawaj najlepsze prace spoЕ‚ecznoЕ›ci. Po publikacji pojawiajД… siД™ na stronie gЕ‚Гіwnej.",avatarsDesc:"Dodawaj najlepsze obrazy spoЕ‚ecznoЕ›ci do wspГіlnego wyboru awatarГіw profilu.",add:"Dodaj",name:"Nazwa",image:"Obraz",supportWorkflow:"Proces wsparcia",supportFlow:"Pytanie gracza в†’ odpowiedЕє zespoЕ‚u в†’ zamkniД™cie",supportDesc:"Gracze piszД… przez przycisk В«Pomoc dla graczyВ» w prawym dolnym rogu. Tutaj moЕјesz otworzyД‡ zgЕ‚oszenie, przeczytaД‡ caЕ‚Д… rozmowД™, odpowiedzieД‡ i zmieniД‡ status.",openTicket:"OtwГіrz zgЕ‚oszenie",delete:"UsuЕ„",noTickets:"Brak aktywnych zgЕ‚oszeЕ„.",levelsTitle:"Poziomy administratorГіw",important:"WaЕјne dla zespoЕ‚u",levelsDesc:"KaЕјde dziaЕ‚anie musi byД‡ zgodne z zasadami DuelPlay i uЕјywaД‡ minimalnych wymaganych uprawnieЕ„. Nie zmieniaj salda, statusu, roli ani wyniku meczu bez potwierdzonego powodu. DziaЕ‚ania finansowe i moderacyjne muszД… byД‡ audytowalne.",userRole:"Gracz",userRoleDesc:"ZwykЕ‚e konto. Brak funkcji administracyjnych.",supportRole:"Support Admin",supportRoleDesc:"ObsЕ‚uga zgЕ‚oszeЕ„ graczy: podglД…d, odpowiedzi i statusy. Nie zarzД…dza saldem, rolami ani wynikami meczГіw.",modRole:"Moderator",modRoleDesc:"Moderacja uЕјytkownikГіw i sporГіw w ramach przyznanych uprawnieЕ„. Operacje finansowe sД… ograniczone.",adminRole:"Admin",adminRoleDesc:"Rozszerzone zarzД…dzanie meczami, finansami i bezpieczeЕ„stwem zgodnie z zasadami wewnД™trznymi. Krytyczne dziaЕ‚ania sД… logowane.",superRole:"Super Admin",superRoleDesc:"PeЕ‚ny dostД™p administracyjny: ustawienia strony, role, serwery i operacje krytyczne. GЕ‚Гіwny administrator jest chroniony osobno.",forbidden:"Zabronione",f1:"UЕјywanie panelu administracyjnego dla osobistych korzyЕ›ci lub do В«pomocy znajomymВ».",f2:"Zmiana salda bez jasnego powodu i wpisu w audycie.",f3:"RД™czne zastД™powanie wyniku meczu potwierdzonego przez serwer.",f4:"UdostД™pnianie danych logowania innej osobie.",f5:"PrГіba zmiany lub zablokowania gЕ‚Гіwnego administratora.",ticket:"ZgЕ‚oszenie",replyPlaceholder:"Odpowiedz graczowi...",reply:"Odpowiedz",openStatus:"Otwarte",assignedStatus:"Przypisane",progressStatus:"W toku",waitingStatus:"Czekamy na gracza",resolvedStatus:"RozwiД…zane",closedStatus:"ZamkniД™te",walletDebit:"Odejmowanie Е›rodkГіw",walletCredit:"Dodawanie Е›rodkГіw",reasonPlaceholder:"Na przykЕ‚ad: rekompensata / naruszenie zasad",debitNote:"Kwota zostanie automatycznie przelana do portfela wЕ‚aЕ›ciciela SUPERADMIN.",creditNote:"Administracyjne zasilenie zostanie dodane do historii transakcji i audytu.",cancelMatch:"Anulowanie meczu",confirmation:"Potwierdzenie",cancelQuestion:"AnulowaД‡ ten mecz?",cancelText:"Stawki obu graczy zostanД… zwrГіcone, serwer zostanie zwolniony, a mecz otrzyma status В«CANCELLEDВ». Tej operacji nie moЕјna cofnД…Д‡.",doNotCancel:"Nie anuluj",yesCancel:"Tak, anuluj mecz",cancelling:"AnulowanieвЂ¦",loading:"ЕЃadowanieвЂ¦",accessDenied:"Brak dostД™pu",operationFailed:"Operacja nie powiodЕ‚a siД™"}
+ };
+ const L=ADMIN_UI[language]||ADMIN_UI.RU;
+ const EXTRA:any={
+ RU:{matchLabel:"РњР°С‚С‡",free:"РЎРІРѕР±РѕРґРµРЅ",heartbeat:"РїСѓР»СЊСЃ",adminLabel:"РђРґРјРёРЅ",riskControl:"РљРѕРЅС‚СЂРѕР»СЊ СЂРёСЃРєРѕРІ",riskText:"РЎСЋРґР° РІС‹РІРѕРґСЏС‚СЃСЏ РїРѕРґРѕР·СЂРёС‚РµР»СЊРЅС‹Рµ Р°РєРєР°СѓРЅС‚С‹, СЂРёСЃРє-РѕС†РµРЅРєРё Рё СЃРІСЏР·Р°РЅРЅС‹Рµ СЃРѕР±С‹С‚РёСЏ РґР»СЏ РїСЂРѕРІРµСЂРєРё РєРѕРјР°РЅРґРѕР№.",disputesTitle:"РЎРїРѕСЂС‹ РїРѕ РјР°С‚С‡Р°Рј",disputesText:"РљР°Р¶РґС‹Р№ СЃРїРѕСЂ С…СЂР°РЅРёС‚ РїСЂРёС‡РёРЅСѓ, РґРѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІР° Рё СЂРµС€РµРЅРёРµ. РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё РјРµРЅСЏС‚СЊ СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Р° СЌС‚РѕС‚ СЂР°Р·РґРµР» РЅРµ РјРѕР¶РµС‚.",auditTitle:"РђСѓРґРёС‚ РґРµР№СЃС‚РІРёР№",auditText:"РР·РјРµРЅРµРЅРёСЏ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ С„РёРєСЃРёСЂСѓСЋС‚СЃСЏ РІ Р»РѕРіР°С…, С‡С‚РѕР±С‹ С„РёРЅР°РЅСЃРѕРІС‹Рµ Рё РјРѕРґРµСЂР°С†РёРѕРЅРЅС‹Рµ РѕРїРµСЂР°С†РёРё Р±С‹Р»Рё РїСЂРѕРІРµСЂСЏРµРјС‹РјРё.",active:"РђРљРўРР’РќРћ",skinPlaceholder:"РќР°РїСЂРёРјРµСЂ, Neon Dragon",avatarPlaceholder:"Neon Wolf",heroActive:"РђРљРўРР’РќРћ"},
+ UA:{matchLabel:"РњР°С‚С‡",free:"Р’С–Р»СЊРЅРёР№",heartbeat:"heartbeat",adminLabel:"РђРґРјС–РЅ",riskControl:"РљРѕРЅС‚СЂРѕР»СЊ СЂРёР·РёРєС–РІ",riskText:"РўСѓС‚ РІС–РґРѕР±СЂР°Р¶Р°СЋС‚СЊСЃСЏ РїС–РґРѕР·СЂС–Р»С– Р°РєР°СѓРЅС‚Рё, РѕС†С–РЅРєРё СЂРёР·РёРєСѓ С‚Р° РїРѕРІвЂ™СЏР·Р°РЅС– РїРѕРґС–С— РґР»СЏ РїРµСЂРµРІС–СЂРєРё РєРѕРјР°РЅРґРѕСЋ.",disputesTitle:"РЎРїРѕСЂРё С‰РѕРґРѕ РјР°С‚С‡С–РІ",disputesText:"РљРѕР¶РµРЅ СЃРїС–СЂ РјС–СЃС‚РёС‚СЊ РїСЂРёС‡РёРЅСѓ, РґРѕРєР°Р·Рё С‚Р° СЂС–С€РµРЅРЅСЏ. Р¦РµР№ СЂРѕР·РґС–Р» РЅРµ РјРѕР¶Рµ Р°РІС‚РѕРјР°С‚РёС‡РЅРѕ Р·РјС–РЅСЋРІР°С‚Рё СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Сѓ.",auditTitle:"РђСѓРґРёС‚ РґС–Р№",auditText:"Р—РјС–РЅРё Р°РґРјС–РЅС–СЃС‚СЂР°С‚РѕСЂС–РІ С„С–РєСЃСѓСЋС‚СЊСЃСЏ РІ Р»РѕРіР°С…, С‰РѕР± С„С–РЅР°РЅСЃРѕРІС– С‚Р° РјРѕРґРµСЂР°С†С–Р№РЅС– РѕРїРµСЂР°С†С–С— РјРѕР¶РЅР° Р±СѓР»Рѕ РїРµСЂРµРІС–СЂРёС‚Рё.",active:"РђРљРўРР’РќРћ",skinPlaceholder:"РќР°РїСЂРёРєР»Р°Рґ, Neon Dragon",avatarPlaceholder:"Neon Wolf",heroActive:"РђРљРўРР’РќРћ"},
+ EN:{matchLabel:"Match",free:"Free",heartbeat:"heartbeat",adminLabel:"Admin",riskControl:"Risk control",riskText:"Suspicious accounts, risk scores and related events are shown here for team review.",disputesTitle:"Match disputes",disputesText:"Each dispute stores its reason, evidence and decision. This section cannot automatically change a match result.",auditTitle:"Action audit",auditText:"Administrator changes are logged so financial and moderation actions can be verified.",active:"ACTIVE",skinPlaceholder:"For example, Neon Dragon",avatarPlaceholder:"Neon Wolf",heroActive:"ACTIVE"},
+ PL:{matchLabel:"Mecz",free:"Wolny",heartbeat:"heartbeat",adminLabel:"Admin",riskControl:"Kontrola ryzyka",riskText:"Podejrzane konta, oceny ryzyka i powiД…zane zdarzenia sД… wyЕ›wietlane tutaj do weryfikacji przez zespГіЕ‚.",disputesTitle:"Spory dotyczД…ce meczГіw",disputesText:"KaЕјdy spГіr przechowuje powГіd, dowody i decyzjД™. Ten dziaЕ‚ nie moЕјe automatycznie zmieniaД‡ wyniku meczu.",auditTitle:"Audyt dziaЕ‚aЕ„",auditText:"Zmiany administratorГіw sД… zapisywane w logach, aby operacje finansowe i moderacyjne moЕјna byЕ‚o zweryfikowaД‡.",active:"AKTYWNE",skinPlaceholder:"Na przykЕ‚ad: Neon Dragon",avatarPlaceholder:"Neon Wolf",heroActive:"AKTYWNE"}
+ };
+ const E=EXTRA[language]||EXTRA.RU;
+ const THEME_COPY:any={
+  RU:{STANDARD:["Black / Pink","Р¤РёСЂРјРµРЅРЅС‹Р№ СЃС‚РёР»СЊ DuelPlay"],BLACK_BLUE:["Black / Blue","РҐРѕР»РѕРґРЅС‹Р№ РєРёР±РµСЂСЃРїРѕСЂС‚"],FULL_GREEN:["Full Green","РўР°РєС‚РёС‡РµСЃРєРёР№ РЅРµРѕРЅ"],FULL_PINK:["Full Pink","РЇСЂРєРёР№ РЅРµРѕРЅРѕРІС‹Р№ DuelPlay"],NEON:["Neon","РњРЅРѕРіРѕС†РІРµС‚РЅС‹Р№ РЅРµРѕРЅ"],CYBER_PURPLE:["Cyber Purple","Р¤РёРѕР»РµС‚РѕРІС‹Р№ cyber"],CRIMSON:["Crimson","РљСЂР°СЃРЅС‹Р№ competitive"],ORANGE:["Orange Tactical","РћСЂР°РЅР¶РµРІС‹Р№ tactical"],CYAN:["Ice Cyan","РҐРѕР»РѕРґРЅС‹Р№ Р»РµРґСЏРЅРѕР№"],GOLD:["Black / Gold","РџСЂРµРјРёР°Р»СЊРЅС‹Р№"]},
+  UA:{STANDARD:["Black / Pink","Р¤С–СЂРјРѕРІРёР№ СЃС‚РёР»СЊ DuelPlay"],BLACK_BLUE:["Black / Blue","РҐРѕР»РѕРґРЅРёР№ РєС–Р±РµСЂСЃРїРѕСЂС‚"],FULL_GREEN:["Full Green","РўР°РєС‚РёС‡РЅРёР№ РЅРµРѕРЅ"],FULL_PINK:["Full Pink","РЇСЃРєСЂР°РІРёР№ РЅРµРѕРЅРѕРІРёР№ DuelPlay"],NEON:["Neon","Р‘Р°РіР°С‚РѕРєРѕР»С–СЂРЅРёР№ РЅРµРѕРЅ"],CYBER_PURPLE:["Cyber Purple","Р¤С–РѕР»РµС‚РѕРІРёР№ cyber"],CRIMSON:["Crimson","Р§РµСЂРІРѕРЅРёР№ competitive"],ORANGE:["Orange Tactical","РџРѕРјР°СЂР°РЅС‡РµРІРёР№ tactical"],CYAN:["Ice Cyan","РҐРѕР»РѕРґРЅРёР№ РєСЂРёР¶Р°РЅРёР№"],GOLD:["Black / Gold","РџСЂРµРјС–Р°Р»СЊРЅРёР№"]},
+  EN:{STANDARD:["Black / Pink","DuelPlay signature style"],BLACK_BLUE:["Black / Blue","Cool esports"],FULL_GREEN:["Full Green","Tactical neon"],FULL_PINK:["Full Pink","Bright DuelPlay neon"],NEON:["Neon","Multicolor neon"],CYBER_PURPLE:["Cyber Purple","Purple cyber"],CRIMSON:["Crimson","Red competitive"],ORANGE:["Orange Tactical","Orange tactical"],CYAN:["Ice Cyan","Cool icy"],GOLD:["Black / Gold","Premium"]},
+  PL:{STANDARD:["Black / Pink","Firmowy styl DuelPlay"],BLACK_BLUE:["Black / Blue","ChЕ‚odny esport"],FULL_GREEN:["Full Green","Taktyczny neon"],FULL_PINK:["Full Pink","Jasny neon DuelPlay"],NEON:["Neon","Wielokolorowy neon"],CYBER_PURPLE:["Cyber Purple","Fioletowy cyber"],CRIMSON:["Crimson","Czerwony competitive"],ORANGE:["Orange Tactical","PomaraЕ„czowy tactical"],CYAN:["Ice Cyan","ChЕ‚odny lodowy"],GOLD:["Black / Gold","Premium"]}
+ };
+ const TC=THEME_COPY[language]||THEME_COPY.RU;
+ const BG_COPY:any={
+  RU:{stars:"РќРµРѕРЅРѕРІС‹Рµ Р·РІС‘Р·РґС‹", "blue-nebula":"РЎРёРЅСЏСЏ С‚СѓРјР°РЅРЅРѕСЃС‚СЊ","green-aurora":"Р—РµР»С‘РЅР°СЏ Р°РІСЂРѕСЂР°","purple-galaxy":"Р¤РёРѕР»РµС‚РѕРІР°СЏ РіР°Р»Р°РєС‚РёРєР°","gold-space":"Р—РѕР»РѕС‚РѕР№ РєРѕСЃРјРѕСЃ"},
+  UA:{stars:"РќРµРѕРЅРѕРІС– Р·РѕСЂС–","blue-nebula":"РЎРёРЅСЏ С‚СѓРјР°РЅРЅС–СЃС‚СЊ","green-aurora":"Р—РµР»РµРЅР° Р°РІСЂРѕСЂР°","purple-galaxy":"Р¤С–РѕР»РµС‚РѕРІР° РіР°Р»Р°РєС‚РёРєР°","gold-space":"Р—РѕР»РѕС‚РёР№ РєРѕСЃРјРѕСЃ"},
+  EN:{stars:"Neon Stars","blue-nebula":"Blue Nebula","green-aurora":"Green Aurora","purple-galaxy":"Purple Galaxy","gold-space":"Gold Space"},
+  PL:{stars:"Neonowe gwiazdy","blue-nebula":"Niebieska mgЕ‚awica","green-aurora":"Zielona zorza","purple-galaxy":"Fioletowa galaktyka","gold-space":"ZЕ‚ota przestrzeЕ„"}
+ };
+ const BC=BG_COPY[language]||BG_COPY.RU;
+ const[d,setD]=useState<AdminData|null>(null);const[demoLimit,setDemoLimit]=useState("3");const[seasons,setSeasons]=useState<any[]>([]);const[activeSeason,setActiveSeason]=useState<any>(null);const[tab,setTab]=useState(embeddedTab||"dashboard");const[q,setQ]=useState("");const[err,setErr]=useState("");const[busy,setBusy]=useState(false);const[mfaBusy,setMfaBusy]=useState(false);const[mfaCode,setMfaCode]=useState("");const[mfaSecret,setMfaSecret]=useState("");const[mfaUri,setMfaUri]=useState("");const[adminInviteUser,setAdminInviteUser]=useState("");const[adminInviteUrl,setAdminInviteUrl]=useState("");const[walletUser,setWalletUser]=useState<any>(null);const[walletMode,setWalletMode]=useState<"credit"|"debit">("credit");const[amount,setAmount]=useState("");const[reason,setReason]=useState("");const[noticeTitle,setNoticeTitle]=useState("");const[noticeBody,setNoticeBody]=useState("");const[noticeTarget,setNoticeTarget]=useState("ALL");const[cancelTarget,setCancelTarget]=useState<any>(null);const[skinName,setSkinName]=useState("");const[deleteTicket,setDeleteTicket]=useState<any>(null);const[file,setFile]=useState<File|null>(null);const[filePreview,setFilePreview]=useState("");const fileRef=useRef<HTMLInputElement|null>(null);const[supportTicket,setSupportTicket]=useState<any>(null);const[supportReply,setSupportReply]=useState("");
+ async function load(){const [r,sr]=await Promise.all([fetch("/api/admin",{cache:"no-store"}),fetch("/api/seasons",{cache:"no-store"})]);const x=await r.json().catch(()=>({}));const sx=await sr.json().catch(()=>({}));if(!r.ok){if(r.status===401&&x.errorCode==="ADMIN_LOGIN_REQUIRED"){window.location.href="/admin/login";return}setErr(x.error||L.accessDenied);return}setD(x);setSeasons(Array.isArray(sx.all)?sx.all:[]);setActiveSeason(sx.active??null);}
+ useEffect(()=>{void load()},[refreshKey]);
+ useEffect(()=>{if(d?.demoModeSettings)setDemoLimit(String(d.demoModeSettings.dailyMatchLimit))},[d?.demoModeSettings?.dailyMatchLimit]);
+ useEffect(()=>{if(embeddedTab)setTab(embeddedTab)},[embeddedTab]);
+ async function setupAdminMfa(){setMfaBusy(true);setErr("");try{const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup"})});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return}setMfaSecret(String(x.secret||""));setMfaUri(String(x.otpauthUri||""));}catch{setErr(L.operationFailed)}finally{setMfaBusy(false)}}
+ async function verifyAdminMfa(){setMfaBusy(true);setErr("");try{const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"verify",code:mfaCode})});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return}setMfaCode("");setMfaSecret("");setMfaUri("");await load();}catch{setErr(L.operationFailed)}finally{setMfaBusy(false)}}
+ async function act(body:any){setBusy(true);setErr("");try{const r=await fetch("/api/admin",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return false}await load();return true}catch{setErr(L.operationFailed);return false}finally{setBusy(false)}}
+ async function changeUserRole(userId:string,role:string){setBusy(true);setErr("");try{const r=await fetch("/api/admin",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"userRole",userId,role})});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return}if(x.adminInviteUrl){const u=d?.users?.find((v:any)=>v.id===userId);setAdminInviteUser(u?.nickname||"admin");setAdminInviteUrl(String(x.adminInviteUrl));}await load();}catch{setErr(L.operationFailed)}finally{setBusy(false)}}
+ async function issueAdminInvite(userId:string){setBusy(true);setErr("");try{const r=await fetch("/api/admin",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"issueAdminInvite",userId})});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return}const u=d?.users?.find((v:any)=>v.id===userId);setAdminInviteUser(u?.nickname||"admin");setAdminInviteUrl(String(x.adminInviteUrl||""));await load();}catch{setErr(L.operationFailed)}finally{setBusy(false)}}
+ async function activateSeason(preset:any){
+  if(!can("seasons.manage"))return;
+  setBusy(true);setErr("");
+  try{
+    if(preset.id==="none"){
+      const r=await fetch("/api/seasons",{method:"DELETE"});
+      const x=await r.json().catch(()=>({}));
+      if(!r.ok){setErr(x.error||L.operationFailed);return;}
+    }else{
+      const existing=seasons.find(x=>x.name===preset.name);
+      const now=new Date();
+      const ends=new Date("2099-12-31T23:59:59.000Z");
+      const effects={seasonId:preset.id,preset:preset.theme.toLowerCase(),particle:preset.particle,intensity:preset.intensity,...(preset.decorations||{})};
+      const body={name:preset.name,theme:preset.theme,startsAt:now.toISOString(),endsAt:ends.toISOString(),mode:"MANUAL",active:true,effects};
+      const r=await fetch("/api/seasons",{method:existing?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(existing?{...body,id:existing.id}:body)});
+      const x=await r.json().catch(()=>({}));
+      if(!r.ok){setErr(x.error||L.operationFailed);return;}
+    }
+    await load();
+    window.dispatchEvent(new Event("duelplay:season-changed"));window.dispatchEvent(new Event("duelplay:platform-changed"));
+  }catch{setErr(L.operationFailed)}finally{setBusy(false)}
+ }
+ async function cancelMatch(matchId:string){const ok=await act({action:"cancelMatch",matchId});if(ok)setCancelTarget(null)}
+ async function saveWallet(){const n=Number(amount);if(!walletUser||!(n>0))return;const ok=await act({action:"walletAdjust",userId:walletUser.id,amount:walletMode==="debit"?-n:n,reason});if(ok){setWalletUser(null);setAmount("");setReason("")}}
+ async function sendNotice(){const ok=await act({action:"sendNotification",title:noticeTitle,body:noticeBody,target:noticeTarget});if(ok){setNoticeTitle("");setNoticeBody("")}}
+ async function creatorPayoutAction(id:string,status:"APPROVED"|"REJECTED"|"PAID",reason?:string){setBusy(true);setErr("");try{const r=await fetch("/api/creator-payouts",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,status,reason})});const x=await r.json().catch(()=>({}));if(!r.ok){setErr(x.error||L.operationFailed);return}await load()}catch{setErr(L.operationFailed)}finally{setBusy(false)}}
+ function chooseFile(f:File|null){setFile(f);if(!f){setFilePreview("");return}const r=new FileReader();r.onload=()=>setFilePreview(String(r.result));r.readAsDataURL(f)}
+ async function addSkin(){if(!filePreview||!skinName)return;await act({action:"topSkinAdd",name:skinName,imageData:filePreview});setSkinName("");setFile(null);setFilePreview("")}
+ if(!d)return <><main className="pt-32 text-center text-zinc-500">LoadingвЂ¦</main></>;
+ if(d.mfaRequired){return <main className="mx-auto min-h-screen max-w-2xl px-4 pb-20 pt-32"><div className="panel rounded-3xl p-6 sm:p-8"><div className="pill">DUELPLAY ADMIN SECURITY</div><h1 className="mt-4 text-3xl font-black">РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ MFA</h1><p className="mt-3 text-sm leading-6 text-zinc-400">РђРґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅР°СЏ РїР°РЅРµР»СЊ Р·Р°С‰РёС‰РµРЅР° РѕРґРЅРѕСЂР°Р·РѕРІС‹Рј РєРѕРґРѕРј РёР· РїСЂРёР»РѕР¶РµРЅРёСЏ-Р°СѓС‚РµРЅС‚РёС„РёРєР°С‚РѕСЂР°. Р­С‚Рѕ РѕС‚РґРµР»СЊРЅС‹Р№ С€Р°Рі Р±РµР·РѕРїР°СЃРЅРѕСЃС‚Рё Рё РѕРЅ РЅРµ РјРµРЅСЏРµС‚ РѕР±С‹С‡РЅС‹Р№ Steam-РІС…РѕРґ.</p>{err&&<div className="mt-4 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{err}</div>}{d.mfaSetupRequired&&!mfaSecret?<><div className="mt-6 rounded-2xl border border-amber-400/15 bg-amber-400/[.04] p-4 text-sm leading-6 text-zinc-300">РЎРЅР°С‡Р°Р»Р° РЅР°Р¶РјРё В«РЎРѕР·РґР°С‚СЊ MFAВ». РЎРµСЂРІРµСЂ СЃРіРµРЅРµСЂРёСЂСѓРµС‚ РЅРѕРІС‹Р№ СЃРµРєСЂРµС‚. Р”РѕР±Р°РІСЊ РµРіРѕ РІ Google Authenticator, Microsoft Authenticator, Authy РёР»Рё РґСЂСѓРіРѕРµ TOTP-РїСЂРёР»РѕР¶РµРЅРёРµ.</div><button disabled={mfaBusy} onClick={setupAdminMfa} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{mfaBusy?"РЎРѕР·РґР°РЅРёРµвЂ¦":"РЎРѕР·РґР°С‚СЊ MFA"}</button></>:<>{mfaSecret&&<div className="mt-6 space-y-3"><div><div className="mb-2 text-xs font-black uppercase tracking-widest text-zinc-500">РЎРµРєСЂРµС‚</div><code className="block overflow-x-auto rounded-xl bg-black p-3 text-sm text-white">{mfaSecret}</code></div><div><div className="mb-2 text-xs font-black uppercase tracking-widest text-zinc-500">OTPAUTH URI</div><code className="block max-h-28 overflow-auto rounded-xl bg-black p-3 text-xs text-zinc-300">{mfaUri}</code></div></div>}<form onSubmit={e=>{e.preventDefault();if(mfaCode.length===6&&!mfaBusy)void verifyAdminMfa()}}><label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">РљРѕРґ РёР· РїСЂРёР»РѕР¶РµРЅРёСЏ</span><input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="input text-center text-2xl tracking-[0.4em]" value={mfaCode} onChange={e=>setMfaCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000"/></label><button type="submit" disabled={mfaBusy||mfaCode.length!==6} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{mfaBusy?"РџСЂРѕРІРµСЂРєР°вЂ¦":"РџРѕРґС‚РІРµСЂРґРёС‚СЊ MFA"}</button></form></>}</div></main>}
+ const users=d.users.filter(u=>!q||u.nickname.toLowerCase().includes(q.toLowerCase())||(u.steamId||"").includes(q));
+ const permissions=new Set(d.me.permissions||[]);
+ const can=(permission:string)=>permissions.has("*")||permissions.has(permission);
+ const canTab=(id:string)=>({
+   users:can("users.view"),
+   matches:can("matches.view"),
+   finance:can("finance.view")||can("ledger.view"),
+   transactions:can("ledger.view")||can("finance.view"),
+   servers:can("servers.view"),
+   settings:can("settings.content.manage")||can("settings.manage")||can("feature_flags.manage"),
+   seasons:can("seasons.manage"),
+   logs:can("admin.audit.view")||can("system.logs.view"),
+   notifications:can("notifications.send"),
+   skins:can("content.skins.manage"),
+   avatars:can("content.avatars.manage"),
+   security:can("security.view")||can("disputes.view")||can("risk.cases.review"),
+   support:can("support.view"),
+   creator:can("finance.view"),
+   levels:can("roles.manage")||can("roles.assign"),
+ } as Record<string,boolean>)[id] ?? false;
+ const menu=[
+  ["users",L.users,d.users.length,"в™џ"],["matches",L.matches,d.matches.length,"вљ”"],["finance",L.finance,d.transactions.length,"$"],["transactions",L.transactions,d.transactions.length,"в†”"],["servers",L.servers,d.servers.length,"в—€"],["settings",L.settings,d.themes.length,"вљ™"],["seasons",L.seasons,SEASON_PRESETS.length,"вќ„"],["logs",L.logs,d.logs.length,"в‰Ў"],["notifications",L.notifications,0,"в—‰"],["skins",L.skins,d.topSkins.length,"в—‡"],["avatars",L.avatars,d.avatarPresets.length,"вњ¦"],["security",L.security,d.fraud.length+d.disputes.length,"!"],["support",L.support,d.tickets.length,"?"],["creator",L.creator,d.creatorPayouts.length,"в—€"],["levels",L.levels,"RBAC","в–Ј"]];
+ const visibleMenu=menu.filter(([id])=>canTab(String(id)));
+ return <><main className={embedded?"w-full px-0 pb-10":"mx-auto min-h-screen max-w-7xl px-4 pb-20 pt-24 sm:px-6"}>{!embedded&&<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><span className="pill">{`${L.center} вЂ” LEVEL ${d.me.level}`}</span><h1 className="mt-3 text-3xl font-black sm:text-4xl">{L.centerTitle}</h1><p className="mt-2 text-zinc-500">{L.centerDesc}</p></div><div className="flex items-center gap-2"><div className="rounded-2xl border border-[var(--theme-accent)]/25 bg-[var(--theme-accent-bg)] px-4 py-3 text-sm"><b data-player-name>{d.me.nickname}</b><span className="ml-2 text-[var(--theme-accent)]">{d.me.role}</span></div></div></div>}
+ <div className={embedded?"w-full":"mt-8 grid gap-6 lg:grid-cols-[220px_1fr]"}>{!embedded&&<aside className="panel rounded-3xl p-3 h-fit lg:sticky lg:top-24">{visibleMenu.map(([id,name,n,icon])=><button key={String(id)} onClick={()=>setTab(String(id))} className={`mb-1 flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm transition ${tab===id?"bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]":"text-zinc-400 hover:bg-white/5 hover:text-white"}`}><span><span className="mr-3 opacity-80">{icon}</span>{name}</span><span className="text-xs text-zinc-600">{n}</span></button>)}</aside>}
+ <section>{err&&<div className="mb-4 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{err}</div>}
+ {tab==="dashboard"&&<div className="space-y-6"><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">{[["Users",d.dashboard.users],["Online",d.dashboard.online],["Matches 24h",d.dashboard.matchesToday],["Live",d.dashboard.liveMatches],["Servers",d.dashboard.activeServers],["Open risks",Number(d.dashboard.openDisputes||0)+Number(d.dashboard.openFraud||0)]].map(([label,value])=><div key={String(label)} className="panel rounded-2xl p-4"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div><div className="mt-2 text-2xl font-black">{value}</div></div>)}</div><div className="grid gap-6 lg:grid-cols-2"><Panel title="Economy вЂ” 24h snapshot"><div className="grid grid-cols-2 gap-3">{[["Match volume",d.dashboard.volume],["Revenue",d.dashboard.revenue],["Expenses",d.dashboard.expenses],["Net revenue",d.dashboard.netRevenue],["Deposits",d.dashboard.deposits],["Withdrawals",d.dashboard.withdrawals]].map(([label,value])=><div key={String(label)} className="rounded-xl bg-white/[.03] p-4"><div className="text-xs text-zinc-500">{label}</div><div className="mt-1 font-black">${Number(value).toFixed(2)}</div></div>)}</div></Panel><Panel title="Operations"><div className="space-y-2">{[["Pending withdrawals",d.dashboard.pendingWithdrawals],["Pending deposits",d.dashboard.pendingDeposits],["Open disputes",d.dashboard.openDisputes],["Open fraud cases",d.dashboard.openFraud],["Creator payouts",d.dashboard.creatorPayouts]].map(([label,value])=><div key={String(label)} className="flex items-center justify-between rounded-xl bg-white/[.03] p-3"><span className="text-sm text-zinc-400">{label}</span><b>{typeof value==="number"&&String(label).toLowerCase().includes("payout")?`$${value.toFixed(2)}`:value}</b></div>)}</div></Panel></div><Panel title="Revenue by stream"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(d.dashboard.revenueByType||{}).map(([key,value])=><div key={key} className="rounded-xl border border-white/5 p-3"><div className="text-[11px] text-zinc-500">{key}</div><div className="mt-1 font-black">${Number(value).toFixed(2)}</div></div>)}</div></Panel></div>}
+ {tab==="users"&&<div className="panel rounded-3xl p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-black">{L.users}</h2><input className="input max-w-xs" placeholder={L.search} value={q} onChange={e=>setQ(e.target.value)}/></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="text-left text-zinc-500"><tr><th className="p-3">{L.player}</th><th className="p-3">Steam ID</th><th className="p-3">{L.status}</th><th className="p-3">{L.balance}</th><th className="p-3">{L.locked}</th><th className="p-3">{L.actions}</th></tr></thead><tbody>{users.map(u=><tr key={u.id} className="border-t border-white/5"><td className="p-3"><b data-player-name>{u.nickname}</b></td><td className="p-3 text-xs text-zinc-500">{u.steamId||"вЂ”"}</td><td className="p-3">{u.status}</td><td className="p-3 font-bold">${Number(u.balance).toFixed(2)}</td><td className="p-3">${Number(u.lockedBalance).toFixed(2)}</td><td className="p-3"><div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">{can("finance.wallet.adjust")&&<button disabled={u.nickname==="DuelPlayOwner"} onClick={()=>{setWalletUser(u);setWalletMode("credit");setAmount("");setReason("")}} className="shrink-0 whitespace-nowrap rounded-lg border border-[var(--theme-accent)]/30 px-3 py-2 text-xs text-[var(--theme-accent)]">{L.credit}</button>}{can("finance.wallet.adjust")&&<button disabled={u.role==="SUPERADMIN"||u.nickname==="DuelPlayOwner"} onClick={()=>{setWalletUser(u);setWalletMode("debit");setAmount("");setReason("")}} className="shrink-0 whitespace-nowrap rounded-lg border border-white/10 px-3 py-2 text-xs">{L.debit}</button>} {can("security.sessions.revoke")&&<button onClick={()=>act({action:"revokeUserSessions",userId:u.id})} className="shrink-0 whitespace-nowrap rounded-lg border border-amber-400/20 px-3 py-2 text-xs text-amber-300">Sessions</button>}{can("staff.admin_invite")&&u.role!=="USER"&&u.nickname!=="DuelPlayOwner"&&<button onClick={()=>void issueAdminInvite(u.id)} disabled={busy} className="shrink-0 whitespace-nowrap rounded-lg border border-pink-400/20 px-3 py-2 text-xs text-pink-300">Set admin password</button>}</div></td></tr>)}</tbody></table></div></div>}
+ {tab==="matches"&&<Panel title={L.matches}>{d.matches.map(m=><div key={m.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[.03] p-4"><div><b data-player-name>{m.playerOne.nickname}</b> <span className="text-[var(--theme-accent)]">VS</span> <b data-player-name>{m.playerTwo?.nickname||"вЂ”"}</b><div className="mt-1 text-xs text-zinc-500">{m.mapName} вЂ” ${Number(m.betAmount).toFixed(2)} вЂ” {m.status}</div></div>{can("matches.cancel")&&["WAITING_FOR_PLAYERS","READY","LIVE"].includes(m.status)&&<button onClick={()=>setCancelTarget(m)} className="rounded-xl border border-red-400/25 px-3 py-2 text-xs text-red-300">{L.cancel}</button>}</div>)}</Panel>}
+ {tab==="finance"&&<Panel title={L.finance}><div className="grid gap-3 md:grid-cols-2">{d.transactions.map(x=><div key={x.id} className="rounded-2xl border border-white/5 bg-white/[.03] p-4"><div className="flex justify-between gap-3"><b data-player-name>{x.wallet.user.nickname}</b><span className={Number(x.amount)>=0?"text-emerald-300":"text-red-300"}>{Number(x.amount)>=0?"+":""}${Number(x.amount).toFixed(2)}</span></div><div className="mt-1 text-xs text-zinc-500">{x.type} вЂ” {x.status}</div><div className="mt-2 text-sm text-zinc-300">{x.description}</div><div className="mt-2 text-[11px] text-zinc-600">{new Date(x.createdAt).toLocaleString()}</div></div>)}</div></Panel>}
+ {tab==="transactions"&&<Panel title={L.transactions}><div className="space-y-2">{d.transactions.map(x=><div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[.025] p-4"><div><b data-player-name>{x.wallet.user.nickname}</b><div className="mt-1 text-sm text-zinc-400">{x.description||x.type}</div><div className="mt-1 text-[11px] text-zinc-600">{new Date(x.createdAt).toLocaleString()}</div></div><span className={Number(x.amount)>=0?"text-emerald-300":"text-red-300"}>{Number(x.amount)>=0?"+":""}${Number(x.amount).toFixed(2)}</span></div>)}</div></Panel>}
+ {tab==="servers"&&<Panel title={L.servers}><div className="grid gap-3 sm:grid-cols-2">{d.servers.map(s=><div key={s.id} className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="flex items-center justify-between"><b>{s.name}</b><span className={s.status==="READY"?"text-emerald-300":"text-zinc-400"}>{s.status}</span></div><div className="mt-2 text-sm text-zinc-400">{s.host}:{s.port}</div><div className="mt-2 text-xs text-zinc-500">{E.matchLabel}: {s.match?`#${s.match.id.slice(0,8)} вЂ” ${s.match.status} вЂ” ${s.match.mapName||"вЂ”"}` :E.free}</div><div className="mt-1 text-xs text-zinc-600" >PID: {s.processId||"вЂ”"} вЂ” {E.heartbeat}: {s.lastHeartbeat?new Date(s.lastHeartbeat).toLocaleString():"вЂ”"}</div></div>)}</div></Panel>}
+ {tab==="serverView"&&<Panel title="РЎРµСЂРІРµСЂС‹"><p className="mb-5 text-sm leading-6 text-zinc-500">РћР±Р·РѕСЂ РёРіСЂРѕРІС‹С… СЃРµСЂРІРµСЂРѕРІ: РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ, СЃРѕСЃС‚РѕСЏРЅРёРµ, С‚РµРєСѓС‰РёР№ РјР°С‚С‡ Рё РІСЂРµРјСЏ РїРѕСЃР»РµРґРЅРµРіРѕ СЃРёРіРЅР°Р»Р°.</p><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{d.servers.map(s=><div key={s.id} className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="flex items-center justify-between"><b>{s.name}</b><span className={s.status==="READY"?"text-emerald-300":"text-zinc-400"}>{s.status}</span></div><div className="mt-2 text-sm text-zinc-400">{s.host}:{s.port}</div><div className="mt-3 text-xs text-zinc-500">{E.matchLabel}: {s.match?`#${s.match.id.slice(0,8)} вЂ” ${s.match.status} вЂ” ${s.match.mapName||"вЂ”"}` :E.free}</div><div className="mt-2 text-xs text-zinc-600">{E.heartbeat}: {s.lastHeartbeat?new Date(s.lastHeartbeat).toLocaleString():"вЂ”"}</div></div>)}</div></Panel>}
+ {tab==="serverManage"&&<Panel title="РЈРїСЂР°РІР»РµРЅРёРµ СЃРµСЂРІРµСЂР°РјРё"><div className="mb-5 rounded-2xl border border-amber-400/15 bg-amber-400/[.04] p-5"><div className="text-xs font-black uppercase tracking-widest text-amber-300">РўРµС…РЅРёС‡РµСЃРєР°СЏ РёРЅС„РѕСЂРјР°С†РёСЏ</div><p className="mt-2 text-sm leading-6 text-zinc-400">Р—РґРµСЃСЊ СЃРѕР±СЂР°РЅС‹ С‚РµС…РЅРёС‡РµСЃРєРёРµ СЃРІРµРґРµРЅРёСЏ, РєРѕС‚РѕСЂС‹Рµ СѓР¶Рµ РґРѕСЃС‚СѓРїРЅС‹ Admin Center. Р—Р°РїСѓСЃРє, РѕСЃС‚Р°РЅРѕРІРєР° Рё РїРµСЂРµР·Р°РїСѓСЃРє СЃРµСЂРІРµСЂРѕРІ РЅРµ РґРѕР±Р°РІР»СЏСЋС‚СЃСЏ РёСЃРєСѓСЃСЃС‚РІРµРЅРЅРѕ: РІ С‚РµРєСѓС‰РµРј РїСЂРёР»РѕР¶РµРЅРёРё СЌС‚Рё РѕРїРµСЂР°С†РёРё РІС‹РїРѕР»РЅСЏСЋС‚СЃСЏ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРј Server Manager, Р° РЅРµ С‡РµСЂРµР· РѕС‚РґРµР»СЊРЅС‹Р№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅС‹Р№ API.</p></div><div className="grid gap-3 md:grid-cols-2">{d.servers.map(s=><div key={s.id} className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="flex items-center justify-between"><b>{s.name}</b><span className={s.status==="READY"?"text-emerald-300":"text-zinc-400"}>{s.status}</span></div><dl className="mt-4 grid grid-cols-2 gap-3 text-xs"><div className="rounded-xl bg-black/20 p-3"><dt className="text-zinc-600">РђРґСЂРµСЃ</dt><dd className="mt-1 text-zinc-300">{s.host}:{s.port}</dd></div><div className="rounded-xl bg-black/20 p-3"><dt className="text-zinc-600">PID</dt><dd className="mt-1 text-zinc-300">{s.processId||"вЂ”"}</dd></div><div className="rounded-xl bg-black/20 p-3"><dt className="text-zinc-600">РњР°С‚С‡</dt><dd className="mt-1 text-zinc-300">{s.match?`#${s.match.id.slice(0,8)}`:"РЎРІРѕР±РѕРґРµРЅ"}</dd></div><div className="rounded-xl bg-black/20 p-3"><dt className="text-zinc-600">РџРѕСЃР»РµРґРЅРёР№ СЃРёРіРЅР°Р»</dt><dd className="mt-1 text-zinc-300">{s.lastHeartbeat?new Date(s.lastHeartbeat).toLocaleString():"вЂ”"}</dd></div></dl></div>)}</div></Panel>}
+ {tab==="logs"&&<Panel title={L.logs}><div className="space-y-2">{d.logs.map(x=><div key={x.id} className="rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="flex flex-wrap justify-between gap-2"><b>{x.action}</b><span className="text-xs text-zinc-600">{new Date(x.createdAt).toLocaleString()}</span></div><div className="mt-1 text-sm text-zinc-400" >{E.adminLabel}: <span data-player-name>{x.user?.nickname||"вЂ”"}</span> вЂ” {x.targetType||"вЂ”"} {x.targetId?`вЂ” ${x.targetId}`:""}</div></div>)}</div></Panel>}
+ {tab==="notifications"&&<div className="panel rounded-3xl p-6"><h2 className="text-2xl font-black">{L.notifications}</h2><p className="mt-2 text-sm text-zinc-500">{L.notifyDesc}</p><div className="mt-6 grid gap-4"><input className="input" placeholder={L.title} value={noticeTitle} onChange={e=>setNoticeTitle(e.target.value)}/><textarea className="input min-h-32 resize-y" placeholder={L.message} value={noticeBody} onChange={e=>setNoticeBody(e.target.value)}/><select className="input" value={noticeTarget} onChange={e=>setNoticeTarget(e.target.value)}><option value="ALL">{L.all}</option>{d.users.map(u=><option key={u.id} value={u.id}>{u.nickname}</option>)}</select><button disabled={busy||!noticeTitle.trim()||!noticeBody.trim()} onClick={sendNotice} className="rounded-2xl bg-[var(--theme-accent)] py-4 font-black text-black disabled:opacity-40">{L.send}</button></div></div>}
+ {tab==="skins"&&<div className="panel rounded-3xl p-6"><h2 className="text-2xl font-black">{L.skins}</h2><p className="mt-2 text-sm text-zinc-500">{L.skinsDesc}</p><div className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr_auto] items-end"><label><span className="mb-2 block text-xs text-zinc-500">{L.name}</span><input className="input" value={skinName} onChange={e=>setSkinName(e.target.value)} placeholder={E.skinPlaceholder}/></label><label><span className="mb-2 block text-xs text-zinc-500">{L.image}</span><input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseFile(e.target.files?.[0]||null)} className="block w-full rounded-xl border border-white/10 bg-black px-3 py-3 text-sm"/></label><button disabled={!skinName||!filePreview||busy} onClick={addSkin} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 font-black text-black disabled:opacity-40">{L.add}</button></div>{filePreview&&<img src={filePreview} alt="preview" className="mt-4 h-40 w-56 rounded-2xl object-cover border border-white/10"/>}<div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{d.topSkins.map(s=><div key={s.id} className="overflow-hidden rounded-2xl border border-white/7 bg-white/[.025]"><img src={s.imageData} alt={s.name} className="aspect-[4/3] w-full object-cover"/><div className="p-3"><div className="truncate text-sm font-bold">{s.name}</div><button onClick={()=>act({action:"topSkinDelete",id:s.id})} className="mt-2 text-xs text-red-300">{L.delete}</button></div></div>)}</div></div>}
+ {tab==="avatars"&&<div className="panel rounded-3xl p-6"><h2 className="text-2xl font-black">{L.avatarsTitle}</h2><p className="mt-2 text-sm text-zinc-500">{L.avatarsDesc}</p><div className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr_auto] items-end"><label><span className="mb-2 block text-xs text-zinc-500">{L.name}</span><input id="avatar-name" className="input" placeholder={E.avatarPlaceholder}/></label><label><span className="mb-2 block text-xs text-zinc-500">{L.image}</span><input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp" className="block w-full rounded-xl border border-white/10 bg-black px-3 py-3 text-sm"/></label><AvatarUpload act={act}/></div><div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-6">{d.avatarPresets.map(a=><div key={a.id} className="overflow-hidden rounded-2xl border border-white/7 bg-white/[.025]"><img src={a.imageData} alt={a.name} className="aspect-square w-full object-cover"/><div className="p-2"><div className="truncate text-xs font-bold">{a.name}</div><button onClick={()=>act({action:"avatarPresetDelete",id:a.id})} className="mt-1 text-[11px] text-red-300">{L.delete}</button></div></div>)}</div></div>}
+ {tab==="seasons"&&can("seasons.manage")&&<div className="space-y-6"><Panel title="РЎРµР·РѕРЅРЅР°СЏ Р°С‚РјРѕСЃС„РµСЂР°"><div className="rounded-2xl border border-[var(--theme-accent)]/20 bg-[var(--theme-accent-bg)] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">SUPERADMIN В· GLOBAL</div><h2 className="mt-2 text-2xl font-black">РЎРµР·РѕРЅ РїСЂРёРјРµРЅСЏРµС‚СЃСЏ РІРµР·РґРµ</h2><p className="mt-2 text-sm leading-6 text-zinc-400">Р’С‹Р±РµСЂРё РїСЂРµСЃРµС‚ вЂ” СЌС„С„РµРєС‚ РїРѕСЏРІРёС‚СЃСЏ РЅР° РіР»Р°РІРЅРѕР№, РІС‹Р±РѕСЂРµ РјР°С‚С‡Р°, СЃРѕР·РґР°РЅРёРё РјР°С‚С‡Р°, РїСЂРѕС„РёР»Рµ Рё РѕСЃС‚Р°Р»СЊРЅС‹С… СЃС‚СЂР°РЅРёС†Р°С…. Р§Р°СЃС‚РёС†С‹ РЅР°С…РѕРґСЏС‚СЃСЏ РїРѕРІРµСЂС… С„РѕРЅР°, РЅРµ РїРµСЂРµС…РІР°С‚С‹РІР°СЋС‚ РєР»РёРєРё Рё РЅРµ РґРѕР»Р¶РЅС‹ РјРµС€Р°С‚СЊ С‡С‚РµРЅРёСЋ. РљРЅРѕРїРєР° В«РћС‚РєР»СЋС‡РёС‚СЊВ» РїРѕР»РЅРѕСЃС‚СЊСЋ РІРѕР·РІСЂР°С‰Р°РµС‚ СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ СЃС‚РёР»СЊ; РїРѕСЃР»Рµ СЌС‚РѕРіРѕ РјРѕР¶РЅРѕ СЃСЂР°Р·Сѓ РІС‹Р±СЂР°С‚СЊ РґСЂСѓРіРѕР№ СЃРµР·РѕРЅ.</p><div className="mt-4 flex flex-wrap items-center gap-3"><span className="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-xs">РЎРµР№С‡Р°СЃ: <b className="text-white">{activeSeason?.name||"Р‘РµР· СЌС„С„РµРєС‚РѕРІ"}</b></span><button disabled={busy} onClick={()=>activateSeason(SEASON_PRESETS.find(x=>x.id==="none"))} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300">Р’РµСЂРЅСѓС‚СЊ СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ СЃС‚РёР»СЊ</button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{SEASON_PRESETS.map(p=><button key={p.id} type="button" disabled={busy||!can("seasons.manage")} onClick={()=>activateSeason(p)} className={`group overflow-hidden rounded-2xl border text-left transition hover:-translate-y-0.5 hover:border-[var(--theme-accent)]/60 disabled:cursor-not-allowed disabled:opacity-50 ${activeSeason?.name===p.name?"border-[var(--theme-accent)]/80 bg-[var(--theme-accent-bg)]":"border-white/8 bg-white/[.025]"}`}><div className={`h-24 ${p.id==="winter"||p.id==="christmas"||p.id==="new-year"?"bg-[radial-gradient(circle_at_20%_20%,rgba(210,235,255,.25),transparent_25%),linear-gradient(135deg,#07111d,#15101f)]":p.id==="halloween"?"bg-[radial-gradient(circle_at_70%_30%,rgba(255,120,30,.28),transparent_28%),linear-gradient(135deg,#140905,#09070c)]":p.id==="autumn"?"bg-[radial-gradient(circle_at_30%_40%,rgba(220,130,40,.28),transparent_30%),linear-gradient(135deg,#160b05,#120b0b)]":p.id==="spring"||p.id==="easter"?"bg-[radial-gradient(circle_at_70%_30%,rgba(255,120,190,.25),transparent_30%),linear-gradient(135deg,#08130c,#13091a)]":p.id==="valentines"?"bg-[radial-gradient(circle_at_70%_30%,rgba(255,47,145,.35),transparent_30%),linear-gradient(135deg,#170711,#0b0710)]":"bg-[radial-gradient(circle_at_70%_30%,rgba(167,139,250,.3),transparent_30%),linear-gradient(135deg,#090711,#10091a)]"}`}><div className="flex h-full items-center justify-center text-4xl">{p.id==="winter"||p.id==="christmas"||p.id==="new-year"?"вќ„пёЏ":p.id==="halloween"?"рџЋѓ":p.id==="autumn"?"рџЌ‚":p.id==="spring"?"рџЊё":p.id==="summer"?"вЂпёЏ":p.id==="easter"?"рџђЈ":p.id==="valentines"?"вќ¤пёЏ":p.id==="st-patricks"?"впёЏ":p.id==="esports"?"вљЎ":"в—Њ"}</div></div><div className="p-4"><div className="flex items-center justify-between gap-2"><b>{p.name}</b>{activeSeason?.name===p.name&&<span className="text-[10px] font-black text-[var(--theme-accent)]">РђРљРўРР’РќРћ</span>}</div><p className="mt-1 text-xs leading-5 text-zinc-500">{p.description}</p><div className="mt-3 text-[10px] uppercase tracking-widest text-zinc-600">{p.intensity?`${p.intensity} particles`:"effects off"}</div></div></button>)}</div></Panel></div>}
+ {tab==="settings"&&(can("settings.content.manage")||can("settings.manage")||can("feature_flags.manage"))&&<div className="space-y-6"><Panel title={L.theme}><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{d.themes.map(x=><button key={x.id} type="button" onClick={async()=>{const ok=await act({action:"standardTheme",theme:x.id});if(ok)window.dispatchEvent(new Event("duelplay:theme-changed"))}} className={`group overflow-hidden rounded-2xl border text-left transition duration-200 hover:-translate-y-1 hover:border-[var(--theme-accent)]/70 hover:shadow-[0_0_28px_var(--theme-glow)] ${d.standardTheme===x.id?"border-[var(--theme-accent)]/80":"border-white/8"}`}><div className="h-16 overflow-hidden"><div className="h-full transition duration-300 group-hover:scale-110" style={{background:`linear-gradient(135deg,${x.preview[0]} 0 45%,${x.preview[1]} 45% 70%,${x.preview[2]} 70%)`}}/></div><div className="p-3"><b className="text-sm">{TC[x.id]?.[0]||x.name}</b><div className="mt-1 text-[11px] text-zinc-500">{TC[x.id]?.[1]||x.description}</div></div></button>)}</div></Panel>
+<Panel title={L.background}><div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{BG.map(x=><button key={x.id} onClick={async()=>{const ok=await act({action:"backgroundTheme",background:x.id});if(ok)window.dispatchEvent(new Event("duelplay:theme-changed"))}} className={`group overflow-hidden rounded-2xl border text-left transition duration-200 hover:-translate-y-1 hover:border-[var(--theme-accent)]/70 hover:shadow-[0_0_28px_var(--theme-glow)] ${d.backgroundTheme===x.id?"border-[var(--theme-accent)]/80":"border-white/8"}`}><div className="h-24 overflow-hidden"><img src={x.img} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" alt=""/></div><div className="p-3 text-sm font-bold">{BC[x.id]||x.name}</div></button>)}</div></Panel>
+<Panel title={L.hero}><p className="mb-4 text-sm text-zinc-500">{L.heroDesc}</p><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{HERO.map(x=><button key={x.id} disabled={!can("settings.content.manage")} onClick={async()=>{const ok=await act({action:"heroBackground",hero:x.id});if(ok)window.dispatchEvent(new Event("duelplay:theme-changed"))}} className={`group overflow-hidden rounded-2xl border text-left transition hover:-translate-y-0.5 ${d.heroBackground===x.id?"border-[var(--theme-accent)]":"border-white/8"} disabled:cursor-not-allowed disabled:opacity-50`}><img src={x.img} className="h-28 w-full object-cover transition group-hover:scale-105" alt=""/><div className="flex items-center justify-between p-3"><span className="text-sm font-bold">{x.name}</span>{d.heroBackground===x.id&&<span className="text-[10px] font-black text-[var(--theme-accent)]">{E.heroActive}</span>}</div></button>)}</div><p className="mt-3 text-[11px] text-zinc-600">{L.heroNote}</p></Panel><Panel title="SUPERADMIN emergency controls"><div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-400/10 bg-red-400/[.025] p-4"><div><b>Revoke all active sessions</b><p className="mt-1 text-xs text-zinc-600">Emergency logout for every active session.</p></div><button disabled={busy||!can("security.sessions.revoke_all")} onClick={()=>{if(window.confirm("РћС‚РѕР·РІР°С‚СЊ РІСЃРµ Р°РєС‚РёРІРЅС‹Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёРµ СЃРµСЃСЃРёРё?"))act({action:"revokeAllSessions"})}} className="rounded-xl border border-red-400/25 px-4 py-2 text-sm font-bold text-red-300">Revoke all</button></div></Panel>{(d.me.role==="FOUNDER"||d.me.role==="SUPERADMIN")&&d.demoModeSettings&&<Panel title="DEMO mode control"><div className="rounded-2xl border border-white/8 bg-white/[.025] p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">GLOBAL В· EUROPE/KYIV</div><h3 className="mt-2 text-xl font-black">Р РµР¶РёРј DEMO</h3><p className="mt-1 text-sm text-zinc-500">Р’Р»РёСЏРµС‚ С‚РѕР»СЊРєРѕ РЅР° DEMO-РјР°С‚С‡Рё. REAL-РјР°С‚С‡Рё РЅРµ РёР·РјРµРЅСЏСЋС‚СЃСЏ.</p></div><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 px-4 py-3"><span className={d.demoModeSettings.enabled?"text-emerald-300":"text-zinc-400"}>{d.demoModeSettings.enabled?"Р’РљР›Р®Р§РЃРќ":"Р’Р«РљР›Р®Р§Р•Рќ"}</span><input aria-label="Р’РєР»СЋС‡РёС‚СЊ DEMO" type="checkbox" checked={d.demoModeSettings.enabled} disabled={busy} onChange={e=>void act({action:"demoModeSettings",enabled:e.target.checked,dailyMatchLimit:d.demoModeSettings!.dailyMatchLimit})} className="h-5 w-5 accent-pink-500"/></label></div><div className="mt-5 flex flex-wrap items-end gap-3"><label className="block"><span className="mb-2 block text-xs text-zinc-500">Р›РёРјРёС‚ DEMO-РјР°С‚С‡РµР№ РЅР° РёРіСЂРѕРєР° РІ СЃСѓС‚РєРё</span><input type="number" min="0" max="1000" step="1" value={demoLimit} onChange={e=>setDemoLimit(e.target.value)} className="input w-44" disabled={busy}/></label><button disabled={busy||!/^\d+$/.test(demoLimit)||Number(demoLimit)<0||Number(demoLimit)>1000||Number(demoLimit)===d.demoModeSettings.dailyMatchLimit} onClick={()=>void act({action:"demoModeSettings",enabled:d.demoModeSettings!.enabled,dailyMatchLimit:Number(demoLimit)})} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 font-black text-black disabled:opacity-40">РЎРѕС…СЂР°РЅРёС‚СЊ Р»РёРјРёС‚</button><span className="text-xs text-zinc-600">0 = Р·Р°РїСѓСЃРє DEMO-РјР°С‚С‡РµР№ Р·Р°РїСЂРµС‰С‘РЅ</span></div></div></Panel>}</div>}{tab==="security"&&<Panel title={L.security}><div className="grid gap-3 md:grid-cols-3"><div className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">Anti-fraud</div><h3 className="mt-2 font-black">{E.riskControl}</h3><p className="mt-2 text-xs leading-5 text-zinc-500">{E.riskText}</p></div><div className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">Disputes</div><h3 className="mt-2 font-black">{E.disputesTitle}</h3><p className="mt-2 text-xs leading-5 text-zinc-500">{E.disputesText}</p></div><div className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">Audit</div><h3 className="mt-2 font-black">{E.auditTitle}</h3><p className="mt-2 text-xs leading-5 text-zinc-500">{E.auditText}</p></div></div><div className="mt-6 grid gap-3 md:grid-cols-2">{d.fraud.map(x=><div key={x.id} className="rounded-2xl bg-white/[.03] p-4"><div className="flex items-center justify-between gap-3"><div><b>{x.user.nickname}</b><div className="text-xs text-zinc-500">Risk {x.riskScore} вЂ” {x.status}</div></div><div className="flex flex-wrap gap-2">{can("risk.cases.review")&&x.status==="DETECTED"&&<button onClick={()=>act({action:"fraudReview",fraudCaseId:x.id,status:"UNDER_INVESTIGATION"})} className="rounded-lg border border-white/10 px-3 py-2 text-[11px]">Investigate</button>}{can("risk.cases.review")&&x.status!=="CONFIRMED_BANNED"&&x.status!=="FALSE_POSITIVE_CLEARED"&&<button onClick={()=>act({action:"fraudReview",fraudCaseId:x.id,status:"CONFIRMED_BANNED"})} className="rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-300">Ban</button>}{can("risk.cases.review")&&x.status!=="FALSE_POSITIVE_CLEARED"&&<button onClick={()=>act({action:"fraudReview",fraudCaseId:x.id,status:"FALSE_POSITIVE_CLEARED"})} className="rounded-lg border border-white/10 px-3 py-2 text-[11px]">Clear</button>}</div></div></div>)}{d.disputes.map(x=><div key={x.id} className="rounded-2xl bg-white/[.03] p-4"><b>{x.reporter.nickname}</b><div className="text-xs text-zinc-500">{x.status} вЂ” {x.reason}</div></div>)}</div></Panel>}
+ {tab==="support"&&<Panel title={L.support}><div className="mb-5 rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="text-xs font-black uppercase tracking-widest text-[var(--theme-accent)]">{L.supportWorkflow}</div><h3 className="mt-2 text-xl font-black">{L.supportFlow}</h3><p className="mt-2 text-sm leading-6 text-zinc-500">{L.supportDesc}</p></div>{d.tickets.length?d.tickets.map(x=><div key={x.id} className="mb-3 rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><b>{x.subject}</b><div className="mt-1 text-xs text-zinc-500"><span data-player-name>{x.user.nickname}</span> вЂ” {x.category} вЂ” {x.priority} вЂ” {x.status}</div></div><div className="flex gap-2"><button onClick={()=>{setSupportTicket(x);setSupportReply("")}} className="rounded-xl border border-[var(--theme-accent)]/30 px-3 py-2 text-xs font-bold text-[var(--theme-accent)]">{L.openTicket}</button>{can("support.tickets.delete")&&<button onClick={()=>setDeleteTicket(x)} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300">{L.delete}</button>}</div></div></div>):<div className="rounded-2xl border border-white/5 p-8 text-center text-sm text-zinc-600">{L.noTickets}</div>}</Panel>}
+ {tab==="finance"&&<Panel title={L.finance}><div className="grid gap-3 lg:grid-cols-2"><div><h3 className="mb-3 font-black">Pending withdrawals</h3>{(d.withdrawals||[]).map((x:any)=><div key={x.id} className="mb-2 rounded-xl border border-white/5 p-3"><b data-player-name>{x.wallet?.user?.nickname||"вЂ”"}</b> вЂ” ${Number(x.amount).toFixed(2)} вЂ” {x.status}<div className="mt-2 flex gap-2">{can("withdrawals.approve")&&<button onClick={()=>act({action:"withdrawalStatus",id:x.id,status:"COMPLETED"})} className="rounded-lg bg-emerald-400/15 px-3 py-2 text-xs text-emerald-300">Mark paid</button>}{can("withdrawals.reject")&&<button onClick={()=>act({action:"withdrawalStatus",id:x.id,status:"REJECTED"})} className="rounded-lg bg-red-400/10 px-3 py-2 text-xs text-red-300">Reject</button>}</div></div>)}</div><div><h3 className="mb-3 font-black">Pending deposits</h3>{(d.deposits||[]).map((x:any)=><div key={x.id} className="mb-2 rounded-xl border border-white/5 p-3"><b data-player-name>{x.wallet?.user?.nickname||"вЂ”"}</b> вЂ” ${Number(x.amount).toFixed(2)} вЂ” {x.status}{can("deposits.review")&&<button onClick={()=>act({action:"depositStatus",id:x.id,status:"COMPLETED"})} className="ml-3 rounded-lg bg-pink-400 px-3 py-2 text-xs font-black text-black">Approve</button>}</div>)}</div></div></Panel>}
+ {tab==="creator"&&can("creator.payouts.manage")&&<Panel title={L.creator}><p className="mb-5 text-sm text-zinc-500">{L.creatorDesc}</p>{d.creatorPayouts.length?<div className="space-y-2">{d.creatorPayouts.map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[.025] p-4"><div><b data-player-name>{x.user?.nickname||"вЂ”"}</b><div className="mt-1 text-xs text-zinc-500">{L.payout}: ${Number(x.amount).toFixed(2)} В· {x.status}</div><div className="mt-1 text-[11px] text-zinc-600">{new Date(x.createdAt).toLocaleString()}</div></div><div className="flex flex-wrap gap-2">{can("finance.view")&&x.status==="PENDING"&&<><button disabled={busy} onClick={()=>void creatorPayoutAction(x.id,"APPROVED")} className="rounded-lg bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300">{L.approve}</button><button disabled={busy} onClick={()=>void creatorPayoutAction(x.id,"REJECTED")} className="rounded-lg bg-red-400/10 px-3 py-2 text-xs text-red-300">{L.reject}</button></>}{can("finance.view")&&x.status==="APPROVED"&&<button disabled={busy} onClick={()=>void creatorPayoutAction(x.id,"PAID")} className="rounded-lg bg-pink-400 px-3 py-2 text-xs font-black text-black">{L.markPaid}</button>}</div></div>)}</div>:<p className="rounded-2xl border border-white/5 p-8 text-center text-sm text-zinc-600">{L.pending}</p>}</Panel>}
+ {tab==="levels"&&can("roles.manage")&&<Panel title={L.levels}><div className="mb-5 rounded-2xl border border-amber-400/15 bg-amber-400/[.04] p-5"><div className="text-xs font-black uppercase tracking-widest text-amber-300">{L.important}</div><p className="mt-2 text-sm leading-6 text-zinc-400">{L.levelsDesc}</p></div><div className="grid gap-3 md:grid-cols-2">{[
+ ["USER",L.userRole,L.userRoleDesc],
+ ["SUPPORT",L.supportRole,L.supportRoleDesc],
+ ["MODERATOR",L.modRole,L.modRoleDesc],
+ ["ADMIN",L.adminRole,L.adminRoleDesc],
+ ["SUPERADMIN",L.superRole,L.superRoleDesc]
+ ].map(([role,title,text])=><div key={role} className="rounded-2xl border border-white/5 bg-white/[.025] p-5"><div className="flex items-center justify-between"><b>{title}</b><span className="text-xs font-black text-[var(--theme-accent)]">{role}</span></div><p className="mt-2 text-sm leading-6 text-zinc-500">{text}</p></div>)}</div><div className="mt-5 rounded-2xl border border-red-400/15 bg-red-400/[.03] p-5"><h3 className="font-black text-red-200">{L.forbidden}</h3><ul className="mt-3 space-y-2 text-sm leading-6 text-zinc-400"><li>{`вЂў ${L.f1}`}</li><li>{`вЂў ${L.f2}`}</li><li>{`вЂў ${L.f3}`}</li><li>{`вЂў ${L.f4}`}</li><li>{`вЂў ${L.f5}`}</li></ul></div></Panel>}
+ </section></div><ConfirmModal open={Boolean(deleteTicket)} title={t.supportDeleteTitle} message={deleteTicket?`${t.supportDeleteMessage} В«${deleteTicket.subject}В».`:""} confirmText={t.supportDeleteConfirm} cancelText={t.supportDeleteCancel} busy={busy} onCancel={()=>{if(!busy)setDeleteTicket(null)}} onConfirm={async()=>{if(!deleteTicket)return;const ok=await act({action:"supportDelete",ticketId:deleteTicket.id});if(ok)setDeleteTicket(null)}}/>
+</main>
+ <CenterModal open={Boolean(supportTicket)} title={supportTicket?.subject||L.ticket} onClose={()=>{if(!busy)setSupportTicket(null)}}>{supportTicket&&<><div className="rounded-2xl border border-white/5 bg-white/[.025] p-4"><div data-player-name className="text-sm font-bold">{supportTicket.user?.nickname}</div><div className="mt-1 text-xs text-zinc-600">{supportTicket.category} вЂ” {supportTicket.priority}</div></div><div className="mt-4 max-h-80 space-y-2 overflow-auto">{(supportTicket.messages||[]).map((m:any)=><div key={m.id} className="rounded-2xl bg-white/[.03] p-3"><div className="text-xs font-bold text-[var(--theme-accent)]"><span data-player-name>{m.sender?.nickname||"вЂ”"}</span> <span className="ml-2 text-zinc-700">{m.sender?.role||""}</span></div><div className="mt-1 text-sm leading-6 text-zinc-300">{m.message}</div><div className="mt-1 text-[10px] text-zinc-600">{new Date(m.createdAt).toLocaleString()}</div></div>)}</div><textarea className="input mt-4 min-h-24 resize-none" value={supportReply} onChange={e=>setSupportReply(e.target.value)} placeholder={L.replyPlaceholder}/><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={!supportReply.trim()||busy} onClick={async()=>{const ok=await act({action:"supportReply",ticketId:supportTicket.id,message:supportReply});if(ok){setSupportReply("");const fresh=await fetch("/api/admin",{cache:"no-store"}).then(r=>r.json());setSupportTicket(fresh.tickets?.find((x:any)=>x.id===supportTicket.id)||null)}}} className="rounded-xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{L.reply}</button><select value={supportTicket.status} onChange={async e=>{const next=e.target.value;const ok=await act({action:"supportStatus",ticketId:supportTicket.id,status:next});if(ok)setSupportTicket({...supportTicket,status:next})}} className="input"><option value="OPEN">{L.openStatus}</option><option value="ASSIGNED">{L.assignedStatus}</option><option value="IN_PROGRESS">{L.progressStatus}</option><option value="WAITING_ON_USER">{L.waitingStatus}</option><option value="RESOLVED">{L.resolvedStatus}</option><option value="CLOSED">{L.closedStatus}</option></select></div></>}</CenterModal>
+ <CenterModal open={Boolean(walletUser)} title={walletMode==="debit"?L.walletDebit:L.walletCredit} onClose={()=>{if(!busy)setWalletUser(null)}}><div className="rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="text-sm text-zinc-500">{L.player}</div><div data-player-name className="mt-1 text-xl font-black">{walletUser?.nickname}</div><div className="mt-1 text-sm text-zinc-500">{L.balance}: <b className="text-white">${Number(walletUser?.balance||0).toFixed(2)}</b></div></div><label className="mt-5 block"><span className="mb-2 block text-xs text-zinc-500">{L.amount}</span><input autoFocus className="input" type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label><label className="mt-4 block"><span className="mb-2 block text-xs text-zinc-500">{L.reason}</span><input className="input" value={reason} onChange={e=>setReason(e.target.value)} placeholder={L.reasonPlaceholder}/></label><div className="mt-4 rounded-2xl border border-[var(--theme-accent)]/10 bg-[var(--theme-accent-bg)] p-4 text-sm text-zinc-400">{walletMode==="debit"?L.debitNote:L.creditNote}</div><div className="mt-5 flex gap-3"><button onClick={()=>setWalletUser(null)} className="flex-1 rounded-2xl border border-white/10 py-3 font-bold">{L.close}</button><button disabled={busy||!(Number(amount)>0)} onClick={saveWallet} className="flex-1 rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{L.save}</button></div></CenterModal>
+  <CenterModal open={Boolean(cancelTarget)} title={L.cancelMatch} onClose={()=>{if(!busy)setCancelTarget(null)}}>
+    <div className="rounded-2xl border border-red-400/15 bg-red-400/[.04] p-5">
+      <div className="text-xs font-black uppercase tracking-widest text-red-300">{L.confirmation}</div>
+      <h3 className="mt-2 text-xl font-black">{L.cancelQuestion}</h3>
+      <p className="mt-2 text-sm leading-6 text-zinc-400">{L.cancelText}</p>
+      {cancelTarget&&<div className="mt-4 rounded-xl bg-black/20 p-3 text-sm"><b data-player-name>{cancelTarget.playerOne?.nickname||"вЂ”"}</b> <span className="text-zinc-600">VS</span> <b data-player-name>{cancelTarget.playerTwo?.nickname||"вЂ”"}</b><div className="mt-1 text-xs text-zinc-500">{cancelTarget.mapName||"вЂ”"} вЂ” ${Number(cancelTarget.betAmount).toFixed(2)}</div></div>}
+    </div>
+    <div className="mt-5 flex gap-3"><button onClick={()=>setCancelTarget(null)} className="flex-1 rounded-2xl border border-white/10 py-3 font-bold">{L.doNotCancel}</button><button disabled={busy} onClick={()=>cancelTarget&&cancelMatch(cancelTarget.id)} className="flex-1 rounded-2xl bg-red-500/90 py-3 font-black text-white disabled:opacity-50">{busy?L.cancelling:L.yesCancel}</button></div>
+  </CenterModal>
+ <CenterModal open={Boolean(adminInviteUrl)} title="РђРґРјРёРЅ-РґРѕСЃС‚СѓРї" onClose={()=>setAdminInviteUrl("")}><div className="rounded-2xl border border-[var(--theme-accent)]/20 bg-[var(--theme-accent-bg)] p-4"><div className="text-sm text-zinc-400">РџРµСЂСЃРѕРЅР°Р»СЊРЅР°СЏ СЃСЃС‹Р»РєР° РґР»СЏ <b className="text-white">{adminInviteUser}</b>. РћРЅР° РѕРґРЅРѕСЂР°Р·РѕРІР°СЏ Рё РґРµР№СЃС‚РІСѓРµС‚ 30 РјРёРЅСѓС‚.</div><input readOnly value={adminInviteUrl} className="input mt-4" onFocus={e=>e.currentTarget.select()}/><div className="mt-4 flex gap-3"><button onClick={async()=>{try{await navigator.clipboard.writeText(adminInviteUrl)}catch{}}} className="flex-1 rounded-2xl border border-white/10 py-3 font-bold">РљРѕРїРёСЂРѕРІР°С‚СЊ</button><button onClick={()=>setAdminInviteUrl("")} className="flex-1 rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black">Р“РѕС‚РѕРІРѕ</button></div><p className="mt-3 text-xs leading-5 text-zinc-500">РџРµСЂРµРґР°Р№ СЃСЃС‹Р»РєСѓ С‚РѕР»СЊРєРѕ СЃР°РјРѕРјСѓ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂСѓ. РџР°СЂРѕР»СЊ РѕРЅ РїСЂРёРґСѓРјС‹РІР°РµС‚ СЃР°Рј; СЃСЃС‹Р»РєСѓ РЅРµР»СЊР·СЏ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РїРѕРІС‚РѕСЂРЅРѕ.</p></div></CenterModal>
+</>}
+function AvatarUpload({act}:{act:(body:any)=>Promise<boolean>}){const[busy,setBusy]=useState(false);async function run(){const n=(document.getElementById("avatar-name") as HTMLInputElement)?.value.trim();const f=(document.getElementById("avatar-file") as HTMLInputElement)?.files?.[0];if(!n||!f)return;setBusy(true);const r=new FileReader();r.onload=async()=>{const ok=await act({action:"avatarPresetAdd",name:n,imageData:String(r.result)});setBusy(false);if(ok){(document.getElementById("avatar-name") as HTMLInputElement).value="";(document.getElementById("avatar-file") as HTMLInputElement).value=""}};r.readAsDataURL(f)}return <button disabled={busy} onClick={run} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 font-black text-black disabled:opacity-40">{busy?"вЂ¦":"Р”РѕР±Р°РІРёС‚СЊ"}</button>}
+function Panel({title,children}:{title:string;children:React.ReactNode}){return <div className="panel rounded-3xl p-4 sm:p-6"><h2 className="text-xl font-black sm:text-2xl">{title}</h2><div className="mt-5">{children}</div></div>}
+
+===== FILE: lib/admin-rbac.ts =====
+
+import { prisma } from "@/lib/prisma";
+import { getCurrentAdminSession } from "@/lib/admin-auth";
+
+const ADMIN_MFA_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+function isFresh(verifiedAt: Date | null | undefined) { return Boolean(verifiedAt && Date.now() - verifiedAt.getTime() <= ADMIN_MFA_MAX_AGE_MS); }
+
+export const ADMIN_ROLE_CODES = [
+  "SUPERADMIN",
+  "FINANCIAL_ADMIN",
+  "ADMIN",
+  "MODERATOR",
+  "SUPPORT",
+  "AUDITOR",
+  "TECH_ADMIN",
+  "CONTENT_ADMIN",
+  "ANALYST",
+  "SECURITY_ADMIN",
+  "FOUNDER",
+] as const;
+export type AdminRoleCode = typeof ADMIN_ROLE_CODES[number];
+
+export const FINANCIAL_STATUS_PERMISSIONS = [
+  "deposits.review",
+  "deposits.approve",
+  "deposits.reject",
+  "withdrawals.review",
+  "withdrawals.approve",
+  "withdrawals.complete",
+  "withdrawals.reject",
+] as const;
+
+const FINANCIAL_STATUS_MUTATION_PERMISSIONS = [
+  "deposits.approve",
+  "deposits.reject",
+  "withdrawals.approve",
+  "withdrawals.complete",
+  "withdrawals.reject",
+] as const;
+
+export const ADMIN_ROLE_DEFINITIONS: Record<AdminRoleCode, {
+  level: number;
+  title: string;
+  description: string;
+  legacyAuthority: number;
+  permissions: readonly string[];
+}> = {
+  SUPERADMIN: { level: 1, title: "SUPERADMIN", description: "РџРѕР»РЅС‹Р№ РѕРїРµСЂР°С†РёРѕРЅРЅС‹Р№ РєРѕРЅС‚СЂРѕР»СЊ Р±РµР· РїСЂР°РІР° С„РёР·РёС‡РµСЃРєРѕРіРѕ СѓРґР°Р»РµРЅРёСЏ РЅРµРёР·РјРµРЅСЏРµРјРѕР№ С„РёРЅР°РЅСЃРѕРІРѕР№ РёСЃС‚РѕСЂРёРё.", legacyAuthority: 5, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","finance.view","ledger.view","deposits.review","deposits.approve","deposits.reject","withdrawals.review","withdrawals.approve","withdrawals.complete","withdrawals.reject","servers.view","servers.manage","content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","reports.view","security.view","security.sessions.revoke_all","settings.manage","feature_flags.manage","admin.audit.view","admin.audit.write","roles.manage","roles.assign","staff.admin_invite","finance.wallet.adjust","finance.freeze","finance.reconciliation.view","creator.payouts.manage"] },
+  FINANCIAL_ADMIN: { level: 2, title: "FINANCIAL ADMIN", description: "Р¤РёРЅР°РЅСЃС‹, ledger, РґРµРїРѕР·РёС‚С‹, РІС‹РІРѕРґС‹, source of funds Рё СЃРІРµСЂРєР°.", legacyAuthority: 3, permissions: ["users.view","matches.view","finance.view","ledger.view","deposits.review","deposits.approve","deposits.reject","withdrawals.review","withdrawals.approve","withdrawals.complete","withdrawals.reject","finance.reconciliation.view","finance.source_of_funds.view","finance.freeze","reports.view","admin.audit.view","support.view","finance.wallet.adjust","creator.payouts.manage"] },
+  ADMIN: { level: 3, title: "ADMIN", description: "РћРїРµСЂР°С†РёРѕРЅРЅРѕРµ СѓРїСЂР°РІР»РµРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏРјРё, РјР°С‚С‡Р°РјРё, РєРѕРЅС‚РµРЅС‚РѕРј Рё РїРѕРґРґРµСЂР¶РєРѕР№.", legacyAuthority: 3, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","reports.view","risk.cases.review"] },
+  MODERATOR: { level: 4, title: "MODERATOR", description: "РњРѕРґРµСЂР°С†РёСЏ РјР°С‚С‡РµР№, СЃРїРѕСЂРѕРІ, РґРѕРєР°Р·Р°С‚РµР»СЊСЃС‚РІ, РёРЅС†РёРґРµРЅС‚РѕРІ Рё РѕРіСЂР°РЅРёС‡РµРЅРёР№.", legacyAuthority: 2, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","support.view","support.tickets.reply","reports.view","risk.cases.review"] },
+  SUPPORT: { level: 5, title: "SUPPORT", description: "РџРѕРґРґРµСЂР¶РєР° РёРіСЂРѕРєРѕРІ Рё РїСЂРѕСЃРјРѕС‚СЂ РЅРµРѕР±С…РѕРґРёРјРѕРіРѕ РєРѕРЅС‚РµРєСЃС‚Р°.", legacyAuthority: 1, permissions: ["users.view","matches.view","finance.view","deposits.review","withdrawals.review","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","disputes.view","reports.view"] },
+  AUDITOR: { level: 6, title: "AUDITOR", description: "РўРѕР»СЊРєРѕ С‡С‚РµРЅРёРµ Рё Р°СѓРґРёС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№, РјР°С‚С‡РµР№, С„РёРЅР°РЅСЃРѕРІ Рё РґРµР№СЃС‚РІРёР№ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ.", legacyAuthority: 3, permissions: ["users.view","matches.view","matches.investigate","disputes.view","evidence.view","incidents.view","finance.view","ledger.view","deposits.review","withdrawals.review","reports.view","support.view","admin.audit.view","security.view","finance.reconciliation.view"] },
+  TECH_ADMIN: { level: 7, title: "TECH ADMIN", description: "РЎРµСЂРІРµСЂС‹, Р·РґРѕСЂРѕРІСЊРµ, С‚РµС…РЅРёС‡РµСЃРєРёРµ Р»РѕРіРё, РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ Рё Р°РІР°СЂРёР№РЅС‹Рµ РґРµР№СЃС‚РІРёСЏ.", legacyAuthority: 5, permissions: ["servers.view","servers.manage","system.logs.view","system.maintenance","system.incidents.view","matches.view","admin.audit.view","security.view"] },
+  CONTENT_ADMIN: { level: 8, title: "CONTENT ADMIN", description: "РљР°СЂС‚С‹, СЂРµР¶РёРјС‹, СЃРµР·РѕРЅС‹ Рё РїСѓР±Р»РёС‡РЅС‹Р№ РєРѕРЅС‚РµРЅС‚ DuelPlay.", legacyAuthority: 5, permissions: ["content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","content.skins.manage","content.avatars.manage","settings.content.manage","reports.view"] },
+  ANALYST: { level: 9, title: "ANALYST", description: "РђРЅР°Р»РёС‚РёРєР° Рё РѕС‚С‡РµС‚С‹ Р±РµР· РїСЂР°РІР° РёР·РјРµРЅРµРЅРёСЏ РґР°РЅРЅС‹С….", legacyAuthority: 3, permissions: ["reports.view","analytics.view","users.view","matches.view","finance.view","ledger.view","admin.audit.view"] },
+  SECURITY_ADMIN: { level: 10, title: "SECURITY ADMIN", description: "Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ, СЃРµСЃСЃРёРё, MFA, РїРѕРґРѕР·СЂРёС‚РµР»СЊРЅР°СЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ Рё security incidents.", legacyAuthority: 5, permissions: ["security.view","security.manage","security.sessions.revoke_all","security.sessions.revoke","security.mfa.manage","security.devices.view","security.login_history.view","incidents.view","incidents.manage","admin.audit.view","admin.audit.write","users.view"] },
+  FOUNDER: { level: 999, title: "FOUNDER", description: "РЎРїРµС†РёР°Р»СЊРЅР°СЏ СЃРёСЃС‚РµРјРЅР°СЏ СЂРѕР»СЊ СЃ РїРѕР»РЅС‹Рј РґРѕСЃС‚СѓРїРѕРј. Р¤РёР·РёС‡РµСЃРєРѕРµ СѓРґР°Р»РµРЅРёРµ РЅРµРёР·РјРµРЅСЏРµРјРѕР№ С„РёРЅР°РЅСЃРѕРІРѕР№ РёСЃС‚РѕСЂРёРё Р·Р°РїСЂРµС‰РµРЅРѕ.", legacyAuthority: 5, permissions: ["*"] },
+};
+
+export const ADMIN_ACTION_PERMISSIONS: Record<string, string> = {
+  resolveDispute: "disputes.resolve",
+  revokeUserSessions: "security.sessions.revoke",
+  revokeAllSessions: "security.sessions.revoke_all",
+  platformSetting: "settings.manage",
+  featureFlag: "feature_flags.manage",
+  standardTheme: "settings.content.manage",
+  backgroundTheme: "settings.content.manage",
+  heroBackground: "settings.content.manage",
+  sendNotification: "notifications.send",
+  topSkinAdd: "content.skins.manage",
+  topSkinDelete: "content.skins.manage",
+  avatarPresetAdd: "content.avatars.manage",
+  avatarPresetDelete: "content.avatars.manage",
+  fraudReview: "risk.cases.review",
+  userStatus: "users.restrict",
+  userRole: "roles.assign",
+  issueAdminInvite: "staff.admin_invite",
+  walletAdjust: "finance.wallet.adjust",
+  supportReply: "support.tickets.reply",
+  supportDelete: "support.tickets.delete",
+  supportStatus: "support.tickets.manage",
+  cancelMatch: "matches.cancel",
+};
+
+function isFounderUser(user: { steamId?: string | null; nickname?: string | null }) {
+  const ownerSteam = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
+  return Boolean((ownerSteam && user.steamId === ownerSteam) || user.nickname === "DuelPlayOwner");
+}
+
+function legacyRoleToCode(role: string): AdminRoleCode | null {
+  if (role === "SUPERADMIN") return "SUPERADMIN";
+  if (role === "ADMIN") return "ADMIN";
+  if (role === "MODERATOR") return "MODERATOR";
+  if (role === "SUPPORT") return "SUPPORT";
+  return null;
+}
+
+export function rolePermissions(roleCode: AdminRoleCode): string[] {
+  return [...ADMIN_ROLE_DEFINITIONS[roleCode].permissions];
+}
+
+export function hasPermission(permissions: readonly string[], permission: string) {
+  return permissions.includes("*") || permissions.includes(permission);
+}
+
+export function effectivePermissions(roleCode: AdminRoleCode, overrides: unknown): string[] {
+  const base = new Set(rolePermissions(roleCode));
+  const isProtectedFounder = roleCode === "FOUNDER" && base.has("*");
+  const canReviewDepositAndWithdrawal = ["FOUNDER", "SUPERADMIN", "FINANCIAL_ADMIN", "SUPPORT", "AUDITOR"].includes(roleCode);
+  const canMutateDepositAndWithdrawal = ["FOUNDER", "SUPERADMIN", "FINANCIAL_ADMIN"].includes(roleCode);
+
+  // Enforce role boundaries before applying overrides. This preserves the
+  // ordinary allow/deny model for unrelated permissions while preventing an
+  // override from manufacturing access to this financial permission group.
+  if (!canMutateDepositAndWithdrawal) for (const permission of FINANCIAL_STATUS_MUTATION_PERMISSIONS) base.delete(permission);
+  if (!canReviewDepositAndWithdrawal) {
+    base.delete("deposits.review");
+    base.delete("withdrawals.review");
+  }
+
+  if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
+    const value = overrides as { allow?: unknown; deny?: unknown };
+    // Wildcard access is reserved for the protected Founder identity, not an
+    // assignment override. Otherwise a stale `allow: ["*"]` bypasses RBAC.
+    if (Array.isArray(value.allow)) {
+      for (const permission of value.allow) {
+        if (typeof permission !== "string" || permission === "*") continue;
+        if (FINANCIAL_STATUS_MUTATION_PERMISSIONS.includes(permission as typeof FINANCIAL_STATUS_MUTATION_PERMISSIONS[number]) && !canMutateDepositAndWithdrawal) continue;
+        if ((permission === "deposits.review" || permission === "withdrawals.review") && !canReviewDepositAndWithdrawal) continue;
+        base.add(permission);
+      }
+    }
+    // In the existing model, an explicit deny wins over role and allow grants.
+    // The protected Founder wildcard remains the sole exception.
+    if (Array.isArray(value.deny) && !isProtectedFounder) {
+      for (const permission of value.deny) if (typeof permission === "string") base.delete(permission);
+    }
+  }
+  return [...base];
+}
+
+export function financialStatusPermission(action: string, targetStatus: string): string | null {
+  if (action === "depositStatus") {
+    if (targetStatus === "PROCESSING" || targetStatus === "COMPLETED") return "deposits.approve";
+    if (targetStatus === "FAILED" || targetStatus === "EXPIRED") return "deposits.reject";
+    return null;
+  }
+  if (action === "withdrawalStatus") {
+    if (targetStatus === "PROCESSING") return "withdrawals.approve";
+    if (targetStatus === "COMPLETED") return "withdrawals.complete";
+    if (targetStatus === "FAILED" || targetStatus === "REJECTED") return "withdrawals.reject";
+    return null;
+  }
+  return null;
+}
+
+export function canTransitionDepositStatus(currentStatus: string, targetStatus: string): boolean {
+  const transitions: Record<string, readonly string[]> = {
+    PENDING: ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "EXPIRED"],
+    PROCESSING: ["PROCESSING", "COMPLETED", "FAILED", "EXPIRED"],
+    FAILED: ["FAILED", "PROCESSING", "COMPLETED", "EXPIRED"],
+    EXPIRED: ["EXPIRED", "PROCESSING", "COMPLETED", "FAILED"],
+    COMPLETED: ["COMPLETED"],
+  };
+  return transitions[currentStatus]?.includes(targetStatus) ?? false;
+}
+
+export function canTransitionWithdrawalStatus(currentStatus: string, targetStatus: string): boolean {
+  const transitions: Record<string, readonly string[]> = {
+    PENDING: ["PROCESSING", "FAILED", "REJECTED"],
+    MANUAL_REVIEW: ["PROCESSING", "FAILED", "REJECTED"],
+    PROCESSING: ["COMPLETED", "FAILED", "REJECTED"],
+    COMPLETED: ["COMPLETED"],
+    FAILED: ["FAILED"],
+    REJECTED: ["REJECTED"],
+  };
+  return transitions[currentStatus]?.includes(targetStatus) ?? false;
+}
+
+export function assertFinancialStatusUpdateSucceeded(updatedCount: number): void {
+  if (updatedCount !== 1) throw new Error("FINANCIAL_STATUS_CONFLICT");
+}
+
+export async function resolveAdminAccess(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, nickname: true, steamId: true, role: true, twoFactorEnabled: true, adminRoleAssignment: true } });
+  if (!user) return null;
+  if (isFounderUser(user)) return { user, roleCode: "FOUNDER" as AdminRoleCode, level: 999, legacyAuthority: 5, permissions: ["*"], assignment: user.adminRoleAssignment };
+  const assigned = user.adminRoleAssignment;
+  const roleCode = (assigned?.roleCode as AdminRoleCode | undefined) || legacyRoleToCode(user.role);
+  if (!roleCode || !ADMIN_ROLE_DEFINITIONS[roleCode]) return { user, roleCode: null, level: 0, legacyAuthority: 0, permissions: [], assignment: assigned };
+  const def = ADMIN_ROLE_DEFINITIONS[roleCode];
+  return { user, roleCode, level: def.level, legacyAuthority: def.legacyAuthority, permissions: effectivePermissions(roleCode, assigned?.permissionOverrides), assignment: assigned };
+}
+
+export async function requireAdminAccess() {
+  const session = await getCurrentAdminSession();
+  if (!session?.user) throw new Error("ADMIN_LOGIN_REQUIRED");
+  if (!session.user.twoFactorEnabled) throw new Error("ADMIN_MFA_SETUP_REQUIRED");
+  if (!isFresh(session.adminMfaVerifiedAt)) throw new Error("ADMIN_MFA_REQUIRED");
+  const access = await resolveAdminAccess(session.user.id);
+  if (!access || access.level === 0) throw new Error("FORBIDDEN");
+  return access;
+}
+
+export async function requirePermission(permission: string) {
+  const session = await getCurrentAdminSession();
+  if (!session?.user) throw new Error("ADMIN_LOGIN_REQUIRED");
+  if (!session.user.twoFactorEnabled) throw new Error("ADMIN_MFA_SETUP_REQUIRED");
+  if (!isFresh(session.adminMfaVerifiedAt)) throw new Error("ADMIN_MFA_REQUIRED");
+  const access = await resolveAdminAccess(session.user.id);
+  if (!access || access.level === 0) throw new Error("FORBIDDEN");
+  if (!hasPermission(access.permissions, permission)) throw new Error("FORBIDDEN");
+  return access;
+}
+
+export async function requirePermissionForUser(userId: string, permission: string) {
+  const access = await resolveAdminAccess(userId);
+  if (!access || access.level === 0 || !hasPermission(access.permissions, permission)) throw new Error("FORBIDDEN");
+  return access;
+}
+
+export async function requireAnyPermission(permissions: readonly string[]) {
+  const session = await getCurrentAdminSession();
+  if (!session?.user) throw new Error("ADMIN_LOGIN_REQUIRED");
+  if (!session.user.twoFactorEnabled) throw new Error("ADMIN_MFA_SETUP_REQUIRED");
+  if (!isFresh(session.adminMfaVerifiedAt)) throw new Error("ADMIN_MFA_REQUIRED");
+  const access = await resolveAdminAccess(session.user.id);
+  if (!access || access.level === 0 || !permissions.some(p => hasPermission(access.permissions, p))) throw new Error("FORBIDDEN");
+  return access;
+}
+
+export function permissionForAdminAction(action: string) {
+  return ADMIN_ACTION_PERMISSIONS[action] || null;
+}
+
+export function adminLegacyAuthority(role: string) {
+  if (role === "SUPERADMIN") return 5;
+  if (role === "ADMIN") return 3;
+  if (role === "MODERATOR") return 2;
+  if (role === "SUPPORT") return 1;
+  return 0;
+}
+
+export const isProtectedFounder = isFounderUser;
+
+===== FILE: lib/admin.ts =====
+
+import { prisma } from "@/lib/prisma";
+import { getCurrentAdminSession } from "@/lib/admin-auth";
+import type { NextRequest } from "next/server";
+import { getAuditContext } from "@/lib/request-meta";
+import { resolveAdminAccess, adminLegacyAuthority } from "@/lib/admin-rbac";
+
+export const ADMIN_LEVELS = { SUPPORT: 1, MODERATOR: 2, ADMIN: 3, SUPERADMIN: 5 } as const;
+export const ADMIN_MFA_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
+export function adminLevel(role: string) { return adminLegacyAuthority(role); }
+
+export function isAdminMfaFresh(verifiedAt: Date | null | undefined) {
+  return Boolean(verifiedAt && Date.now() - verifiedAt.getTime() <= ADMIN_MFA_MAX_AGE_MS);
+}
+
+export async function requireAdmin(minLevel = 1) {
+  const session = await getCurrentAdminSession();
+  const user = session?.user;
+  if (!user) throw new Error("ADMIN_LOGIN_REQUIRED");
+  const access = await resolveAdminAccess(user.id);
+  if (!access || access.legacyAuthority < minLevel) throw new Error("FORBIDDEN");
+  if (!user.twoFactorEnabled) throw new Error("ADMIN_MFA_SETUP_REQUIRED");
+  if (!isAdminMfaFresh(session?.adminMfaVerifiedAt)) throw new Error("ADMIN_MFA_REQUIRED");
+  return user;
+}
+
+export async function audit(userId: string, action: string, targetType: string, targetId?: string, payload?: unknown, context?: { ipAddress?: string; userAgent?: string; requestId?: string; result?: string; reason?: string | null }) {
+  return prisma.auditLog.create({ data: { userId, action, targetType, targetId: targetId || null, ipAddress: context?.ipAddress || "application", userAgent: context?.userAgent || "DuelPlay admin", requestId: context?.requestId || null, result: context?.result || "SUCCESS", reason: context?.reason || null, payload: payload as any } });
+}
+
+export async function auditRequest(request: NextRequest, userId: string, action: string, targetType: string, targetId?: string, payload?: unknown, result = "SUCCESS", reason?: string | null) {
+  return audit(userId, action, targetType, targetId, payload, { ...getAuditContext(request), result, reason });
+}
+
+===== FILE: package.json =====
+
+{
+  "name": "duelplay-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "prisma db seed",
+    "server-manager": "node scripts/server-manager/server-manager.mjs",
+    "admin:reset-test": "node scripts/reset-test-users.mjs",
+    "test:setup": "node scripts/setup-test-accounts.mjs",
+    "match-watchdog": "node scripts/match-watchdog.mjs",
+    "db:sync": "prisma generate && node scripts/prepare-db.mjs && prisma db push",
+    "db:validate": "prisma validate",
+    "qa:local": "node scripts/qa-local.mjs",
+    "qa:syntax": "node scripts/qa-syntax.mjs",
+    "qa:routes": "node scripts/qa-local.mjs",
+    "qa:architecture": "node scripts/test-architecture-policy.mjs",
+    "qa:finance": "node scripts/test-finance-architecture.mjs",
+    "test:demo-wallet:integration": "node scripts/test-demo-wallet-postgres.mjs",
+    "backup:postgres:r2": "bash scripts/backup-postgres-to-r2.sh",
+    "restore:test:postgres:r2": "bash scripts/restore-test-postgres-from-r2.sh",
+    "prod:validate-env": "node scripts/validate-production-env.mjs",
+    "qa:api-security": "node scripts/test-api-security.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "next": "^16.3.3",
+    "prisma": "^6.19.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16.3.3",
+    "prisma": "6.19.3",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.1",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
+}
