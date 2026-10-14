@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getPlatformNumber, getFeatureFlag } from "@/lib/platform-settings";
+import { formatMatchAmount } from "@/lib/match-currency";
 import { getCurrentUser } from "@/lib/current-user";
 import { debitWallet, lockWallet } from "@/lib/wallet";
 import { assertAccountCanPlay, assessUserRisk, recordFraudSignal } from "@/lib/anti-fraud";
@@ -55,7 +56,12 @@ export async function POST(request: NextRequest) {
     if (!mapConfig.supportedModes[mode as keyof typeof mapConfig.supportedModes]) return NextResponse.json({ error: "Выбранный режим недоступен на этой карте", errorCode: "MODE_NOT_SUPPORTED_FOR_MAP" }, { status: 400 });
     const idempotencyKey = `match-create:${user.id}:${clientKey}`;
     const minBet = await getPlatformNumber("MIN_STAKE", MIN_BET), maxBet = await getPlatformNumber("MAX_STAKE", MAX_BET);
-    if (!Number.isFinite(amount) || amount < minBet || amount > maxBet) return NextResponse.json({ error: `Ставка должна быть от $${minBet} до $${maxBet}`, errorCode: "INVALID_BET" }, { status: 400 });
+    if (!Number.isFinite(amount) || amount < minBet || amount > maxBet) {
+      const range = economyMode === "DEMO"
+        ? `${formatMatchAmount("DEMO", minBet)} до ${formatMatchAmount("DEMO", maxBet)}`
+        : `$${minBet} до $${maxBet}`;
+      return NextResponse.json({ error: `Ставка должна быть от ${range}`, errorCode: "INVALID_BET" }, { status: 400 });
+    }
     const game = await prisma.game.findUnique({ where: { slug: "cs2" } });
     if (!game) return NextResponse.json({ error: "CS2 не найдена в базе", errorCode: "GAME_NOT_FOUND" }, { status: 404 });
     const commissionRate = await getPlatformNumber("COMMISSION_RATE", COMMISSION_RATE * 100) / 100;
@@ -100,6 +106,7 @@ export async function POST(request: NextRequest) {
       if (demoContext) {
         const match = await tx.match.create({ data: { economyMode: "DEMO", gameId: game.id, playerOneId: user.id, mode: mode as DuelModeId, format, weaponModifier: weapon.weaponModifier, mapName: mapConfig.serverMapName, betAmount: amount, commission: fee, status: "WAITING_FOR_PLAYERS", connectionPhaseCompleted: false } });
         await demoContext.demo.reserveDemoStake(user.id, match.id, String(amount), idempotencyKey, `match-stake:${idempotencyKey}`);
+        await tx.notification.create({ data: { userId: user.id, type: "SYSTEM", title: "DEMO match created", body: "Your DEMO match was created and is waiting for a second player. It uses virtual DC credits; real money was not affected.", payload: { economyMode: "DEMO", matchId: match.id, kind: "DEMO_MATCH_CREATED" } } });
         return match;
       }
 
@@ -122,7 +129,8 @@ export async function POST(request: NextRequest) {
     const code = error instanceof Error ? error.message : "";
     if (code === "PLAYER_BUSY") return NextResponse.json({ error: "У вас уже есть активная дуэль. Завершите или дождитесь окончания текущей дуэли.", errorCode: code }, { status: 409 });
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Повторный ключ операции уже использован", errorCode: code }, { status: 409 });
-    if (code === "INSUFFICIENT_BALANCE" || code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно средств для создания матча", errorCode: code }, { status: 400 });
+    if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно виртуальных кредитов DC для создания DEMO-матча", errorCode: code }, { status: 400 });
+    if (code === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для создания матча", errorCode: code }, { status: 400 });
     if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "Создание DEMO-матчей для аккаунта отключено", errorCode: code }, { status: 403 });
     if (["ACCOUNT_SUSPENDED", "ACCOUNT_BANNED", "ACCOUNT_DEACTIVATED"].includes(code)) return NextResponse.json({ error: "Аккаунт временно недоступен для игры", errorCode: code }, { status: 403 });
     console.error(error); return NextResponse.json({ error: "Не удалось создать матч" }, { status: 500 });
