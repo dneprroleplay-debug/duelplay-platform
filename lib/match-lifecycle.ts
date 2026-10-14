@@ -117,7 +117,7 @@ export async function resolveConnectionTimeout(matchId: string, connectedSteamId
       }
       await demo.creditDemoCredits(winnerId, demoPayout, `demo:forfeit-win:${full.id}`, "MATCH_WIN", full.id, "DEMO technical win");
       if (full.commission.gt(0)) await demo.recordDemoMatchFee(full.id, full.commission, `demo:forfeit-fee:${full.id}`);
-      await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "DEMO technical win", body: "You won the virtual match because the opponent did not connect.", payload: { matchId: full.id, economyMode: "DEMO" } } });
+      await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "DEMO technical win", body: "You won the virtual match because the opponent did not connect.", payload: { matchId: full.id, payout: demoPayout.toString(), economyMode: "DEMO" } } });
       await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "DEMO match finished", body: "You lost the virtual match by forfeit after the connection timeout.", payload: { matchId: full.id, economyMode: "DEMO" } } });
       return tx.match.update({ where: { id: full.id }, data: { winnerId, loserId, status: "FINISHED", endedAt: new Date(), connectionPhaseCompleted: true, connectionDeadlineAt: null, liveDeadlineAt: null, serverConfig: { ...freshCfg, state: "FINISHED", resultSource: "CS2_SERVER" } } });
     }

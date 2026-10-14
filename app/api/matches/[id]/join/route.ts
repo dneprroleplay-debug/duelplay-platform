@@ -49,7 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         const amount = match.betAmount.toString();
         await demoContext.demo.reserveDemoStake(user.id, match.id, amount, idempotencyKey, `match-stake:${idempotencyKey}`);
         const ready = await tx.match.update({ where: { id }, data: { playerTwoId: user.id, status: "READY", startDeadlineAt: deadlineFromNow(MATCH_START_TIMEOUT_MS), connectionPhaseCompleted: false }, include: { playerOne: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true } }, playerTwo: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true } } } });
-        await tx.notification.createMany({ data: [{ userId: match.playerOneId, type: "MATCH_READY", title: "Match Ready", body: "Both players are ready. Press START to launch the duel.", payload: { matchId: id } }, { userId: user.id, type: "MATCH_READY", title: "Match Ready", body: "Both players are ready. Press START to launch the duel.", payload: { matchId: id } }] });
+        await tx.notification.createMany({ data: [{ userId: match.playerOneId, type: "MATCH_READY", title: "Match Ready", body: "Both players are ready. Press START to launch the duel.", payload: { matchId: id, economyMode: "DEMO" } }, { userId: user.id, type: "MATCH_READY", title: "Match Ready", body: "Both players are ready. Press START to launch the duel.", payload: { matchId: id, economyMode: "DEMO" } }] });
         return ready;
       }
 
@@ -86,7 +86,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (msg === "OWN_MATCH") return NextResponse.json({ error: "Нельзя присоединиться к своему матчу", errorCode: msg }, { status: 409 });
     if (msg === "FULL") return NextResponse.json({ error: "Матч уже заполнен", errorCode: "MATCH_FULL" }, { status: 409 });
     if (msg === "ECONOMY_MISMATCH" || msg === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Конфликт состояния матча или ключа операции", errorCode: msg }, { status: 409 });
-    if (msg === "INSUFFICIENT_BALANCE" || msg === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно средств для входа в матч", errorCode: msg }, { status: 400 });
+    if (msg === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно виртуальных кредитов DC для ставки", errorCode: msg }, { status: 400 });
+    if (msg === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для входа в матч", errorCode: msg }, { status: 400 });
     if (msg === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "Присоединение к DEMO-матчам для аккаунта отключено", errorCode: msg }, { status: 403 });
     if (["ACCOUNT_SUSPENDED", "ACCOUNT_BANNED", "ACCOUNT_DEACTIVATED"].includes(msg)) return NextResponse.json({ error: "Аккаунт временно недоступен для игры", errorCode: msg }, { status: 403 });
     console.error(error); return NextResponse.json({ error: "Не удалось присоединиться", errorCode: "JOIN_ERROR" }, { status: 500 });
