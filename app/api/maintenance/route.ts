@@ -36,10 +36,13 @@ export async function PATCH(request: NextRequest) {
   }
   const enabled = (body as Record<string, unknown>).enabled as boolean;
 
-  const row = await prisma.featureFlag.upsert({
-    where: { key: "MAINTENANCE_MODE" },
-    update: { enabled, updatedBy: me.id },
-    create: { key: "MAINTENANCE_MODE", enabled, updatedBy: me.id },
+  const row = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+    return tx.featureFlag.upsert({
+      where: { key: "MAINTENANCE_MODE" },
+      update: { enabled, updatedBy: me.id },
+      create: { key: "MAINTENANCE_MODE", enabled, updatedBy: me.id },
+    });
   });
   await auditRequest(request, me.id, enabled ? "ENABLE_MAINTENANCE" : "DISABLE_MAINTENANCE", "PLATFORM", row.id, { enabled, result: "SUCCESS" });
   return NextResponse.json(row, { headers: { "Cache-Control": "no-store" } });

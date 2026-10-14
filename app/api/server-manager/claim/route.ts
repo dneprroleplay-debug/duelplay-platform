@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isServerManagerRequest } from "../auth";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { getDuelMap } from "@/lib/duel-maps";
+import { assertMatchmakingAvailable } from "@/lib/maintenance";
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
       // Serialize the tiny allocation section so multiple server-manager instances
       // can safely claim different offline servers without selecting the same row.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:game-server-claim'))`;
+      await assertMatchmakingAvailable(tx);
       const locked = await lockMatchForUpdate(tx, matchId);
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({
@@ -48,9 +50,9 @@ export async function POST(request: NextRequest) {
 
       const existing = requestedServerName
         ? await tx.gameServer.findUnique({ where: { name: requestedServerName } })
-        : await tx.gameServer.findFirst({ where: { status: { in: ["OFFLINE", "ERROR"] }, matchId: null }, orderBy: { createdAt: "asc" } });
+        : await tx.gameServer.findFirst({ where: { status: "READY", matchId: null, lastHeartbeat: { gte: new Date(Date.now() - 30_000) } }, orderBy: { createdAt: "asc" } });
       if (existing && existing.matchId) throw new Error("SERVER_BUSY");
-      if (existing && existing.status !== "OFFLINE" && existing.status !== "ERROR") throw new Error("SERVER_BUSY");
+      if (!existing || existing.status !== "READY" || !existing.lastHeartbeat || Date.now() - existing.lastHeartbeat.getTime() > 30_000) throw new Error("SERVER_UNAVAILABLE");
       const server = existing
         ? await tx.gameServer.update({ where: { id: existing.id }, data: { host: body.host ? host : existing.host, port: body.port ? port : existing.port, status: "STARTING", matchId, processId: null, startedAt: null, stoppedAt: null, lastHeartbeat: new Date() } })
         : await tx.gameServer.create({ data: { name: requestedServerName ?? `cs2-${Date.now()}`, host, port, status: "STARTING", matchId, lastHeartbeat: new Date() } });
@@ -65,6 +67,8 @@ export async function POST(request: NextRequest) {
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Match not found" }, { status: 404 });
     if (code === "NOT_READY") return NextResponse.json({ error: "Match is not ready" }, { status: 409 });
     if (code === "NOT_REQUESTED") return NextResponse.json({ error: "Match has not requested a server" }, { status: 409 });
+    if (code === "CS2_MAINTENANCE") return NextResponse.json({ error: "CS2 maintenance is active" }, { status: 503 });
+    if (code === "SERVER_UNAVAILABLE") return NextResponse.json({ error: "No ready CS2 server is available" }, { status: 503 });
     if (code === "STEAM_REQUIRED") return NextResponse.json({ error: "Both players must have Steam linked before a server can start" }, { status: 409 });
     if (code === "INVALID_MAP") return NextResponse.json({ error: "Invalid duel map" }, { status: 409 });
     if (code === "WORKSHOP_ID_MISSING") return NextResponse.json({ error: "Workshop ID is missing for this duel map" }, { status: 409 });

@@ -9,6 +9,7 @@ import { assertAccountCanPlay, assessUserRisk, recordFraudSignal } from "@/lib/a
 import { isDuelMode, normalizeModeWeaponModifier, type DuelModeId } from "@/lib/duel-modes";
 import { getDuelMap } from "@/lib/duel-maps";
 import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
+import { assertMatchmakingAvailable } from "@/lib/maintenance";
 import { Prisma } from "@prisma/client";
 
 const COMMISSION_RATE = .10, MIN_BET = 3, MAX_BET = 10000;
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
     const fee = Number((amount * 2 * commissionRate).toFixed(4));
 
     const create = async (tx: Prisma.TransactionClient, demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) => {
+      await assertMatchmakingAvailable(tx);
       await assertAccountCanPlay(tx, user.id);
       await enforceRateLimit(tx, user.id, "MATCH_CREATE", 10, 60_000);
       if (demoContext) {
@@ -127,6 +129,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
+    if (code === "CS2_MAINTENANCE") return NextResponse.json({ error: "Идёт обновление серверов CS2. Пожалуйста, подождите", errorCode: code }, { status: 503 });
     if (code === "PLAYER_BUSY") return NextResponse.json({ error: "У вас уже есть активная дуэль. Завершите или дождитесь окончания текущей дуэли.", errorCode: code }, { status: 409 });
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Повторный ключ операции уже использован", errorCode: code }, { status: 409 });
     if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно виртуальных кредитов DC для создания DEMO-матча", errorCode: code }, { status: 400 });

@@ -1,0 +1,18 @@
+[Unit]
+Description=DuelPlay CS2 Match Server Manager 2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/duelplay-app
+EnvironmentFile=/home/ubuntu/duelplay-app/scripts/server-manager/.env.cs2-2
+ExecStart=/usr/local/bin/node /home/ubuntu/duelplay-app/scripts/server-manager/server-manager.mjs
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

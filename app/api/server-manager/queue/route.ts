@@ -4,6 +4,7 @@ import { getClientIp } from "@/lib/request-meta";
 import { prisma } from "@/lib/prisma";
 import { isServerManagerRequest } from "../auth";
 import { runMatchWatchdog } from "@/lib/match-lifecycle";
+import { getMaintenanceState } from "@/lib/maintenance";
 
 
 export async function GET(request: NextRequest) {
@@ -20,6 +21,17 @@ export async function GET(request: NextRequest) {
   }
 
   await runMatchWatchdog();
+
+  const maintenance = await getMaintenanceState();
+  if (maintenance.enabled) return NextResponse.json({ pending: null, maintenance: true });
+
+  const requestedServerName = request.nextUrl.searchParams.get("serverId");
+  if (requestedServerName) {
+    const server = await prisma.gameServer.findUnique({ where: { name: requestedServerName }, select: { status: true, matchId: true, lastHeartbeat: true } });
+    if (!server || server.status !== "READY" || server.matchId || !server.lastHeartbeat || Date.now() - server.lastHeartbeat.getTime() > 30_000) {
+      return NextResponse.json({ pending: null, serverReady: false });
+    }
+  }
 
   const candidates = await prisma.match.findMany({
     where: {
