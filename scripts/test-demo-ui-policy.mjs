@@ -71,6 +71,49 @@ for (const locale of ["RU", "UA", "EN", "PL"]) {
     assert.match(localeBlock, new RegExp(`${key}:`), `${locale} locale provides ${key}`);
   }
 }
+assert.equal([...matchPage.matchAll(/cancelled=\{m\.status==="CANCELLED"\}/g)].length, 2, "both player cards receive cancellation state from the persisted match status");
+assert.match(matchPage, /cancelled\?u\.cancelled:ready\?"READY":u\.waitingStatus/, "cancellation status overrides ready and waiting labels, including an empty second-player card");
+assert.match(matchPage, /player\?\.nickname\|\|\(cancelled\?u\.player2:u\.waitingPlayer\)/, "an empty cancelled second-player card no longer says it is waiting for a player");
+assert.match(matchPage, /cancelled\?null:u\.readyConnect/, "an empty cancelled card does not advertise readiness to connect");
+assert.match(matchPage, /ready=\{m\.status!=="WAITING_FOR_PLAYERS"\}/, "the first player's pre-existing WAITING/READY behavior is preserved");
+assert.match(matchPage, /ready=\{hasPlayerTwo\}/, "the second player's pre-existing waiting/ready behavior is preserved outside cancellation");
+assert.match(matchPage, /bg-red-400\/10 text-red-300/, "cancelled player-card status is visually distinct from ready and waiting");
+
+const homePage = source("app/page.tsx");
+assert.match(homePage, /<Stat value=\{<span data-no-i18n>1v1<\/span>\} label=\{t\.formatLabel\}\/>/, "homepage format stat uses a protected literal 1v1 value while keeping the localized label");
+assert.match(homePage, /<span className="pill"><span data-no-i18n>1v1<\/span> · CS2 · REAL MATCHES<\/span>/, "homepage hero uses the fixed untranslated 1v1 token");
+assert.doesNotMatch(homePage, /1С…1|1C\.\.\.1|1V1/, "homepage hero has no malformed or alternate-format label");
+
+const realCreate = source("components/CreateMatch/CreateMatch.tsx");
+const demoCreate = source("components/CreateMatch/DemoCreateMatch.tsx");
+const liveLobby = source("components/Live/Live.tsx");
+const matchmaking = source("components/Matchmaking/MatchmakingPanel.tsx");
+assert.match(realCreate, /\[\["1v1",t\.format\]/, "REAL creation format card uses lowercase 1v1");
+assert.match(realCreate, /a==="1v1"\?<span data-no-i18n>\{a\}<\/span>:a/, "only the fixed REAL creation format value is protected from translation");
+assert.match(realCreate, /<option data-no-i18n key=\{x\.id\} value=\{x\.id\}/, "REAL game-mode labels preserve their fixed 1v1 designation");
+assert.match(demoCreate, /<option data-no-i18n key=\{item\.id\} value=\{item\.id\}>\{item\.label\}<\/option>/, "DEMO game-mode labels preserve their fixed 1v1 designation");
+assert.match(liveLobby, /<span data-no-i18n>1v1<\/span>/, "lobby cards use protected 1v1 format text");
+assert.match(matchmaking, /MATCHMAKING · <span data-no-i18n>1v1<\/span>/, "matchmaking badge uses protected lowercase 1v1");
+assert.match(matchmaking, /<option data-no-i18n key=\{x\.id\} value=\{x\.id\}/, "matchmaking mode labels preserve the fixed 1v1 designation");
+for (const asset of fs.readdirSync(`${root}/public/images/maps`).filter((name) => name.endsWith(".svg"))) {
+  const svg = source(`public/images/maps/${asset}`);
+  if (svg.includes("DUELPLAY · CS2 · 1v1") || svg.includes("DUELPLAY · CS2 · 1V1")) {
+    assert.match(svg, /DUELPLAY · CS2 · 1v1/, `${asset} branded format uses lowercase 1v1`);
+    assert.doesNotMatch(svg, /DUELPLAY · CS2 · 1V1/, `${asset} branded format is not translated or capitalized`);
+  }
+}
+for (const [locale, language] of [["ru", "RU"], ["ua", "UA"], ["en", "EN"], ["pl", "PL"]]) {
+  const localeSource = source(`locales/${locale}.ts`);
+  for (const key of ["heroText", "mapsText", "playDuel", "createText", "stepPlayTitle"]) {
+    const definition = localeSource.match(new RegExp(`(?:^|[,\\s])${key}:(['"])(.*?)\\1`));
+    assert.ok(definition, `${language} locale defines ${key}`);
+    assert.match(definition[2], /1v1/, `${language} ${key} uses canonical 1v1`);
+    assert.doesNotMatch(definition[2], /1x1|1х1|1vs1|1×1|1[СC]\.\.\.1/i, `${language} ${key} contains no alternate/malformed format`);
+  }
+}
+assert.match(matchPage, /CS2 · <span data-no-i18n>1v1<\/span> DUEL/, "match heading uses protected 1v1");
+assert.match(matchPage, / · <span data-no-i18n>1v1<\/span> · \{weaponLabel/, "match details use protected 1v1");
+assert.match(source("app/api/matches/[id]/result/route.ts"), /CS2 1v1 и получил/, "REAL settlement notification copy uses the canonical format without changing its financial payload");
 const createMatchApi = source("app/api/matches/route.ts");
 assert.match(createMatchApi, /amount\s*\*\s*2\s*\*\s*commissionRate/);
 assert.match(createMatchApi, /commission:\s*fee/);
@@ -108,11 +151,11 @@ for (const file of ["app/api/matches/[id]/cancel/route.ts", "app/api/matches/[id
   assert.match(source(file), /economyMode:\s*"DEMO"/, `${file} must mark its DEMO event payload`);
 }
 assert.match(source("lib/match-lifecycle.ts"), /payout:\s*demoPayout\.toString\(\)/, "technical-win DEMO notification carries its credited amount");
-assert.match(source("app/api/matches/[id]/result/route.ts"), /Ты победил в CS2 1х1 и получил \$\$\{payout\.toFixed\(2\)\}/, "REAL settlement notification text remains unchanged");
+assert.match(source("app/api/matches/[id]/result/route.ts"), /Ты победил в CS2 1v1 и получил \$\$\{payout\.toFixed\(2\)\}/, "REAL settlement notification retains its payout and uses canonical format copy");
 assert.match(source("lib/match-lifecycle.ts"), /closeDemoWalletHold\(userId, match\.id/);
 assert.match(source("app/api/matches/[id]/cancel/route.ts"), /closeDemoWalletHold/);
 const postgresIntegration = source("scripts/test-demo-wallet-postgres.integration.mjs");
 assert.match(postgresIntegration, /user cancellation before LIVE releases quota and refunds the DEMO hold exactly once/);
 assert.match(postgresIntegration, /DEMO operations do not touch REAL wallet, ledger, deposit or withdrawal tables/);
 
-console.log("DEMO UI policy: PASS (currency, saved-fee estimates, localized notices, payload markers, and REAL-format contracts)");
+console.log("DEMO UI policy: PASS (cancelled player status, canonical 1v1 UI, currency, saved-fee estimates, localized notices, and REAL-format contracts)");
