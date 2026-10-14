@@ -4,3 +4,10 @@ C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\R
 C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.AssemblyInfo.cs
 C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.csproj.CoreCompileInputs.cache
 C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.sourcelink.json
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\bin\Release\net10.0\DuelPlayGrenadeOnly.deps.json
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\bin\Release\net10.0\DuelPlayGrenadeOnly.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\bin\Release\net10.0\DuelPlayGrenadeOnly.pdb
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\refint\DuelPlayGrenadeOnly.dll
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\DuelPlayGrenadeOnly.pdb
+C:\Users\User\Desktop\duelplay-app\scripts\cs2-plugins\DuelPlayGrenadeOnly\obj\Release\net10.0\ref\DuelPlayGrenadeOnly.dll
