@@ -66,25 +66,24 @@ export async function POST(request: NextRequest) {
         update: { roleCode, level: def.level, permissionOverrides: override, assignedBy: actor.user.id },
       });
 
-      // Reuse the existing one-time invitation flow for accounts without an admin password.
-      // The invitation is bound to this existing User/Steam identity; no new account is created.
-      if (!target.passwordHash) {
-        const inviteToken = newAdminInviteToken();
-        await tx.userSession.updateMany({
-          where: { userId, isRevoked: false, ipAddress: "ADMIN_INVITE" },
-          data: { isRevoked: true },
-        });
-        await tx.userSession.create({
-          data: {
-            userId,
-            token: `${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,
-            ipAddress: "ADMIN_INVITE",
-            userAgent: "admin-rbac-role-invite",
-            expiresAt: new Date(Date.now() + 30 * 60_000),
-          },
-        });
-        adminInviteUrl = createAdminInviteUrl(inviteToken, request.url);
-      }
+      // Every role assignment returns a fresh one-time setup link. A normal player may
+      // already have a passwordHash, but that must not suppress the admin onboarding link.
+      // The invite is bound to this existing User/Steam identity; no new account is created.
+      const inviteToken = newAdminInviteToken();
+      await tx.userSession.updateMany({
+        where: { userId, isRevoked: false, ipAddress: "ADMIN_INVITE" },
+        data: { isRevoked: true },
+      });
+      await tx.userSession.create({
+        data: {
+          userId,
+          token: `${ADMIN_INVITE_PREFIX}${hashToken(inviteToken)}`,
+          ipAddress: "ADMIN_INVITE",
+          userAgent: "admin-rbac-role-invite",
+          expiresAt: new Date(Date.now() + 30 * 60_000),
+        },
+      });
+      adminInviteUrl = createAdminInviteUrl(inviteToken, request.url);
 
       return assignment;
     });
