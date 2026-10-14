@@ -6,6 +6,7 @@ import { buildOtpAuthUri, generateTotpSecret, verifyTotp } from "@/lib/totp";
 import { decryptSecret, encryptSecret } from "@/lib/secret-crypto";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getAuditContext } from "@/lib/request-meta";
+import { makeQrDataUrl } from "@/lib/qr-svg";
 
 function responseMessage(errorCode: string) {
   if (errorCode === "MFA_ENCRYPTION_KEY_MISSING") return "MFA encryption key is not configured on the server.";
@@ -46,7 +47,9 @@ export async function POST(request: NextRequest) {
         await tx.user.update({ where: { id: session.user.id }, data: { twoFactorSecret: encrypted, twoFactorEnabled: false } });
         await tx.auditLog.create({ data: { userId: session.user.id, action: "ADMIN_MFA_SETUP", targetType: "USER", targetId: session.user.id, ipAddress: auditContext.ipAddress, userAgent: auditContext.userAgent, requestId: auditContext.requestId, result: "SUCCESS", payload: {} } });
       });
-      return NextResponse.json({ ok: true, secret, otpauthUri: buildOtpAuthUri(secret, session.user.nickname) }, { headers: { "Cache-Control": "no-store" } });
+      const otpauthUri = buildOtpAuthUri(secret, session.user.nickname);
+      const qrDataUrl = makeQrDataUrl(otpauthUri);
+      return NextResponse.json({ ok: true, secret, otpauthUri, qrDataUrl }, { headers: { "Cache-Control": "no-store, private" } });
     }
 
     if (action === "verify") {

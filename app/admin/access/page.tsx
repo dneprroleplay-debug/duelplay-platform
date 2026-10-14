@@ -106,6 +106,7 @@ export default function AdminAccessPage(){
   const [mfaCode,setMfaCode]=useState("");
   const [mfaSecret,setMfaSecret]=useState("");
   const [mfaUri,setMfaUri]=useState("");
+  const [mfaQr,setMfaQr]=useState("");
   const [busy,setBusy]=useState(false);
   const [firstRun,setFirstRun]=useState(()=>{
     if(typeof window==="undefined") return false;
@@ -130,28 +131,40 @@ export default function AdminAccessPage(){
         return null;
       }
       setData(j);
-      setError("");
+      setErrorCode("");setError("");
       return j as AccessData;
     }catch{setError("Не удалось загрузить Admin Center");return null;}
   },[router]);
 
+  const mfaBlocked = errorCode === "ADMIN_MFA_SETUP_REQUIRED" || errorCode === "ADMIN_MFA_REQUIRED" || /mfa/i.test(error);
+
   const loadLive=useCallback(async()=>{
+    // Never poll protected realtime data while the session is waiting for MFA.
+    if(errorCode === "ADMIN_MFA_SETUP_REQUIRED" || errorCode === "ADMIN_MFA_REQUIRED" || /mfa/i.test(error)) return;
     try{
       const r=await fetch(`/api/admin/realtime?ts=${Date.now()}`,{cache:"no-store"});
+      if(r.status===403){
+        const j=await r.json().catch(()=>({}));
+        if(j.errorCode==="ADMIN_MFA_SETUP_REQUIRED"||j.errorCode==="ADMIN_MFA_REQUIRED"){
+          setErrorCode(j.errorCode);setError(j.error||"Требуется подтверждение MFA администратора");
+        }
+        return;
+      }
       if(!r.ok)return;
       const j=await r.json();
       setLive(j);
     }catch{}
-  },[]);
+  },[errorCode,error]);
 
   useEffect(()=>{
-    const timer=window.setTimeout(()=>{void loadAccess();void loadLive()},0);
+    const timer=window.setTimeout(async()=>{const access=await loadAccess();if(access)void loadLive();},0);
     return()=>window.clearTimeout(timer);
   },[loadAccess,loadLive]);
   useEffect(()=>{
+    if(mfaBlocked)return;
     const timer=window.setInterval(()=>{void loadLive(); if(workspace||command)setTick(v=>v+1)},3500);
     return()=>window.clearInterval(timer);
-  },[loadLive,workspace,command]);
+  },[loadLive,workspace,command,mfaBlocked]);
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       if(e.key==="Escape"){
@@ -202,6 +215,7 @@ export default function AdminAccessPage(){
       const j=await r.json().catch(()=>({}));
       if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"Неверный код MFA");return;}
       setMfaCode("");
+      setErrorCode("");setError("");
       await loadAccess();
       await loadLive();
     }catch{setError("Не удалось проверить MFA")}finally{setBusy(false)}
@@ -212,7 +226,7 @@ export default function AdminAccessPage(){
       const r=await fetch("/api/admin/mfa",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup"})});
       const j=await r.json().catch(()=>({}));
       if(!r.ok){setErrorCode(j.errorCode||""); setError(j.error||"Не удалось создать MFA");return;}
-      setMfaSecret(String(j.secret||""));setMfaUri(String(j.otpauthUri||""));
+      setMfaSecret(String(j.secret||""));setMfaUri(String(j.otpauthUri||""));setMfaQr(String(j.qrDataUrl||""));
     }catch{setError("Не удалось создать MFA")}finally{setBusy(false)}
   }
 
@@ -245,9 +259,10 @@ export default function AdminAccessPage(){
   const currentRole = data?.roles.find(r=>r.code===data.me.roleCode) || data?.roles.find(r=>r.code==="SUPERADMIN");
   const roleCards=(data?.roles||[]).slice().sort((a,b)=>a.level-b.level);
 
-  if(!data){
-    const mfaNeeds = error.includes("MFA");
-    return <main className="min-h-[calc(100vh-72px)] bg-black px-4 pb-20 pt-24 text-white"><div className="mx-auto max-w-2xl">{mfaNeeds?<MfaGate error={error} errorCode={errorCode} code={mfaCode} setCode={setMfaCode} secret={mfaSecret} uri={mfaUri} busy={busy} onSetup={setupMfa} onVerify={verifyMfa}/>:<div className="panel rounded-3xl p-8"><div className="text-xs font-black uppercase tracking-[.28em] text-pink-400">DUELPLAY ADMIN</div><h1 className="mt-3 text-3xl font-black">{error||"Загрузка центра управления…"}</h1><p className="mt-3 text-sm text-zinc-500">Проверяем административную сессию и права доступа.</p></div>}</div></main>
+  { const mfaNeeds = mfaBlocked || errorCode.startsWith("ADMIN_MFA_") || /mfa/i.test(error);
+  if(!data || mfaNeeds){
+    return <main className="min-h-[calc(100vh-72px)] bg-black px-4 pb-20 pt-24 text-white"><div className="mx-auto max-w-2xl">{mfaNeeds?<MfaGate error={error} errorCode={errorCode} code={mfaCode} setCode={setMfaCode} secret={mfaSecret} uri={mfaUri} qr={mfaQr} busy={busy} onSetup={setupMfa} onVerify={verifyMfa}/>:<div className="panel rounded-3xl p-8"><div className="text-xs font-black uppercase tracking-[.28em] text-pink-400">DUELPLAY ADMIN</div><h1 className="mt-3 text-3xl font-black">{error||"Загрузка центра управления…"}</h1><p className="mt-3 text-sm text-zinc-500">Проверяем административную сессию и права доступа.</p></div>}</div></main>
+  }
   }
 
   if(firstRun){
@@ -323,9 +338,9 @@ function RoleWorkspace({role,commands,actualRole,founder,onCommand}:{role:Role;c
 function MiniStat({label,value}:{label:string;value:number|null|undefined}){return <div className="rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5"><div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-1 text-lg font-black">{value??"—"}</div></div>}
 function LivePill({text}:{text:string}){return <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-300">● {text}</span>}
 
-function MfaGate({error,errorCode,code,setCode,secret,uri,busy,onSetup,onVerify}:{error:string;errorCode:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
-  const setup=errorCode==="ADMIN_MFA_SETUP_REQUIRED";
-  return <div className="panel rounded-[32px] p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">DUELPLAY ADMIN SECURITY</div><h1 className="mt-3 text-3xl font-black">Защищённый вход</h1><p className="mt-2 text-sm leading-6 text-zinc-500">Админка требует подтверждение MFA. После ввода кода достаточно нажать Enter.</p>{error&&<div className="mt-5 rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4 text-sm text-red-300">{error}</div>}{setup&&!secret?<button autoFocus onClick={onSetup} disabled={busy} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Создание…":"Создать MFA"}</button>:<form onSubmit={e=>{e.preventDefault();if(code.length===6&&!busy)onVerify()}}><>{secret&&<div className="mt-5 space-y-3"><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">Секрет</div><code className="block overflow-auto rounded-xl bg-black p-3 text-sm text-white">{secret}</code></div><div><div className="mb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">OTPAUTH URI</div><code className="block max-h-28 overflow-auto rounded-xl bg-black p-3 text-xs text-zinc-400">{uri}</code></div></div>}<label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">Код из приложения</span><input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="input text-center text-3xl tracking-[.5em]" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000"/></label><button type="submit" disabled={busy||code.length!==6} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Проверка…":"Подтвердить MFA · ENTER"}</button></></form>}</div>
+function MfaGate({error,errorCode,code,setCode,secret,uri,qr,busy,onSetup,onVerify}:{error:string;errorCode:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;qr:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
+  const setup=errorCode==="ADMIN_MFA_SETUP_REQUIRED" || (!secret && /настроить|setup|required/i.test(error));
+  return <div className="panel rounded-[32px] p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">DUELPLAY ADMIN SECURITY</div><h1 className="mt-3 text-3xl font-black">Защищённый вход</h1><p className="mt-2 text-sm leading-6 text-zinc-500">Админка требует подтверждение MFA. После ввода кода достаточно нажать Enter.</p>{error&&<div className="mt-5 rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4 text-sm text-red-300">{error}</div>}{setup&&!secret?<button autoFocus onClick={onSetup} disabled={busy} className="mt-6 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Создание…":"Создать MFA"}</button>:<form onSubmit={e=>{e.preventDefault();if(code.length===6&&!busy)onVerify()}}><>{secret&&<div className="mt-5 space-y-3">{qr&&<div className="flex flex-col items-center rounded-2xl border border-white/10 bg-white p-4"><img src={qr} alt="QR-код для Google Authenticator" className="h-56 w-56"/><p className="mt-2 text-center text-xs text-zinc-700">Сканируй в Google Authenticator</p></div>}<div><div className="mb-2 flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Секрет</span><button type="button" onClick={()=>void navigator.clipboard.writeText(secret)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-white/5">Копировать ключ</button></div><code className="block overflow-auto rounded-xl bg-black p-3 text-sm text-white">{secret}</code></div><div><div className="mb-2 flex items-center justify-between gap-3"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">OTPAUTH URI</span><button type="button" onClick={()=>void navigator.clipboard.writeText(uri)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-white/5">Копировать URI</button></div><code className="block max-h-28 overflow-auto rounded-xl bg-black p-3 text-xs text-zinc-400">{uri}</code><p className="mt-2 text-xs leading-5 text-zinc-500">Добавь секрет вручную в Google Authenticator, если сканирование QR недоступно. Не отправляй секрет посторонним.</p></div></div>}<label className="mt-6 block"><span className="mb-2 block text-xs font-black uppercase tracking-widest text-zinc-500">Код из приложения</span><input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="input text-center text-3xl tracking-[.5em]" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000"/></label><button type="submit" disabled={busy||code.length!==6} className="mt-5 w-full rounded-2xl bg-[var(--theme-accent)] py-3 font-black text-black disabled:opacity-40">{busy?"Проверка…":"Подтвердить MFA · ENTER"}</button></></form>}</div>
 }
 
 function RealtimeWorkspace({data,role}:{data:LiveData|null;role:string}){return <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">{role}</div><h2 className="mt-2 text-4xl font-black">Обзор в реальном времени</h2><p className="mt-2 text-zinc-500">Данные панели поддерживаются в актуальном состоянии.</p><div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{["users","online","matches24h","liveMatches"].map((k)=><div key={k} className="rounded-2xl border border-white/6 bg-white/[.025] p-5"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{k==="matches24h"?"matches24h · REAL+DEMO":k==="liveMatches"?"liveMatches · REAL+DEMO":k}</div><div className="mt-2 text-3xl font-black">{(k==="users"?data?.counters.users:k==="online"?data?.counters.online:k==="matches24h"?data?.counters.matches24h:data?.counters.liveMatches)??"—"}</div></div>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["REAL · 24ч",data?.counters.matchCounts?.real24h],["DEMO · 24ч",data?.counters.matchCounts?.demo24h],["REAL · LIVE",data?.counters.matchCounts?.realLive],["DEMO · LIVE",data?.counters.matchCounts?.demoLive]].map(([label,value])=><div key={String(label)} className="rounded-2xl border border-white/6 bg-white/[.025] p-4"><div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-2 text-2xl font-black">{value??"—"}</div></div>)}</div><div className="mt-7"><div className="mb-3 text-sm font-black">Активные матчи</div><div className="grid gap-3 md:grid-cols-2">{(data?.activeMatches||[]).map(m=><div key={m.id} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-center justify-between"><span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">{m.status} · {m.economyMode}</span><span className="text-[10px] text-zinc-700">#{m.id.slice(0,8)}</span></div><div className="mt-3 font-black">{m.playerOne.nickname} <span className="text-[var(--theme-accent)]">VS</span> {m.playerTwo?.nickname||"—"}</div><div className="mt-2 text-xs text-zinc-600">{m.mapName||"—"} · <span data-no-i18n>{formatMatchAmount(m.economyMode,String(m.betAmount))}</span></div></div>)}{!data?.activeMatches?.length&&<div className="rounded-2xl border border-dashed border-white/8 p-10 text-center text-sm text-zinc-600">Активных матчей нет.</div>}</div></div></div>}
