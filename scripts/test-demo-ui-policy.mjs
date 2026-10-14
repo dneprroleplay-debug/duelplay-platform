@@ -45,6 +45,10 @@ assert.deepEqual(joined, { currentBank: 200, fullBank: 200, commission: 20, winn
 const completedWithHistoricalFee = getMatchDisplayTotals("100", "17.5", true, false);
 assert.equal(completedWithHistoricalFee.commission, 17.5, "completed-match UI must retain the saved commission");
 assert.equal(completedWithHistoricalFee.winnerPayout, 182.5, "completed payout must use saved commission rather than a current rate");
+assert.equal(formatMatchAmount("REAL", 100), "$100.00", "one-player REAL refund amount is dollar formatted");
+assert.equal(formatMatchAmount("DEMO", 100), "DC 100.00", "one-player DEMO refund amount uses the invariant DC symbol");
+assert.equal(formatMatchAmount("REAL", 200), "$200.00", "two-player REAL refund total is dollar formatted");
+assert.equal(formatMatchAmount("DEMO", 200), "DC 200.00", "two-player DEMO refund total uses the invariant DC symbol");
 
 const matchPage = source("app/matches/[id]/page.tsx");
 assert.match(matchPage, /formatMatchAmount\(m\.economyMode,value\)/);
@@ -55,6 +59,18 @@ assert.doesNotMatch(matchPage, /Number\(m\.betAmount\)\.toFixed\(2\)/, "match he
 assert.match(matchPage, /<span data-no-i18n>\{displayAmount\(Number\(m\.betAmount\)\)\}<\/span>/, "match heading displays the full mode-aware amount");
 assert.doesNotMatch(matchPage, /\}\$<span data-no-i18n>\{displayAmount\(Number\(m\.betAmount\)\)\}/, "match heading must not add a currency prefix outside the formatter");
 assert.doesNotMatch(matchPage, /getPlatformNumber|COMMISSION_RATE/, "historical match UI must not recompute commission from platform settings");
+assert.match(matchPage, /m\.status==="CANCELLED"&&<Notice title=\{isDemo\?u\.cancelledDemo:u\.cancelled\}>/, "cancelled REAL and DEMO matches use their localized cancellation block");
+assert.match(matchPage, /hasPlayerTwo\?u\.refundDemoBothBefore:u\.refundDemoOneBefore/, "DEMO refund message distinguishes one stake from both players' stakes");
+assert.match(matchPage, /hasPlayerTwo\?u\.refundRealBothBefore:u\.refundRealOneBefore/, "REAL refund message distinguishes one stake from both players' stakes");
+assert.match(matchPage, /displayAmount\(Number\(m\.betAmount\)\*\(hasPlayerTwo\?2:1\)\)/, "refund amount uses participant count and the shared currency formatter");
+assert.match(matchPage, /<b data-no-i18n>\{displayAmount\(Number\(m\.betAmount\)\*\(hasPlayerTwo\?2:1\)\)\}<\/b>/, "formatted refund currency is protected from translation");
+assert.match(matchPage, /m\.status!=="CANCELLED"&&<>[\s\S]*?u\.commission[\s\S]*?u\.winnerGets[\s\S]*?<\/>}/, "cancelled matches hide the standard financial block; other statuses retain it");
+for (const locale of ["RU", "UA", "EN", "PL"]) {
+  const localeBlock = matchPage.match(new RegExp(`${locale}:\\{([^\\n]*)`))?.[1] || "";
+  for (const key of ["cancelledDemo", "refundRealOneBefore", "refundRealOneAfter", "refundRealBothBefore", "refundRealBothAfter", "refundDemoOneBefore", "refundDemoBothBefore", "refundDemoAfter"]) {
+    assert.match(localeBlock, new RegExp(`${key}:`), `${locale} locale provides ${key}`);
+  }
+}
 const createMatchApi = source("app/api/matches/route.ts");
 assert.match(createMatchApi, /amount\s*\*\s*2\s*\*\s*commissionRate/);
 assert.match(createMatchApi, /commission:\s*fee/);
