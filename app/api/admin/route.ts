@@ -101,7 +101,9 @@ export async function GET(request:NextRequest){
     const completedTransactions=transactions.filter(t=>t.status==="COMPLETED");const revenueTypes=["COMMISSION","CASE_OPEN","COSMETIC_PURCHASE","PRIME_PURCHASE","DUELPASS_PURCHASE","EVENTPASS_PURCHASE","XP_BOOSTER_PURCHASE"];const expenseTypes=["REFERRAL","REFERRAL_RACE_PRIZE","TOURNAMENT_PRIZE"];const revenueByType=Object.fromEntries([...new Set([...revenueTypes,...expenseTypes])].map(type=>[type,completedTransactions.filter(t=>t.type===type).reduce((n,t)=>n+Math.max(0,Number(t.amount)),0)]));const revenue=revenueTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const expenses=expenseTypes.reduce((n,type)=>n+(revenueByType[type]||0),0);const dayAgo=new Date(Date.now()-86400000);const completedMatchVolume=matches.filter(m=>m.economyMode==="REAL"&&m.createdAt>=dayAgo&&["FINISHED","CANCELLED"].includes(m.status)).reduce((n,m)=>n+Number(m.betAmount)*2,0);const openDisputes=disputes.filter(x=>["OPEN","UNDER_REVIEW","AI_PROCESSED"].includes(x.status)).length;const openFraud=fraud.filter(x=>!["CONFIRMED_BANNED","FALSE_POSITIVE_CLEARED"].includes(x.status)).length;
     const fullDashboard={users:users.length,online:onlineSessions,matchesToday:matches.filter(m=>m.createdAt>=dayAgo).length,liveMatches:matches.filter(m=>m.status==="LIVE").length,matchCounts,activeServers:servers.filter(s=>s.status==="BUSY"||s.status==="STARTING").length,volume:completedMatchVolume,revenue,deposits:completedTransactions.filter(t=>t.type==="DEPOSIT").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),withdrawals:completedTransactions.filter(t=>t.type==="WITHDRAW").reduce((n,t)=>n+Math.max(0,Number(t.amount)),0),referralPayouts:revenueByType.REFERRAL||0,creatorPayouts:creatorPayouts.filter(p=>p.status!=="REJECTED").reduce((n,p)=>n+Number(p.amount),0),pendingWithdrawals:withdrawals.filter(x=>x.status!=="COMPLETED"&&x.status!=="REJECTED"&&x.status!=="FAILED").length,pendingDeposits:deposits.filter(x=>x.status!=="COMPLETED"&&x.status!=="FAILED"&&x.status!=="EXPIRED").length,openDisputes,openFraud,revenueByType,expenses,netRevenue:revenue-expenses};
     const dashboard=level>=3?fullDashboard:{users:level>=2?users.length:0,online:onlineSessions,matchesToday:level>=2?matches.filter(m=>m.createdAt>=dayAgo).length:0,liveMatches:level>=2?matches.filter(m=>m.status==="LIVE").length:0,matchCounts:can("matches.view")?matchCounts:null,activeServers:0,volume:0,revenue:0,deposits:0,withdrawals:0,referralPayouts:0,creatorPayouts:0,pendingWithdrawals:0,pendingDeposits:0,openDisputes:level>=2?openDisputes:0,openFraud:level>=2?openFraud:0,revenueByType:{},expenses:0,netRevenue:0};
-    return NextResponse.json({me:{nickname:me.nickname,role:access.roleCode||me.role,level:access.level,permissions:access.permissions},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,platformSettings:can("settings.manage")?platformSettings:[],featureFlags:can("feature_flags.manage")?featureFlags:[],creatorPayouts:can("finance.view")?creatorPayouts:[],withdrawals:can("withdrawals.review")||can("finance.view")?withdrawals:[],deposits:can("deposits.review")||can("finance.view")?deposits:[],dashboard,users:can("users.view")?userRows:[],matches:can("matches.view")?matches:[],transactions:can("ledger.view")||can("finance.view")?transactions:[],disputes:can("disputes.view")?disputes:[],fraud:can("risk.cases.review")||can("security.view")?fraud:[],tickets:can("support.view")?await hydrateTickets(tickets):[],topSkins:can("content.skins.manage")?topSkins:[],servers:can("servers.view")?servers:[],logs:can("admin.audit.view")||can("system.logs.view")?logs:[],avatarPresets:can("content.avatars.manage")?avatarPresets:[]});
+    const canManageDemoMode=access.roleCode==="FOUNDER"||access.roleCode==="SUPERADMIN";
+    const demoSettings=canManageDemoMode?await prisma.demoModeSettings.findUnique({where:{id:"global"},select:{enabled:true,dailyMatchLimit:true,timeZone:true}}):null;
+    return NextResponse.json({me:{nickname:me.nickname,role:access.roleCode||me.role,level:access.level,permissions:access.permissions},themes:THEMES,standardTheme:themeById(standard).id,backgroundTheme:background,heroBackground,demoModeSettings:canManageDemoMode?{enabled:demoSettings?.enabled??false,dailyMatchLimit:demoSettings?.dailyMatchLimit??3,timeZone:demoSettings?.timeZone??"Europe/Kyiv"}:null,platformSettings:can("settings.manage")?platformSettings:[],featureFlags:can("feature_flags.manage")?featureFlags:[],creatorPayouts:can("finance.view")?creatorPayouts:[],withdrawals:can("withdrawals.review")||can("finance.view")?withdrawals:[],deposits:can("deposits.review")||can("finance.view")?deposits:[],dashboard,users:can("users.view")?userRows:[],matches:can("matches.view")?matches:[],transactions:can("ledger.view")||can("finance.view")?transactions:[],disputes:can("disputes.view")?disputes:[],fraud:can("risk.cases.review")||can("security.view")?fraud:[],tickets:can("support.view")?await hydrateTickets(tickets):[],topSkins:can("content.skins.manage")?topSkins:[],servers:can("servers.view")?servers:[],logs:can("admin.audit.view")||can("system.logs.view")?logs:[],avatarPresets:can("content.avatars.manage")?avatarPresets:[]});
   }catch(e){
     if(e instanceof Error&&e.message==="FORBIDDEN")return NextResponse.json({error:"Недостаточно прав"},{status:403});
     if(e instanceof Error&&e.message==="ADMIN_MFA_SETUP_REQUIRED")return NextResponse.json({error:"Требуется настроить MFA администратора",errorCode:e.message},{status:403});
@@ -117,11 +119,14 @@ export async function PATCH(request:NextRequest){
     const body=await request.json();
     const action=String(body.action||"");
     const status=String(body.status||"");
+    const isDemoModeSettingsAction=action==="demoModeSettings";
     const isDepositStatusAction=action==="depositStatus";
     const isWithdrawalStatusAction=action==="withdrawalStatus";
-    const requiredPermission=isDepositStatusAction||isWithdrawalStatusAction
-      ? financialStatusPermission(action,status)
-      : permissionForAdminAction(action);
+    const requiredPermission=isDemoModeSettingsAction
+      ? "settings.manage"
+      : isDepositStatusAction||isWithdrawalStatusAction
+        ? financialStatusPermission(action,status)
+        : permissionForAdminAction(action);
     if((isDepositStatusAction||isWithdrawalStatusAction)&&!requiredPermission){
       return NextResponse.json({error:"Неверный статус"},{status:400});
     }
@@ -135,9 +140,29 @@ export async function PATCH(request:NextRequest){
         throw error;
       }
     }
+    if(isDemoModeSettingsAction && (!access || !["FOUNDER","SUPERADMIN"].includes(String(access.roleCode||"")))){
+      return NextResponse.json({error:"Управление DEMO доступно только FOUNDER и SUPERADMIN"},{status:403});
+    }
     const legacyMe=access?.user || await requireAdmin(1);
     const me=legacyMe;
     await prisma.$transaction(tx=>enforceRateLimit(tx,me.id,"ADMIN_ACTION",30,60_000));
+
+    if(action==="demoModeSettings"){
+      if(typeof body.enabled!=="boolean" || !Number.isInteger(body.dailyMatchLimit) || body.dailyMatchLimit<0 || body.dailyMatchLimit>1000){
+        return NextResponse.json({error:"Некорректные настройки DEMO",errorCode:"INVALID_DEMO_MODE_SETTINGS"},{status:400});
+      }
+      const old=await prisma.demoModeSettings.findUnique({where:{id:"global"}});
+      const row=await prisma.demoModeSettings.upsert({
+        where:{id:"global"},
+        update:{enabled:body.enabled,dailyMatchLimit:body.dailyMatchLimit,timeZone:"Europe/Kyiv",updatedById:me.id},
+        create:{id:"global",enabled:body.enabled,dailyMatchLimit:body.dailyMatchLimit,timeZone:"Europe/Kyiv",updatedById:me.id},
+      });
+      await auditRequest(request,me.id,"CHANGE_DEMO_MODE_SETTINGS","DEMO_MODE_SETTINGS","global",{
+        old:old?{enabled:old.enabled,dailyMatchLimit:old.dailyMatchLimit,timeZone:old.timeZone}:null,
+        new:{enabled:row.enabled,dailyMatchLimit:row.dailyMatchLimit,timeZone:row.timeZone},
+      });
+      return NextResponse.json({ok:true,demoModeSettings:{enabled:row.enabled,dailyMatchLimit:row.dailyMatchLimit,timeZone:row.timeZone}});
+    }
 
     if(action==="resolveDispute"){
       const disputeId=String(body.disputeId||"");

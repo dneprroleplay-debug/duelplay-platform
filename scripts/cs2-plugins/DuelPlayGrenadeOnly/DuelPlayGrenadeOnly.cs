@@ -5,6 +5,8 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Modules.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace DuelPlayGrenadeOnly;
 
@@ -13,19 +15,49 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
 {
     private const int GrenadesPerType = 3;
 
-    private static readonly string[] CommonGrenades =
-    [
-        "weapon_hegrenade",
-        "weapon_flashbang",
-        "weapon_smokegrenade"
-    ];
+    private enum GrenadeKind
+    {
+        He,
+        Flash,
+        Smoke,
+        Incendiary
+    }
+
+    private sealed class PlayerRoundState
+    {
+        public int HeThrown { get; set; }
+        public int FlashThrown { get; set; }
+        public int SmokeThrown { get; set; }
+        public int IncendiaryThrown { get; set; }
+        public bool KnifeGivenThisLife { get; set; }
+
+        public int RemainingHe => GrenadesPerType - HeThrown;
+        public int RemainingFlash => GrenadesPerType - FlashThrown;
+        public int RemainingSmoke => GrenadesPerType - SmokeThrown;
+        public int RemainingIncendiary => GrenadesPerType - IncendiaryThrown;
+        public int RemainingTotal => RemainingHe + RemainingFlash + RemainingSmoke + RemainingIncendiary;
+
+        public void RecordThrow(GrenadeKind kind)
+        {
+            switch (kind)
+            {
+                case GrenadeKind.He: HeThrown = Math.Min(GrenadesPerType, HeThrown + 1); break;
+                case GrenadeKind.Flash: FlashThrown = Math.Min(GrenadesPerType, FlashThrown + 1); break;
+                case GrenadeKind.Smoke: SmokeThrown = Math.Min(GrenadesPerType, SmokeThrown + 1); break;
+                case GrenadeKind.Incendiary: IncendiaryThrown = Math.Min(GrenadesPerType, IncendiaryThrown + 1); break;
+            }
+        }
+    }
 
     public override string ModuleName => "DuelPlay Grenade Only";
     public override string ModuleVersion => "1.0.0";
     public override string ModuleAuthor => "DuelPlay";
-    public override string ModuleDescription => "Enforces DuelPlay GRENADE_ONLY loadout: no knife/weapons and 12 grenades per spawn.";
+    public override string ModuleDescription => "Enforces DuelPlay GRENADE_ONLY loadout: a bounded grenade set followed by a knife.";
 
     private bool _enabled;
+    private bool _roundStarted;
+    private DateTime _lastRoundStateResetAt = DateTime.MinValue;
+    private readonly Dictionary<ulong, PlayerRoundState> _playerRoundStates = new();
     private int? _previousGrenadeTotal;
     private int? _previousGrenadeDefault;
     private int? _previousFlashbangLimit;
@@ -40,10 +72,59 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             if (!_enabled) return HookResult.Continue;
 
             var player = @event.Userid;
-            if (!IsValidPlayer(player)) return HookResult.Continue;
+            if (player is null || !IsValidPlayer(player)) return HookResult.Continue;
 
-            ScheduleEnforcement(player, giveLoadout: true);
+            ScheduleEnforcement(player);
             return HookResult.Continue;
+        });
+
+        RegisterEventHandler<EventRoundStart>((@event, info) =>
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastRoundStateResetAt < TimeSpan.FromMilliseconds(500)) return HookResult.Continue;
+
+            _lastRoundStateResetAt = now;
+            _roundStarted = true;
+            _playerRoundStates.Clear();
+
+            if (_enabled)
+            {
+                foreach (var player in Utilities.GetPlayers().Where(IsValidPlayer))
+                {
+                    ScheduleEnforcement(player);
+                }
+            }
+
+            return HookResult.Continue;
+        });
+
+        RegisterEventHandler<EventGrenadeThrown>((@event, info) =>
+        {
+            var player = @event.Userid!;
+            if (!_enabled || !_roundStarted || !IsValidPlayer(player)) return HookResult.Continue;
+            var kind = GetGrenadeKind(@event.Weapon);
+            if (kind is null) return HookResult.Continue;
+
+            var state = GetPlayerRoundState(player);
+            state.RecordThrow(kind.Value);
+            if (state.RemainingTotal == 0)
+            {
+                AddTimer(0.10f, () =>
+                {
+                    if (!_playerRoundStates.TryGetValue(player.SteamID, out var currentState)
+                        || !ReferenceEquals(currentState, state)) return;
+                    GiveKnifeIfGrenadesSpent(player, state);
+                }, TimerFlags.STOP_ON_MAPCHANGE);
+            }
+
+            return HookResult.Continue;
+        });
+
+        RegisterListener<Listeners.OnMapStart>(_ =>
+        {
+            _roundStarted = false;
+            _lastRoundStateResetAt = DateTime.MinValue;
+            _playerRoundStates.Clear();
         });
 
         Logger.LogInformation("DuelPlay Grenade Only loaded");
@@ -68,14 +149,15 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             {
                 CaptureGrenadeLimits();
                 _enabled = true;
+
+                foreach (var player in Utilities.GetPlayers().Where(IsValidPlayer))
+                {
+                    ScheduleEnforcement(player);
+                }
             }
 
             ConfigureGrenadeLimits();
             Logger.LogInformation("GRENADE_ONLY enforcement enabled");
-            foreach (var player in Utilities.GetPlayers().Where(IsValidPlayer))
-            {
-                ScheduleEnforcement(player, giveLoadout: true);
-            }
         }
         else
         {
@@ -93,13 +175,12 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         }
     }
 
-    private void ScheduleEnforcement(CCSPlayerController player, bool giveLoadout)
+    private void ScheduleEnforcement(CCSPlayerController player)
     {
-        AddTimer(0.10f, () => ApplyLoadout(player, giveLoadout), TimerFlags.STOP_ON_MAPCHANGE);
-        AddTimer(0.60f, () => RemoveKnifeAndBlockPickup(player), TimerFlags.STOP_ON_MAPCHANGE);
+        AddTimer(0.10f, () => ApplyLoadout(player), TimerFlags.STOP_ON_MAPCHANGE);
     }
 
-    private void ApplyLoadout(CCSPlayerController player, bool giveLoadout)
+    private void ApplyLoadout(CCSPlayerController player)
     {
         if (!IsValidPlayer(player) || !_enabled) return;
 
@@ -109,28 +190,28 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             if (pawn is null || !pawn.IsValid) return;
 
             pawn.WeaponServices!.PreventWeaponPickup = true;
-            pawn.ItemServices!.RemoveWeapons();
+            player.RemoveWeapons();
 
-            if (!giveLoadout) return;
+            var state = GetPlayerRoundState(player);
+            state.KnifeGivenThisLife = false;
+            if (!_roundStarted) return;
 
-            foreach (var grenade in CommonGrenades)
+            if (state.RemainingTotal == 0)
             {
-                for (var i = 0; i < GrenadesPerType; i++)
-                {
-                    pawn.ItemServices.GiveNamedItem<CBasePlayerWeapon>(grenade);
-                }
+                GiveKnifeIfGrenadesSpent(player, state);
+                return;
             }
+
+            GiveGrenades(player, "weapon_hegrenade", state.RemainingHe);
+            GiveGrenades(player, "weapon_flashbang", state.RemainingFlash);
+            GiveGrenades(player, "weapon_smokegrenade", state.RemainingSmoke);
 
             var incendiary = player.TeamNum == (byte)CsTeam.Terrorist
                 ? "weapon_molotov"
                 : "weapon_incgrenade";
+            GiveGrenades(player, incendiary, state.RemainingIncendiary);
 
-            for (var i = 0; i < GrenadesPerType; i++)
-            {
-                pawn.ItemServices.GiveNamedItem<CBasePlayerWeapon>(incendiary);
-            }
-
-            Logger.LogDebug("Configured GRENADE_ONLY loadout for {SteamId}", player.SteamID);
+            Logger.LogDebug("Configured GRENADE_ONLY loadout for {SteamId}: {Remaining} grenades remain this round", player.SteamID, state.RemainingTotal);
         }
         catch (Exception ex)
         {
@@ -138,9 +219,9 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         }
     }
 
-    private void RemoveKnifeAndBlockPickup(CCSPlayerController player)
+    private void GiveKnifeIfGrenadesSpent(CCSPlayerController player, PlayerRoundState state)
     {
-        if (!IsValidPlayer(player) || !_enabled) return;
+        if (!IsValidPlayer(player) || !_enabled || !_roundStarted || state.RemainingTotal != 0 || state.KnifeGivenThisLife) return;
 
         try
         {
@@ -148,12 +229,48 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             if (pawn is null || !pawn.IsValid) return;
 
             pawn.WeaponServices!.PreventWeaponPickup = true;
-            player.RemoveItemBySlot(gear_slot_t.GEAR_SLOT_KNIFE);
+            player.GiveNamedItem("weapon_knife");
+            state.KnifeGivenThisLife = true;
+            Logger.LogDebug("Granted GRENADE_ONLY knife to {SteamId} after all round grenades were thrown", player.SteamID);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to remove GRENADE_ONLY knife from {SteamId}", player.SteamID);
+            Logger.LogError(ex, "Failed to grant GRENADE_ONLY knife to {SteamId}", player.SteamID);
         }
+    }
+
+    private static void GiveGrenades(CCSPlayerController player, string grenade, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            player.GiveNamedItem(grenade);
+        }
+    }
+
+    private PlayerRoundState GetPlayerRoundState(CCSPlayerController player)
+    {
+        if (!_playerRoundStates.TryGetValue(player.SteamID, out var state))
+        {
+            state = new PlayerRoundState();
+            _playerRoundStates[player.SteamID] = state;
+        }
+
+        return state;
+    }
+
+    private static GrenadeKind? GetGrenadeKind(string weapon)
+    {
+        var normalized = weapon.Trim().ToLowerInvariant();
+        if (!normalized.StartsWith("weapon_", StringComparison.Ordinal)) normalized = $"weapon_{normalized}";
+
+        return normalized switch
+        {
+            "weapon_hegrenade" => GrenadeKind.He,
+            "weapon_flashbang" => GrenadeKind.Flash,
+            "weapon_smokegrenade" => GrenadeKind.Smoke,
+            "weapon_molotov" or "weapon_incgrenade" => GrenadeKind.Incendiary,
+            _ => null
+        };
     }
 
     private void CaptureGrenadeLimits()

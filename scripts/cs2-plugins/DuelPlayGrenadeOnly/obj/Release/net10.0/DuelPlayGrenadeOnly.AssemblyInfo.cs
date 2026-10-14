@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DuelPlayGrenadeOnly")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fded484d4047b341153490c6ca8b3eeb202a5c29")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+16fdfa481a3a071269a08b79435c908d418bf8ba")]
 [assembly: System.Reflection.AssemblyProductAttribute("DuelPlayGrenadeOnly")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DuelPlayGrenadeOnly")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
