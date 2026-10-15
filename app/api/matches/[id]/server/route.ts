@@ -12,6 +12,17 @@ import type { DemoPolicyTransactionContext } from "@/lib/demo-policy";
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
+async function setGameProcessMetadata(tx: Prisma.TransactionClient, serverId: string, status: "STARTING" | "READY" | "ERROR" | "STOPPING" | "STOPPED", processId: number | null = null) {
+  const server = await tx.gameServer.findUnique({ where: { id: serverId }, select: { metadata: true } });
+  if (!server) return;
+  await tx.gameServer.update({ where: { id: serverId }, data: { metadata: { ...asRecord(server.metadata), gameProcessReady: status === "READY", gameProcessStatus: status, gameProcessPid: status === "READY" ? processId : null } } });
+}
+
+async function markGameProcessStopped(tx: Prisma.TransactionClient, serverId: string, matchId: string) {
+  await tx.gameServer.updateMany({ where: { id: serverId, matchId }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+  await setGameProcessMetadata(tx, serverId, "STOPPED");
+}
+
 async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>, reason = "Match server failed/stopped before completion", demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) {
   const amount = Number(match.betAmount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("INVALID_AMOUNT");
@@ -91,7 +102,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         if (match.economyMode === "DEMO") await policy.confirmDemoMatchLive(id, startedAt);
         const port = Number(body.port ?? match.gameServer.port);
         const host = String(body.host ?? match.gameServer.host);
-        await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId: Number.isInteger(body.processId) ? Number(body.processId) : null, startedAt, lastHeartbeat: startedAt } });
+        const processId = Number.isInteger(body.processId) ? Number(body.processId) : null;
+        await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId, startedAt, lastHeartbeat: startedAt } });
+        await setGameProcessMetadata(tx, serverId, "READY", processId);
         const cfg = asRecord(match.serverConfig);
         return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt, startDeadlineAt: null, connectionDeadlineAt: null,
         liveDeadlineAt: deadlineFromNow(MATCH_LIVE_TIMEOUT_MS, startedAt.getTime()),
@@ -186,6 +199,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           },
         });
         if (serverUpdate.count !== 1) throw new Error("SERVER_NOT_ASSIGNED");
+        await setGameProcessMetadata(tx, serverId, "READY");
 
         const cfg = asRecord(match.serverConfig);
         const normalizeSteamId = (value: unknown): string | null => {
@@ -244,11 +258,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         } else if (ids.length === 1) {
           const resolved = await resolveConnectionTimeout(id, ids[0]);
           if (resolved?.status === "FINISHED") {
-            await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+            await prisma.$transaction(tx => markGameProcessStopped(tx, serverId, id));
           }
         } else if (ids.length === 0) {
           await cancelMatchWithRefund(id, "No player connected within 5 minutes");
-          await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+          await prisma.$transaction(tx => markGameProcessStopped(tx, serverId, id));
         }
       }
       return NextResponse.json({ ok: true });
@@ -259,12 +273,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!winnerSteamId) return NextResponse.json({ error: "Connected player is required" }, { status: 400 });
       const result = await resolveConnectionTimeout(id, winnerSteamId);
       if (result?.status === "FINISHED") {
-        await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        await prisma.$transaction(tx => markGameProcessStopped(tx, serverId, id));
         return NextResponse.json({ ok: true, match: result, technicalWin: true });
       }
       const state = await prisma.match.findUnique({ where: { id }, select: { status: true, winnerId: true } });
       if (state?.status === "FINISHED" && state.winnerId) {
-        await prisma.gameServer.updateMany({ where: { id: serverId, matchId: id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        await prisma.$transaction(tx => markGameProcessStopped(tx, serverId, id));
         return NextResponse.json({ ok: true, technicalWin: true, alreadyResolved: true });
       }
       return NextResponse.json({ error: "Connection timeout could not be resolved" }, { status: 409 });
@@ -277,11 +291,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
         if (!match || !match.gameServer || match.gameServer.id !== serverId) throw new Error("NOT_FOUND");
         if (match.status === "FINISHED" || match.status === "CANCELLED") {
-          if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+          if (match.gameServer) await markGameProcessStopped(tx, match.gameServer.id, id);
           return;
         }
         await refundAndCancel(tx, match, String(body.reason ?? "Match server failed/stopped before completion"), demoContext);
-        if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        if (match.gameServer) await markGameProcessStopped(tx, match.gameServer.id, id);
       });
       return NextResponse.json({ ok: true });
     }
@@ -292,7 +306,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         if (!locked) throw new Error("NOT_FOUND");
         const match = await tx.match.findUnique({ where: { id }, include: { gameServer: true } });
         if (!match || !match.gameServer || match.gameServer.id !== serverId) throw new Error("NOT_FOUND");
-        if (match.gameServer) await tx.gameServer.update({ where: { id: match.gameServer.id }, data: { status: "OFFLINE", matchId: null, processId: null, stoppedAt: new Date(), lastHeartbeat: null } });
+        if (match.gameServer) await markGameProcessStopped(tx, match.gameServer.id, id);
         if (match && match.status === "LIVE") await refundAndCancel(tx, match, undefined, demoContext);
       });
       return NextResponse.json({ ok: true });

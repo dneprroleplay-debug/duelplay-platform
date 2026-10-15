@@ -136,4 +136,6 @@ const grenadePlugin = readFileSync('scripts/cs2-plugins/DuelPlayGrenadeOnly/Duel
 assert.match(grenadePlugin, /GiveNamedItem/);
 assert.match(grenadePlugin, /PreventWeaponPickup = true/);
 assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife availability follows actual grenade throws');
+assert.match(grenadePlugin, /CountGrenades\(pawn\)/, 'GRENADE_ONLY verifies the actual inventory after issuing items');
+assert.match(grenadePlugin, /state\.ResetForNewRound\(_roundNumber\)/, 'GRENADE_ONLY resets per-player quotas using a new engine round identity');
 console.log(`CS2 mode policy: ${maps.length} maps × ${modes.length} modes; mode command, round, and winner regressions PASS`);

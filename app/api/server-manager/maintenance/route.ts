@@ -4,17 +4,14 @@ import { getClientIp } from "@/lib/request-meta";
 import { isServerManagerRequest } from "../auth";
 import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 
-const MANAGED_SERVERS = ["cs2-1", "cs2-2", "cs2-3"];
-
 export async function GET(request: NextRequest) {
   if (!isServerManagerRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const [maintenance, activeMatches, servers, updateStatus] = await Promise.all([
     prisma.featureFlag.findUnique({ where: { key: "MAINTENANCE_MODE" }, select: { enabled: true, updatedAt: true } }),
     prisma.match.count({ where: { status: { in: ["STARTING", "LIVE"] } } }),
     prisma.gameServer.findMany({
-      where: { name: { in: MANAGED_SERVERS } },
-      select: { name: true, host: true, port: true, status: true, matchId: true, lastHeartbeat: true },
-      orderBy: { name: "asc" },
+      select: { name: true, host: true, port: true, status: true, matchId: true, processId: true, lastHeartbeat: true, metadata: true },
+      orderBy: { createdAt: "asc" },
     }),
     prisma.siteSettings.findUnique({ where: { key: "CS2_UPDATE_STATUS" }, select: { value: true, updatedAt: true } }),
   ]);
@@ -25,7 +22,17 @@ export async function GET(request: NextRequest) {
     updateStatus: updateStatus?.value ?? null,
     updateStatusUpdatedAt: updateStatus?.updatedAt ?? null,
     servers: servers.map(server => ({
-      ...server,
+      name: server.name,
+      host: server.host,
+      port: server.port,
+      status: server.status,
+      matchId: server.matchId,
+      processId: server.processId,
+      lastHeartbeat: server.lastHeartbeat,
+      managerPort: server.metadata && typeof server.metadata === "object" && !Array.isArray(server.metadata) ? (server.metadata as Record<string, unknown>).managerPort ?? null : null,
+      managerReady: server.metadata && typeof server.metadata === "object" && !Array.isArray(server.metadata) ? (server.metadata as Record<string, unknown>).managerReady === true : false,
+      gameProcessReady: server.metadata && typeof server.metadata === "object" && !Array.isArray(server.metadata) ? (server.metadata as Record<string, unknown>).gameProcessReady === true : false,
+      gameProcessStatus: server.metadata && typeof server.metadata === "object" && !Array.isArray(server.metadata) ? (server.metadata as Record<string, unknown>).gameProcessStatus ?? "UNKNOWN" : "UNKNOWN",
       heartbeatFresh: Boolean(server.lastHeartbeat && Date.now() - server.lastHeartbeat.getTime() <= 30_000),
     })),
   }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } });

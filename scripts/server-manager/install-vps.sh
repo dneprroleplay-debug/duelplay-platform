@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/ubuntu/duelplay-app}"
 SERVICE_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-manager.service"
+TEMPLATE_SERVICE_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-manager@.service"
 ENV_FILE="$PROJECT_DIR/scripts/server-manager/.env"
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -11,6 +12,10 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 if [[ ! -f "$SERVICE_FILE" ]]; then
   echo "Missing $SERVICE_FILE"
+  exit 1
+fi
+if [[ ! -f "$TEMPLATE_SERVICE_FILE" ]]; then
+  echo "Missing $TEMPLATE_SERVICE_FILE"
   exit 1
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -23,6 +28,7 @@ if [[ ! -x /usr/bin/node ]]; then
 fi
 
 install -m 0644 "$SERVICE_FILE" /etc/systemd/system/duelplay-cs2-manager.service
+install -m 0644 "$TEMPLATE_SERVICE_FILE" /etc/systemd/system/duelplay-cs2-manager@.service
 systemctl daemon-reload
 systemctl enable duelplay-cs2-manager
 systemctl restart duelplay-cs2-manager

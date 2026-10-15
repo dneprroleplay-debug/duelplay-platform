@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { registerHooks } from "node:module";
 import { join as joinPath } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { Prisma } from "@prisma/client";
 
@@ -9,6 +11,9 @@ const root = process.cwd();
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "next/server") return nextResolve(pathToFileURL(joinPath(root, "node_modules", "next", "server.js")).href, context);
+    if (specifier === "../auth" && context.parentURL === pathToFileURL(joinPath(root, "app", "api", "server-manager", "events", "route.ts")).href) {
+      return nextResolve(pathToFileURL(joinPath(root, "app", "api", "server-manager", "auth.ts")).href, context);
+    }
     if (specifier === "@/lib/prisma") return nextResolve(pathToFileURL(`${root}/lib/prisma.ts`).href, context);
     if (specifier === "@/lib/demo-wallet") return nextResolve(pathToFileURL(`${root}/lib/demo-wallet.ts`).href, context);
     if (specifier === "@/lib/current-user") {
@@ -35,6 +40,10 @@ const matchmakingApi = await import("../app/api/matchmaking/route.ts");
 const disputesApi = await import("../app/api/disputes/route.ts");
 const adminApi = await import("../app/api/admin/route.ts");
 const lifecycle = await import("../lib/match-lifecycle.ts");
+const serverEventsApi = await import("../app/api/server-manager/events/route.ts");
+const adminServerEventsApi = await import("../app/api/admin/server-events/route.ts");
+const adminServerIncidentsApi = await import("../app/api/admin/server-incidents/route.ts");
+const { createTechnicalEventOutbox } = await import("../scripts/server-manager/technical-event-outbox.mjs");
 const prefix = `it_${randomUUID().replaceAll("-", "")}`;
 let checks = 0;
 let fixtureSequence = 0;
@@ -1233,4 +1242,96 @@ async function runDemoWalletPostgresIntegration() {
   console.log(`Completed ${checks} genuine PostgreSQL integration scenarios.`);
 }
 
-export { runDemoWalletPostgresIntegration };
+async function runServerTechnicalEventsPostgresIntegration() {
+  const priorSecret = process.env.DUELPLAY_SERVER_MANAGER_SECRET;
+  const priorAdminSession = globalThis.__DUELPLAY_TEST_ADMIN_SESSION__;
+  const secret = `it-secret-${randomUUID()}`;
+  const serverName = `it-cs2-${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+  const tempRoot = mkdtempSync(joinPath(os.tmpdir(), "duelplay-events-it-"));
+  let supportUserId;
+  let adminUserId;
+  process.env.DUELPLAY_SERVER_MANAGER_SECRET = secret;
+  try {
+    await prisma.gameServer.create({ data: { name: serverName, host: "127.0.0.1", port: 39000 + Math.floor(Math.random() * 2000) } });
+    let capturedEvent;
+    const outbox = createTechnicalEventOutbox({
+      apiUrl: "http://duelplay.test",
+      secret,
+      serverId: serverName,
+      filePath: joinPath(tempRoot, "events.json"),
+      fetchImpl: async (_url, init) => {
+        capturedEvent = JSON.parse(init.body);
+        const request = new (await import("next/server")).NextRequest("http://duelplay.test/api/server-manager/events", {
+          method: "POST",
+          headers: { ...init.headers, "x-forwarded-for": "203.0.113.10" },
+          body: init.body,
+        });
+        return serverEventsApi.POST(request);
+      },
+    });
+
+    await check("outbox event traverses authenticated API and persists sanitized event plus incident", async () => {
+      assert.equal(await outbox.emit({ source: "server-manager", category: "startup", severity: "ERROR", message: "component failed", details: { token: "do-not-store", context: "safe" } }), true);
+      assert.ok(capturedEvent?.eventId);
+      const stored = await prisma.serverTechnicalEvent.findUnique({ where: { eventId: capturedEvent.eventId } });
+      assert.ok(stored);
+      assert.equal(stored.serverName, serverName);
+      assert.deepEqual(stored.details, { context: "safe" });
+      assert.ok(stored.incidentId);
+      const incident = await prisma.serverIncident.findUnique({ where: { id: stored.incidentId } });
+      assert.equal(incident.occurrences, 1);
+    });
+
+    await check("incident deduplication increments occurrence count for another event", async () => {
+      await outbox.emit({ source: "server-manager", category: "startup", severity: "ERROR", message: "component failed again" });
+      const incident = await prisma.serverIncident.findUnique({ where: { dedupeKey: createHash("sha256").update(`${serverName}\0server-manager\0startup`).digest("hex") } });
+      assert.equal(incident.occurrences, 2);
+      assert.equal(await prisma.serverTechnicalEvent.count({ where: { serverName } }), 2);
+    });
+
+    await check("ingest rejects missing authentication and unregistered server", async () => {
+      const { NextRequest } = await import("next/server");
+      const payload = { ...capturedEvent, eventId: randomUUID() };
+      const unauthorized = await serverEventsApi.POST(new NextRequest("http://duelplay.test/api/server-manager/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }));
+      assert.equal(unauthorized.status, 401);
+      const unknown = await serverEventsApi.POST(new NextRequest("http://duelplay.test/api/server-manager/events", { method: "POST", headers: { "content-type": "application/json", "x-duelplay-server-secret": secret, "x-forwarded-for": "203.0.113.11" }, body: JSON.stringify({ ...payload, eventId: randomUUID(), serverId: `${serverName}-missing` }) }));
+      assert.equal(unknown.status, 404);
+    });
+
+    await check("admin event and incident APIs enforce RBAC and expose persisted data", async () => {
+      supportUserId = await createUser();
+      await prisma.user.update({ where: { id: supportUserId }, data: { role: "SUPPORT", twoFactorEnabled: true } });
+      globalThis.__DUELPLAY_TEST_ADMIN_SESSION__ = { user: { id: supportUserId, twoFactorEnabled: true }, adminMfaVerifiedAt: new Date() };
+      const { NextRequest } = await import("next/server");
+      const denied = await adminServerEventsApi.GET(new NextRequest(`http://duelplay.test/api/admin/server-events?server=${serverName}`));
+      assert.equal(denied.status, 403);
+
+      adminUserId = await createUser();
+      await prisma.user.update({ where: { id: adminUserId }, data: { role: "SUPERADMIN", twoFactorEnabled: true } });
+      globalThis.__DUELPLAY_TEST_ADMIN_SESSION__ = { user: { id: adminUserId, twoFactorEnabled: true }, adminMfaVerifiedAt: new Date() };
+      const events = await adminServerEventsApi.GET(new NextRequest(`http://duelplay.test/api/admin/server-events?server=${serverName}`));
+      assert.equal(events.status, 200);
+      const eventBody = await events.json();
+      assert.equal(eventBody.items.length, 2);
+      const incidents = await adminServerIncidentsApi.GET(new NextRequest(`http://duelplay.test/api/admin/server-incidents?server=${serverName}`));
+      assert.equal(incidents.status, 200);
+      const incidentBody = await incidents.json();
+      assert.equal(incidentBody.items.length, 1);
+      assert.equal(incidentBody.items[0].occurrences, 2);
+    });
+  } finally {
+    globalThis.__DUELPLAY_TEST_ADMIN_SESSION__ = priorAdminSession;
+    if (priorSecret === undefined) delete process.env.DUELPLAY_SERVER_MANAGER_SECRET;
+    else process.env.DUELPLAY_SERVER_MANAGER_SECRET = priorSecret;
+    await prisma.serverTechnicalEvent.deleteMany({ where: { serverName } }).catch(() => {});
+    await prisma.serverIncident.deleteMany({ where: { serverName } }).catch(() => {});
+    await prisma.gameServer.deleteMany({ where: { name: serverName } }).catch(() => {});
+    if (supportUserId) await prisma.user.deleteMany({ where: { id: supportUserId } }).catch(() => {});
+    if (adminUserId) await prisma.user.deleteMany({ where: { id: adminUserId } }).catch(() => {});
+    rmSync(tempRoot, { recursive: true, force: true });
+    await prisma.$disconnect();
+  }
+  console.log(`Completed ${checks} PostgreSQL integration scenarios, including server technical events.`);
+}
+
+export { runDemoWalletPostgresIntegration, runServerTechnicalEventsPostgresIntegration };

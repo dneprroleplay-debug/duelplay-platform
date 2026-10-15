@@ -11,6 +11,7 @@
     "prisma:push": "prisma db push",
     "prisma:seed": "prisma db seed",
     "server-manager": "node scripts/server-manager/server-manager.mjs",
+    "server:cli": "node scripts/server-manager/duelplay-server.mjs",
     "admin:reset-test": "node scripts/reset-test-users.mjs",
     "test:setup": "node scripts/setup-test-accounts.mjs",
     "match-watchdog": "node scripts/match-watchdog.mjs",
@@ -25,7 +26,8 @@
     "backup:postgres:r2": "bash scripts/backup-postgres-to-r2.sh",
     "restore:test:postgres:r2": "bash scripts/restore-test-postgres-from-r2.sh",
     "prod:validate-env": "node scripts/validate-production-env.mjs",
-    "qa:api-security": "node scripts/test-api-security.mjs"
+    "qa:api-security": "node scripts/test-api-security.mjs",
+    "test:server-events:integration": "node scripts/test-server-technical-events-postgres.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

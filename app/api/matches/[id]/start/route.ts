@@ -47,13 +47,6 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
         ? match.serverConfig as Record<string, unknown>
         : {};
       const localTestMode = process.env.NODE_ENV !== "production" && bothTestAccounts && process.env.DUELPLAY_LOCAL_TEST_MODE !== "false";
-      if (!localTestMode) {
-        const readyServer = await tx.gameServer.findFirst({
-          where: { status: "READY", matchId: null, lastHeartbeat: { gte: new Date(Date.now() - 30_000) } },
-          select: { id: true },
-        });
-        if (!readyServer) throw new Error("CS2_SERVERS_UNAVAILABLE");
-      }
       if (localTestMode) {
         const startedAt = new Date();
         if (match.economyMode === "DEMO") await policy.confirmDemoMatchLive(id, startedAt);
@@ -101,7 +94,6 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (code === "CS2_MAINTENANCE") return NextResponse.json({ error: "Идёт обновление серверов CS2. Пожалуйста, подождите", errorCode: code }, { status: 503 });
-    if (code === "CS2_SERVERS_UNAVAILABLE") return NextResponse.json({ error: "CS2-серверы сейчас не готовы. Попробуйте позже.", errorCode: code }, { status: 503 });
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Матч не найден" }, { status: 404 });
     if (code === "FORBIDDEN") return NextResponse.json({ error: "Вы не участник матча" }, { status: 403 });
     if (code === "NOT_READY") return NextResponse.json({ error: "Матч не готов к старту" }, { status: 409 });
