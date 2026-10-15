@@ -20,6 +20,7 @@ const EXPECTED_MIGRATIONS = Object.freeze({
   "20261012153000_add_demo_policy_quota": "550300a9f10989f82c56419e8476767583899465ce424c9ced83a081707338f9",
   "20261013090000_add_demo_dispute_enum_values": "93af2935159e45bd9acbfc4e6f01d6ddac2ef166154f703394331f2e04070c1e",
   "20261013100000_demo_dispute_accounting_lifecycle": "3af8ce5cf6bea4f120933c84f777d1a6baa497077f73535a26bc43c617d408bd",
+  "20261015110000_server_technical_events": "0f36c235aa960dc7501cfe744c5af6bb195cd9ae09b042697d11c2f9122b01b8",
 });
 const EXPECTED_MIGRATION_LOCK_SHA256 = "99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900";
 
@@ -41,8 +42,8 @@ function fail(message) {
 }
 
 function assertOptIn() {
-  if (process.env[OPT_IN] !== "1") {
-    fail(`Refusing to run. Set $env:${OPT_IN}='1' explicitly for this invocation.`);
+  if (process.env[OPT_IN] !== "1" && process.env.DUELPLAY_SERVER_EVENTS_INTEGRATION !== "1") {
+    fail(`Refusing to run. Set $env:${OPT_IN}='1' or $env:DUELPLAY_SERVER_EVENTS_INTEGRATION='1' explicitly for this invocation.`);
   }
 }
 
@@ -341,8 +342,9 @@ async function main() {
   verifyContainerIsolation(inspectContainerById(containerId));
   runPrisma(["migrate", "deploy", "--schema", "prisma/schema.prisma"], temporaryDatabaseUrl);
 
-  const { runDemoWalletPostgresIntegration } = await import("./test-demo-wallet-postgres.integration.mjs");
-  await runDemoWalletPostgresIntegration();
+  const integration = await import("./test-demo-wallet-postgres.integration.mjs");
+  if (process.env.DUELPLAY_SERVER_EVENTS_INTEGRATION === "1") await integration.runServerTechnicalEventsPostgresIntegration();
+  else await integration.runDemoWalletPostgresIntegration();
 }
 
 async function onSignal(code) {
@@ -357,7 +359,7 @@ process.once("SIGTERM", () => { void onSignal(143); });
 
 try {
   await main();
-  console.log("All DEMO wallet PostgreSQL integration scenarios completed.");
+  console.log(process.env.DUELPLAY_SERVER_EVENTS_INTEGRATION === "1" ? "All server technical-event PostgreSQL integration scenarios completed." : "All DEMO wallet PostgreSQL integration scenarios completed.");
 } catch (error) {
   console.error(`DEMO wallet integration setup/test failed: ${error?.message ?? "unknown error"}`);
   process.exitCode = 1;

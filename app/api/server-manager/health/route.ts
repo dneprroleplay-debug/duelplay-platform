@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isServerManagerRequest } from "../auth";
 
-const SERVER_NAMES = new Set(["cs2-1", "cs2-2", "cs2-3"]);
 const HEARTBEAT_MAX_AGE_MS = 30_000;
 
 export async function POST(request: NextRequest) {
@@ -17,8 +16,11 @@ export async function POST(request: NextRequest) {
   const host = String(data.host ?? "");
   const port = Number(data.port);
   const managerPort = Number(data.managerPort);
-  const ready = data.ready === true;
-  if (!SERVER_NAMES.has(name) || !host || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(managerPort) || managerPort < 1 || managerPort > 65535 || typeof data.ready !== "boolean") {
+  const ready = typeof data.managerReady === "boolean" ? data.managerReady : data.ready === true;
+  const gameProcessReady = data.gameProcessReady === true;
+  const gameProcessStatus = typeof data.gameProcessStatus === "string" && ["STOPPED", "STARTING", "READY", "ERROR", "STOPPING"].includes(data.gameProcessStatus) ? data.gameProcessStatus : gameProcessReady ? "READY" : "STOPPED";
+  const processId = Number.isInteger(data.gameProcessPid) && Number(data.gameProcessPid) > 0 ? Number(data.gameProcessPid) : null;
+  if (!/^cs2-[1-9]\d*$/.test(name) || !host || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(managerPort) || managerPort < 1 || managerPort > 65535 || typeof data.ready !== "boolean" || (data.managerReady !== undefined && typeof data.managerReady !== "boolean") || (data.gameProcessReady !== undefined && typeof data.gameProcessReady !== "boolean")) {
     return NextResponse.json({ error: "INVALID_SERVER_HEALTH" }, { status: 400 });
   }
 
@@ -27,6 +29,9 @@ export async function POST(request: NextRequest) {
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:game-server-claim'))`;
       const existing = await tx.gameServer.findUnique({ where: { name } });
+      if (!existing) throw new Error("SERVER_NOT_REGISTERED");
+      const existingMetadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {};
+      if (existing.port !== port || (existingMetadata.managerPort !== undefined && Number(existingMetadata.managerPort) !== managerPort)) throw new Error("SERVER_REGISTRY_MISMATCH");
       if (existing?.matchId) {
         await tx.gameServer.update({ where: { id: existing.id }, data: { lastHeartbeat: now } });
         return { ready: false, busy: true, serverId: existing.id };
@@ -39,16 +44,17 @@ export async function POST(request: NextRequest) {
         host,
         port,
         status: ready ? "READY" as const : "ERROR" as const,
+        processId: gameProcessReady ? processId : null,
         lastHeartbeat: now,
-        metadata: { ...metadata, managerPort, managerReady: ready, heartbeatAt: now.toISOString() },
+        metadata: { ...metadata, managerPort, managerReady: ready, gameProcessReady, gameProcessStatus, gameProcessPid: gameProcessReady ? processId : null, heartbeatAt: now.toISOString() },
       };
-      const server = existing
-        ? await tx.gameServer.update({ where: { id: existing.id }, data: values })
-        : await tx.gameServer.create({ data: { name, ...values } });
+      const server = await tx.gameServer.update({ where: { id: existing.id }, data: values });
       return { ready, busy: false, serverId: server.id };
     });
     return NextResponse.json({ ok: true, ...result, heartbeatMaxAgeMs: HEARTBEAT_MAX_AGE_MS });
   } catch (error) {
+    if (error instanceof Error && error.message === "SERVER_NOT_REGISTERED") return NextResponse.json({ error: "SERVER_NOT_REGISTERED" }, { status: 409 });
+    if (error instanceof Error && error.message === "SERVER_REGISTRY_MISMATCH") return NextResponse.json({ error: "SERVER_REGISTRY_MISMATCH" }, { status: 409 });
     console.error("[DuelPlay] server manager health registration failed", error);
     return NextResponse.json({ error: "HEALTH_REGISTRATION_FAILED" }, { status: 500 });
   }

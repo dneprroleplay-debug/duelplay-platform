@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "bundleVersion": "unverified-2026-10-15",
+  "approval": "UNVERIFIED",
+  "gameBuild": null,
+  "compatibility": "UNKNOWN",
+  "provenance": "No component source was approved; VPS hash output is incomplete in this workspace.",
+  "components": [
+    { "name": "Metamod CS2 loader", "path": "csgo/addons/metamod/bin/linuxsteamrt64/metamod.2.cs2.so", "version": null, "sha256": null, "artifact": null },
+    { "name": "CounterStrikeSharp loader VDF", "path": "csgo/addons/metamod/counterstrikesharp.vdf", "version": null, "sha256": null, "artifact": null },
+    { "name": "CounterStrikeSharp runtime", "path": "csgo/addons/counterstrikesharp/bin/linuxsteamrt64/counterstrikesharp.so", "version": null, "sha256": null, "artifact": null },
+    { "name": "DuelPlay Player Name", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll", "version": null, "sha256": null, "artifact": null },
+    { "name": "DuelPlay Player Avatar", "path": "csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so", "version": null, "sha256": null, "artifact": null },
+    { "name": "DuelPlay Player Avatar loader", "path": "csgo/addons/metamod/duelplayplayeravatar.vdf", "version": null, "sha256": null, "artifact": null },
+    { "name": "DuelPlay Grenade Only root-level duplicate", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly.dll", "version": null, "sha256": null, "artifact": null },
+    { "name": "DuelPlay Grenade Only plugin", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll", "version": null, "sha256": null, "artifact": null }
+  ],
+  "instanceSpecificPaths": [
+    "csgo/gameinfo.gi",
+    "csgo/cfg/**",
+    "csgo/addons/counterstrikesharp/configs/**",
+    "instance environment and launch configuration"
+  ],
+  "knownLimitations": [
+    "All hashes and versions are unknown; this manifest is not a repair source.",
+    "The two Grenade Only DLL paths are checked independently; loaded path is not established by hash parity.",
+    "Metamod, CounterStrikeSharp and plugin compatibility has not been verified on production after launch."
+  ]
+}

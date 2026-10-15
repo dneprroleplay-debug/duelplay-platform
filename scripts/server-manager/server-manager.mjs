@@ -3,6 +3,8 @@ import { createConnection } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createTechnicalEventOutbox } from './technical-event-outbox.mjs';
+import { managerHealthSnapshot } from './manager-health.mjs';
 import sharp from 'sharp';
 import {
   buildDuelModeCommands,
@@ -30,6 +32,7 @@ const CS2_APP_ID = Number(process.env.CS2_APP_ID || 730);
 const HOST = process.env.CS2_PUBLIC_HOST || '127.0.0.1';
 const PORT = Number(process.env.CS2_PORT || 27015);
 const SERVER_ID = process.env.DUELPLAY_SERVER_ID || 'cs2-1';
+if (!/^cs2-[1-9]\d*$/.test(SERVER_ID)) throw new Error('DUELPLAY_SERVER_ID must use the cs2-N format');
 const MANAGER_PORT = Number(process.env.DUELPLAY_MANAGER_PORT || 3010);
 const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
@@ -38,6 +41,17 @@ const MANAGER_HEARTBEAT_MS = 10000;
 const CONNECT_TIMEOUT_MS = Number(process.env.DUELPLAY_CONNECTION_TIMEOUT_MS || 5 * 60 * 1000);
 const SERVER_START_TIMEOUT_MS = Number(process.env.DUELPLAY_SERVER_START_TIMEOUT_MS || 2 * 60 * 1000);
 const PORT_PROBE_TIMEOUT_MS = Number(process.env.DUELPLAY_PORT_PROBE_TIMEOUT_MS || 1500);
+const technicalEventOutbox = createTechnicalEventOutbox({
+  apiUrl: API,
+  secret: SECRET,
+  serverId: SERVER_ID,
+  filePath: process.env.DUELPLAY_EVENT_OUTBOX_FILE || join('/home/ubuntu/cs2/instances', SERVER_ID, 'state', 'technical-events.json'),
+  onDrop: notice => console.error('[DuelPlay] technical event delivery exhausted retries', JSON.stringify(notice)),
+});
+
+function reportTechnicalEvent(event) {
+  void technicalEventOutbox.emit(event).catch(() => {});
+}
 
 for (const [name, value] of Object.entries({ MANAGER_PORT, PORT, READY_DELAY_MS, CONNECT_TIMEOUT_MS, SERVER_START_TIMEOUT_MS, HEARTBEAT_MS, POLL_MS, PORT_PROBE_TIMEOUT_MS })) {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
@@ -54,7 +68,6 @@ let connectionPhaseCompleted = false;
 let duelRulesAppliedAfterConnect = false;
 let lastHeartbeatSentAt = 0;
 let lastManagerHeartbeatAt = 0;
-let localServerHealthy = true;
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
@@ -702,6 +715,7 @@ async function claimAndStart(match) {
     ...(weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY' ? ['+exec', 'duelplay_headshot'] : []),
     ...(mode === 'FIRST_TO_10' ? ['+exec', 'duelplay_first_to_10'] : [])
   ];
+  reportTechnicalEvent({ source: 'server-manager', category: 'match.server-assigned', severity: 'INFO', message: 'Manager claimed a match server.', matchId: match.id, correlationId: match.id, details: { serverId: SERVER_ID, port: runtimePort } });
   const portAvailable = await isPortAvailable(runtimePort);
   if (!portAvailable) {
     await api(`/api/matches/${match.id}/server`, {
@@ -713,7 +727,7 @@ async function claimAndStart(match) {
 
   console.log(`[DuelPlay] starting ${match.id} on ${runtimeHost}:${runtimePort}${workshopId ? ` workshop=${workshopId}` : ''}`);
   const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: process.env });
-  localServerHealthy = false;
+  reportTechnicalEvent({ source: 'cs2', category: 'process.starting', severity: 'INFO', message: 'CS2 process start requested.', matchId: match.id, correlationId: match.id, details: { pid: child.pid ?? null, port: runtimePort } });
   current = {
     id: match.id,
     serverId: claimed.serverId,
@@ -768,9 +782,9 @@ async function claimAndStart(match) {
   });
   child.stderr.on('data', (chunk) => process.stderr.write(`[CS2:ERR] ${chunk}`));
   child.on('error', async (error) => {
-    localServerHealthy = false;
     console.error('[DuelPlay] CS2 process error', error);
     const failed = current;
+    reportTechnicalEvent({ source: 'cs2', category: 'process.start-failed', severity: 'CRITICAL', message: 'CS2 process failed to start.', matchId: failed?.id ?? match.id, correlationId: failed?.id ?? match.id, details: { errorCode: error.code ?? null, syscall: error.syscall ?? null } });
     if (!failed) return;
     try {
       await api(`/api/matches/${failed.id}/server`, { method: 'POST', body: JSON.stringify({ action: 'failed', serverId: failed.serverId }) });
@@ -781,10 +795,10 @@ async function claimAndStart(match) {
   child.on('exit', async (code, signal) => {
     clearCurrentTimers();
     const finished = current;
-    localServerHealthy = serverReadyAt > 0;
     current = null;
     if (!finished) return;
     console.log(`[DuelPlay] CS2 exited code=${code} signal=${signal}`);
+    reportTechnicalEvent({ source: 'cs2', category: signal ? 'process.crashed' : 'process.stopped', severity: signal || (code !== 0 && code !== null) ? 'CRITICAL' : 'INFO', message: signal ? `CS2 exited after signal ${signal}.` : `CS2 process exited with code ${code}.`, matchId: finished.id, correlationId: finished.id, result: signal ? `signal:${signal}` : `exit:${code}`, details: { pid: finished.process.pid, exitCode: code, signal, wasReady: serverReadyAt > 0 } });
     try {
       await api(`/api/matches/${finished.id}/server`, {
         method: 'POST',
@@ -825,7 +839,7 @@ async function claimAndStart(match) {
         body: JSON.stringify({ action: 'ready', serverId: current.serverId, host: runtimeHost, port: runtimePort, processId: current.process.pid })
       });
       serverReadyAt = Date.now();
-      localServerHealthy = true;
+      reportTechnicalEvent({ source: 'cs2', category: 'process.ready', severity: 'INFO', message: 'CS2 opened its game port and was marked ready by the match flow.', matchId: match.id, correlationId: match.id, details: { pid: current.process.pid, port: runtimePort, map: match.mapName ?? null } });
       connectedSteamIds = [];
       connectionPhaseCompleted = false;
       lastHeartbeatSentAt = 0;
@@ -906,7 +920,6 @@ async function claimAndStart(match) {
 
   startupDeadlineTimer = setTimeout(async () => {
     if (!current || current.id !== match.id || serverReadyAt || shuttingDown) return;
-    localServerHealthy = false;
     console.log(`[DuelPlay] server startup timeout for ${match.id}, cancelling match`);
     try {
       await api(`/api/matches/${match.id}/server`, {
@@ -924,7 +937,7 @@ async function reportManagerHealth() {
   if (current || Date.now() - lastManagerHeartbeatAt < MANAGER_HEARTBEAT_MS) return;
   await api('/api/server-manager/health', {
     method: 'POST',
-    body: JSON.stringify({ serverName: SERVER_ID, host: HOST, port: PORT, managerPort: MANAGER_PORT, ready: localServerHealthy })
+    body: JSON.stringify({ serverName: SERVER_ID, host: HOST, port: PORT, managerPort: MANAGER_PORT, ready: true, managerReady: true, gameProcessReady: false, gameProcessStatus: 'STOPPED', gameProcessPid: null })
   });
   lastManagerHeartbeatAt = Date.now();
 }
@@ -1167,7 +1180,7 @@ function detectWinner(body) {
 createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, matchId: current?.id || null, gsiAgeMs: lastGsiAt ? Date.now() - lastGsiAt : null }));
+    res.end(JSON.stringify(managerHealthSnapshot({ serverId: SERVER_ID, gamePort: PORT, managerPort: MANAGER_PORT, current, readyAt: serverReadyAt, lastGsiAt })));
     return;
   }
   if (req.method === 'POST' && req.url === '/gsi') {
@@ -1187,7 +1200,13 @@ createServer((req, res) => {
     return;
   }
   res.writeHead(404); res.end('Not found');
-}).listen(MANAGER_PORT, '127.0.0.1', () => console.log(`[DuelPlay] manager listening on 127.0.0.1:${MANAGER_PORT}`));
+}).listen(MANAGER_PORT, '127.0.0.1', () => {
+  console.log(`[DuelPlay] manager listening on 127.0.0.1:${MANAGER_PORT}`);
+  reportTechnicalEvent({ source: 'server-manager', category: 'manager.started', severity: 'INFO', message: 'Server manager started and is accepting local requests.', details: { managerPort: MANAGER_PORT } });
+  void technicalEventOutbox.flush();
+  const retryTimer = setInterval(() => { void technicalEventOutbox.flush(); }, 30_000);
+  retryTimer.unref();
+});
 
 async function loop() {
   try {

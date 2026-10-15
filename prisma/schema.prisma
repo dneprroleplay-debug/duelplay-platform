@@ -400,6 +400,7 @@ model User {
   devices              UserDevice[]
   auditLogs            AuditLog[]
   securityEvents       SecurityEvent[]
+  acknowledgedServerIncidents ServerIncident[] @relation("ServerIncidentAcknowledgedBy")
   fraudCases           FraudCase[]
   supportTickets       SupportTicket[]   @relation("UserTickets")
   assignedTickets      SupportTicket[]   @relation("AgentTickets")
@@ -1173,9 +1174,64 @@ model GameServer {
   updatedAt      DateTime          @updatedAt
 
   match          Match?            @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  technicalEvents ServerTechnicalEvent[]
+  incidents       ServerIncident[]
 
   @@index([status])
   @@index([matchId])
+}
+
+model ServerTechnicalEvent {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId       String          @unique @db.VarChar(128)
+  serverName    String          @db.VarChar(64)
+  source        String          @db.VarChar(64)
+  category      String          @db.VarChar(64)
+  severity      String          @db.VarChar(16)
+  message       String          @db.VarChar(500)
+  details       Json?
+  correlationId String?         @db.VarChar(128)
+  matchId       String?         @db.Uuid
+  result        String?         @db.VarChar(64)
+  occurredAt    DateTime
+  receivedAt    DateTime        @default(now())
+  incidentId    String?         @db.Uuid
+
+  server        GameServer      @relation(fields: [serverName], references: [name], onDelete: Restrict)
+  incident      ServerIncident? @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@index([serverName, occurredAt])
+  @@index([severity, occurredAt])
+  @@index([category, occurredAt])
+  @@index([incidentId, occurredAt])
+}
+
+model ServerIncident {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dedupeKey       String                @unique @db.VarChar(160)
+  serverName      String                @db.VarChar(64)
+  category        String                @db.VarChar(64)
+  severity        String                @db.VarChar(16)
+  title           String                @db.VarChar(200)
+  message         String                @db.VarChar(500)
+  status          String                @default("OPEN") @db.VarChar(24)
+  occurrences     Int                   @default(1)
+  firstSeenAt     DateTime              @default(now())
+  lastSeenAt      DateTime              @default(now())
+  acknowledgedAt  DateTime?
+  acknowledgedById String?               @db.Uuid
+  resolution      Json?
+  resolvedAt      DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  server          GameServer            @relation(fields: [serverName], references: [name], onDelete: Restrict)
+  acknowledgedBy  User?                 @relation("ServerIncidentAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  events          ServerTechnicalEvent[]
+
+  @@index([status, lastSeenAt])
+  @@index([serverName, status])
+  @@index([severity, status])
 }
 
 
