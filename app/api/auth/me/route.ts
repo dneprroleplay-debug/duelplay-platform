@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
   if (!token) return NextResponse.json({ user: null });
   const session = await prisma.userSession.findFirst({ where: { token: hashToken(token), isRevoked: false, expiresAt: { gt: new Date() } }, include: { user: { include: { wallet: true, adminRoleAssignment: true } } } });
   if (!session) return NextResponse.json({ user: null });
+  // Touch the session so the shared presence source reflects real activity.
+  await prisma.userSession.updateMany({ where: { id: session.id }, data: { lastActiveAt: new Date() } }).catch(() => {});
   const ownerSteam = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
   const founder = Boolean((ownerSteam && session.user.steamId === ownerSteam) || session.user.nickname === "DuelPlayOwner");
   const effectiveRole = founder ? "FOUNDER" : (session.user.adminRoleAssignment?.roleCode || session.user.role);

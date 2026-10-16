@@ -74,8 +74,9 @@ for (const locale of ["RU", "UA", "EN", "PL"]) {
 assert.equal([...matchPage.matchAll(/cancelled=\{m\.status==="CANCELLED"\}/g)].length, 2, "both player cards receive cancellation state from the persisted match status");
 assert.match(matchPage, /cancelled\?u\.cancelled:ready\?"READY":u\.waitingStatus/, "cancellation status overrides ready and waiting labels, including an empty second-player card");
 assert.match(matchPage, /player\?\.nickname\|\|\(cancelled\?u\.player2:u\.waitingPlayer\)/, "an empty cancelled second-player card no longer says it is waiting for a player");
-assert.match(matchPage, /cancelled\?null:u\.readyConnect/, "an empty cancelled card does not advertise readiness to connect");
-assert.match(matchPage, /ready=\{m\.status!=="WAITING_FOR_PLAYERS"\}/, "the first player's pre-existing WAITING/READY behavior is preserved");
+assert.match(matchPage, /cancelled\?null:<>\{u\.bet\} <span data-no-i18n>\{betLabel\}<\/span><\/>\}/, "an empty second-player card shows the stake instead of advertising readiness to connect");
+assert.doesNotMatch(matchPage, /u\.readyConnect/, "the empty second-player card no longer advertises readiness to connect");
+assert.match(matchPage, /ready=\{m\.status!=="CANCELLED"\}/, "the first player (duel creator) shows READY while waiting for the second player");
 assert.match(matchPage, /ready=\{hasPlayerTwo\}/, "the second player's pre-existing waiting/ready behavior is preserved outside cancellation");
 assert.match(matchPage, /bg-red-400\/10 text-red-300/, "cancelled player-card status is visually distinct from ready and waiting");
 
@@ -130,7 +131,7 @@ const notificationPage = source("app/notifications/page.tsx");
 assert.match(notificationPage, /n\.payload\?\.economyMode==="DEMO"/);
 assert.match(notificationPage, /getDemoNotificationTitle\(language,n\.type,n\.payload\|\|\{\}\)/);
 assert.match(notificationPage, /getDemoNotificationBody\(language,n\.type,n\.payload\|\|\{\}\)/);
-assert.match(notificationPage, /data-no-i18n=\{isDemo \? true : undefined\}/, "only DEMO notices should be excluded from global translation on the notifications page");
+assert.match(notificationPage, /data-no-i18n=\{\(isDemo\|\|kind==="FRIEND_REQUEST"\|\|kind==="FRIEND_ACCEPTED"\) \? true : undefined\}/, "DEMO and friend notices (which carry player nicknames) are excluded from global translation on the notifications page");
 assert.doesNotMatch(notificationPage, /<h2 data-no-i18n className/);
 assert.doesNotMatch(notificationPage, /<p data-no-i18n className/);
 assert.match(header, /data-no-i18n=\{isDemo \? true : undefined\}/, "only DEMO notices should be excluded from global translation in the bell");

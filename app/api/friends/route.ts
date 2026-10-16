@@ -49,11 +49,19 @@ export async function POST(r: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const userId = String(body.userId || "");
+  let userId = String(body.userId || "").trim();
   const action = String(body.action || "add") as FriendAction;
   const actions: FriendAction[] = ["add", "accept", "decline", "remove", "block", "unblock"];
   if (!actions.includes(action)) return NextResponse.json({ error: "Unknown action" }, { status: 400 });
-  if (!userId || userId === me.id) return NextResponse.json({ error: "Invalid user" }, { status: 400 });
+  if (!userId) return NextResponse.json({ error: "Invalid user" }, { status: 400 });
+  // Players may be identified by nickname (the Social Center input) or by UUID (profile buttons).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(userId)) {
+    const byNickname = await prisma.user.findUnique({ where: { nickname: userId }, select: { id: true } });
+    if (!byNickname) return NextResponse.json({ error: "User unavailable" }, { status: 404 });
+    userId = byNickname.id;
+  }
+  if (userId === me.id) return NextResponse.json({ error: "Invalid user" }, { status: 400 });
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -99,7 +107,7 @@ export async function POST(r: NextRequest) {
             status: "UNREAD",
             title: "Friend request",
             body: `${me.nickname} sent you a friend request.`,
-            payload: { kind: "FRIEND_REQUEST", friendId: row.id },
+            payload: { kind: "FRIEND_REQUEST", friendId: row.id, senderId: me.id, senderNickname: me.nickname },
           },
         });
         return { kind: "created", row };
@@ -115,7 +123,7 @@ export async function POST(r: NextRequest) {
             status: "UNREAD",
             title: "Friend request accepted",
             body: `${me.nickname} accepted your friend request.`,
-            payload: { kind: "FRIEND_ACCEPTED", friendId: incoming.id },
+            payload: { kind: "FRIEND_ACCEPTED", friendId: incoming.id, accepterId: me.id, accepterNickname: me.nickname },
           },
         });
         return { kind: "updated", row: updated };

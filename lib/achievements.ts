@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { levelFromXp } from './level.ts';
+import { achievementKind, resolveAchievement, type PersistedAchievementStats } from './achievement-conditions.ts';
 
 export type AchievementContext = {
   matchId?: string;
@@ -7,52 +8,88 @@ export type AchievementContext = {
   weapon?: string | null;
 };
 
-function condition(achievement: { conditions: Prisma.JsonValue }, fallbackName: string) {
-  const raw = achievement.conditions;
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
-  return { name: fallbackName };
+// Reads persisted achievement progress for a user. Kept in sync with the
+// read-only display path (app/api/achievements/route.ts) via resolveAchievement.
+async function loadPersistedStats(tx: Prisma.TransactionClient, userId: string) {
+  const [stats, kills, user] = await Promise.all([
+    tx.playerStats.findUnique({ where: { userId }, select: { wins: true, totalDuels: true, winStreak: true } }),
+    tx.matchPlayerStat.aggregate({ where: { userId }, _sum: { kills: true } }),
+    tx.user.findUnique({ where: { id: userId }, select: { id: true, xp: true, level: true } }),
+  ]);
+  return { stats, kills, user };
 }
 
+export async function hasKnifeWin(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
+  const row = await tx.match.findFirst({
+    where: { winnerId: userId, economyMode: 'REAL', status: 'FINISHED', weaponModifier: 'KNIFE_ONLY' },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+/**
+ * Idempotent achievement evaluation. The unlock condition is derived from the
+ * same persisted data the UI displays, so historical progress is reconciled and
+ * the progress bar can never show a completed goal that stays locked.
+ *
+ * The `context` argument is accepted for backward compatibility with the real
+ * match settlement paths, but unlocking no longer depends on transient event
+ * context (a knife win is detected from the persisted Match row).
+ *
+ * Rewards (XP + notification) are granted only when the `UserAchievement` row is
+ * actually inserted. The atomic `createMany({ skipDuplicates: true })` insert
+ * relies on `@@unique([userId, achievementId])`, which makes concurrent
+ * evaluations safe: the loser of the race inserts 0 rows and awards nothing.
+ */
 export async function evaluateAndUnlockAchievements(
   tx: Prisma.TransactionClient,
   userId: string,
-  context: AchievementContext = {},
+  _context: AchievementContext = {},
 ) {
-  const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, xp: true, level: true } });
+  const { stats, kills, user } = await loadPersistedStats(tx, userId);
   if (!user) return [];
 
-  const stats = await tx.playerStats.findUnique({ where: { userId }, select: { wins: true, totalDuels: true, winStreak: true } });
-  const kills = await tx.matchPlayerStat.aggregate({ where: { userId }, _sum: { kills: true } });
   const achievements = await tx.achievement.findMany({ orderBy: { createdAt: 'asc' } });
   const unlocked = await tx.userAchievement.findMany({ where: { userId }, select: { achievementId: true } });
   const unlockedIds = new Set(unlocked.map(x => x.achievementId));
+
+  const pending = achievements.filter(a => !unlockedIds.has(a.id));
+  const needsKnife = pending.some(a => achievementKind(a) === 'KNIFE_WIN');
+  const knifeWin = needsKnife ? await hasKnifeWin(tx, userId) : false;
+
+  const persisted: PersistedAchievementStats = {
+    wins: Number(stats?.wins ?? 0),
+    totalDuels: Number(stats?.totalDuels ?? 0),
+    winStreak: Number(stats?.winStreak ?? 0),
+    kills: Number(kills._sum.kills ?? 0),
+    level: Number(user.level),
+    hasKnifeWin: knifeWin,
+  };
+
   const results: Array<{ id: string; name: string; xpReward: number }> = [];
+  let currentXp = user.xp;
+  let currentLevel = user.level;
 
   for (const achievement of achievements) {
     if (unlockedIds.has(achievement.id)) continue;
-    const c = condition(achievement, achievement.name);
-    const kind = String(c.kind ?? c.name ?? achievement.name);
-    const target = Number(c.target ?? 1);
-    let complete = false;
+    // LEVEL is re-evaluated against the in-pass level so a reward that raises the
+    // level can unlock the level achievement in the same pass. This is a single
+    // pass over the catalog, so dependent rewards can never recurse.
+    const resolved = resolveAchievement(achievement, { ...persisted, level: currentLevel });
+    if (!resolved.complete) continue;
 
-    switch (kind) {
-      case 'FIRST_WIN': complete = Boolean(context.won) && Number(stats?.wins ?? 0) >= 1; break;
-      case 'WIN_STREAK': complete = Number(stats?.winStreak ?? 0) >= target; break;
-      case 'TOTAL_DUELS': complete = Number(stats?.totalDuels ?? 0) >= target; break;
-      case 'TOTAL_KILLS': complete = Number(kills._sum.kills ?? 0) >= target; break;
-      case 'KNIFE_WIN': complete = Boolean(context.won) && String(context.weapon ?? '').toUpperCase().includes('KNIFE'); break;
-      case 'LEVEL': complete = Number(user.level) >= target; break;
-      default: break;
-    }
+    const inserted = await tx.userAchievement.createMany({
+      data: [{ userId, achievementId: achievement.id }],
+      skipDuplicates: true,
+    });
+    if (Number(inserted?.count ?? 0) !== 1) continue;
 
-    if (!complete) continue;
-    await tx.userAchievement.create({ data: { userId, achievementId: achievement.id } });
     const xpReward = Math.max(0, Number(achievement.xpReward) || 0);
     if (xpReward > 0) {
-      const nextXp = Math.max(0, Math.floor(user.xp + xpReward));
+      const nextXp = Math.max(0, Math.floor(currentXp + xpReward));
       const nextLevel = levelFromXp(nextXp);
-      user.xp = nextXp;
-      user.level = nextLevel;
+      currentXp = nextXp;
+      currentLevel = nextLevel;
       await tx.user.update({ where: { id: userId }, data: { xp: nextXp, level: nextLevel } });
     }
     await tx.notification.create({

@@ -28,12 +28,30 @@ export async function GET() {
 
   const accepted = relations.filter((x) => x.status === "ACCEPTED");
   const normalizedFriends = accepted.map((x) => ({ ...x, person: x.senderId === me.id ? x.receiver : x.sender }));
+  // Online presence reuses the platform's existing truthful source: a non-revoked,
+  // unexpired session active within the last 5 minutes (same window the admin uses).
+  const friendIds = normalizedFriends.map((x) => x.person.id);
+  const now = new Date();
+  const activeSince = new Date(now.getTime() - 5 * 60 * 1000);
+  const onlineSessions = friendIds.length
+    ? await prisma.userSession.findMany({
+        where: { userId: { in: friendIds }, isRevoked: false, expiresAt: { gt: now }, lastActiveAt: { gte: activeSince } },
+        select: { userId: true },
+        distinct: ["userId"],
+      })
+    : [];
+  const onlineSet = new Set(onlineSessions.map((s) => s.userId));
+  const friends = normalizedFriends.map((x) => ({
+    ...x,
+    online: onlineSet.has(x.person.id),
+    person: { ...x.person, online: onlineSet.has(x.person.id) },
+  }));
   const pendingIncoming = relations.filter((x) => x.receiverId === me.id && x.status === "PENDING");
   const pendingOutgoing = relations.filter((x) => x.senderId === me.id && x.status === "PENDING");
   const blocked = relations.filter((x) => x.status === "BLOCKED" && x.senderId === me.id);
 
   const unreadMessages = await prisma.socialMessage.count({ where: { receiverId: me.id, readAt: null } });
-  return NextResponse.json({ friends: normalizedFriends, rivals, pendingIncoming, pendingOutgoing, blocked, mutes, unreadMessages });
+  return NextResponse.json({ friends, rivals, pendingIncoming, pendingOutgoing, blocked, mutes, unreadMessages });
 }
 
 export async function POST(r: NextRequest) {
