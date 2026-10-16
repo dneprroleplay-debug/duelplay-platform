@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -77,7 +78,10 @@ export function AuthProvider({
     () => readStoredUser() === null
   );
 
-  const refresh = async () => {
+  // A stable identity is required: consumers list `refresh` in effect
+  // dependency arrays. If it changed on every auth update, those effects would
+  // re-run after each refresh and start an infinite request loop.
+  const refresh = useCallback(async () => {
     try {
       const r = await fetch("/api/auth/me", {
         cache: "no-store",
@@ -94,7 +98,7 @@ export function AuthProvider({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -152,9 +156,9 @@ export function AuthProvider({
         onWalletUpdated
       );
     };
-  }, []);
+  }, [refresh]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
@@ -169,7 +173,7 @@ export function AuthProvider({
 
       window.location.href = "/";
     }
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -178,7 +182,7 @@ export function AuthProvider({
       refresh,
       logout,
     }),
-    [user, loading]
+    [user, loading, refresh, logout]
   );
 
   return (
