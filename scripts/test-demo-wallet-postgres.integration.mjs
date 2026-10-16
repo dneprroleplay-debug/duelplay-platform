@@ -790,16 +790,39 @@ async function runDemoMatchApplicationIntegrationTests() {
     assert.equal(state.playerTwoId, two);
   });
 
-  await check("global disable blocks new starts, re-enable permits them, and post-join block does not strand formed match", async () => {
+  await check("global disable blocks new DEMO creates, joins and starts while a formed match stays startable after re-enable", async () => {
     const one = await createUser();
     const two = await createUser();
+    const three = await createUser();
+    const four = await createUser();
     await wallet.grantDemoStarterCredits(one);
     await wallet.grantDemoStarterCredits(two);
-    await setDemoSettings({ enabled: false, dailyMatchLimit: 3 });
-    const match = await createDemoMatchThroughApi(one, key("disabled_create"));
-    const joinResponse = await joinDemoMatchThroughApi(two, match.id, key("disabled_join"));
-    await assertApiStatus(joinResponse, 200, { scenario: "join formed match while global DEMO flag is off", endpoint: `/api/matches/${match.id}/join` });
+    await wallet.grantDemoStarterCredits(four);
 
+    // Form a match (and a second open match) while DEMO is enabled.
+    await setDemoSettings({ enabled: true, dailyMatchLimit: 3 });
+    const match = await createDemoMatchThroughApi(one, key("disabled_match"));
+    const openMatch = await createDemoMatchThroughApi(three, key("disabled_open"));
+    await assertApiStatus(await joinDemoMatchThroughApi(two, match.id, key("disabled_pair")), 200, { scenario: "join before disabling DEMO", endpoint: `/api/matches/${match.id}/join` });
+
+    await setDemoSettings({ enabled: false, dailyMatchLimit: 3 });
+
+    // New DEMO creation is rejected by the server and produces no match.
+    const beforeMatches = await count(prisma.$queryRaw`SELECT count(*)::int AS count FROM "Match"`);
+    setApiUser(two);
+    const blockedCreate = await postJson(matchesApi.POST, "http://duelplay.test/api/matches", { economyMode: "DEMO", betAmount: "3", mode: "SOLO_1V1", mapName: "aim_redline", idempotencyKey: key("disabled_create") }, { "idempotency-key": key("disabled_create") });
+    await assertApiStatus(blockedCreate, 409, { scenario: "DEMO create while global flag is off", endpoint: "/api/matches" });
+    assert.equal((await blockedCreate.json()).errorCode, "DEMO_DISABLED");
+    assert.equal(await count(prisma.$queryRaw`SELECT count(*)::int AS count FROM "Match"`), beforeMatches);
+
+    // Joining a formed DEMO match is rejected while disabled and cannot fill it.
+    const blockedJoin = await joinDemoMatchThroughApi(four, openMatch.id, key("disabled_join"));
+    await assertApiStatus(blockedJoin, 409, { scenario: "DEMO join while global flag is off", endpoint: `/api/matches/${openMatch.id}/join` });
+    assert.equal((await blockedJoin.json()).errorCode, "DEMO_DISABLED");
+    const [openState] = await prisma.$queryRaw`SELECT "playerTwoId" FROM "Match" WHERE "id" = ${openMatch.id}::uuid`;
+    assert.equal(openState.playerTwoId, null);
+
+    // Starting the already-formed match is rejected while disabled.
     setApiUser(one);
     const blockedStart = await postJson(startApi.POST, `http://duelplay.test/api/matches/${match.id}/start`, {}, {}, { id: match.id });
     await assertApiStatus(blockedStart, 409, { scenario: "block DEMO start while global flag is off", endpoint: `/api/matches/${match.id}/start` });
@@ -808,6 +831,7 @@ async function runDemoMatchApplicationIntegrationTests() {
     const [before] = await prisma.$queryRaw`SELECT "status"::text AS status, "economyMode"::text AS "economyMode" FROM "Match" WHERE "id" = ${match.id}::uuid`;
     assert.deepEqual(before, { status: "READY", economyMode: "DEMO" });
 
+    // Re-enabling permits the formed match to start; a later per-user block must not strand it.
     await setDemoSettings({ enabled: true, dailyMatchLimit: 3 });
     await setDemoUserBlocked(one, await createUser(), true, "Blocked after joining");
     setApiUser(one);

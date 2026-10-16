@@ -26,6 +26,46 @@ async function lockUsers(tx: Prisma.TransactionClient, firstId: string, secondId
   `;
 }
 
+/**
+ * Once a friend request has been answered it must stop surfacing as an active,
+ * actionable request. Archiving the originating notification here (inside the
+ * same transaction) marks it read and removes it from the bell and the
+ * notifications page, making accept/decline idempotent from any surface —
+ * Header, the notifications page or a duplicate retry — without a second
+ * round trip. Notifications the user merely read (without answering) stay put.
+ */
+async function settleFriendRequestNotifications(tx: Prisma.TransactionClient, userId: string, senderId: string) {
+  await tx.notification.updateMany({
+    where: {
+      userId,
+      status: { not: "ARCHIVED" },
+      AND: [
+        { payload: { path: ["kind"], equals: "FRIEND_REQUEST" } },
+        { payload: { path: ["senderId"], equals: senderId } },
+      ],
+    },
+    data: { status: "ARCHIVED", readAt: new Date() },
+  });
+
+  const legacyRelations = await tx.friend.findMany({
+    where: { OR: [{ senderId, receiverId: userId }, { senderId: userId, receiverId: senderId }] },
+    select: { id: true },
+  });
+  if (legacyRelations.length) {
+    await tx.notification.updateMany({
+      where: {
+        userId,
+        status: { not: "ARCHIVED" },
+        AND: [
+          { payload: { path: ["kind"], equals: "FRIEND_REQUEST" } },
+          { OR: legacyRelations.map((r) => ({ payload: { path: ["friendId"], equals: r.id } })) },
+        ],
+      },
+      data: { status: "ARCHIVED", readAt: new Date() },
+    });
+  }
+}
+
 export async function GET() {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -60,6 +100,18 @@ export async function POST(r: NextRequest) {
     const byNickname = await prisma.user.findUnique({ where: { nickname: userId }, select: { id: true } });
     if (!byNickname) return NextResponse.json({ error: "User unavailable" }, { status: 404 });
     userId = byNickname.id;
+  } else {
+    // If a UUID was provided, ensure it's a User ID; if it happens to be a Friend row ID, resolve to the other participant.
+    const userExists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!userExists) {
+      const friendRow = await prisma.friend.findFirst({
+        where: { id: userId, OR: [{ senderId: me.id }, { receiverId: me.id }] },
+        select: { senderId: true, receiverId: true },
+      });
+      if (friendRow) {
+        userId = friendRow.senderId === me.id ? friendRow.receiverId : friendRow.senderId;
+      }
+    }
   }
   if (userId === me.id) return NextResponse.json({ error: "Invalid user" }, { status: 400 });
 
@@ -114,8 +166,16 @@ export async function POST(r: NextRequest) {
       }
 
       if (action === "accept") {
+        // Idempotent: a repeated accept (double click, retry, or a stale client)
+        // must succeed instead of returning a misleading 404 when the two users
+        // are already friends.
+        if (existing?.status === "ACCEPTED") {
+          if (incoming) await settleFriendRequestNotifications(tx, me.id, incoming.senderId);
+          return { kind: "existing", row: existing };
+        }
         if (!incoming || incoming.status !== "PENDING") throw new Error("REQUEST_NOT_FOUND");
         const updated = await tx.friend.update({ where: { id: incoming.id }, data: { status: "ACCEPTED" }, select: FRIEND_SELECT });
+        await settleFriendRequestNotifications(tx, me.id, incoming.senderId);
         await tx.notification.create({
           data: {
             userId: incoming.senderId,
@@ -130,8 +190,15 @@ export async function POST(r: NextRequest) {
       }
 
       if (action === "decline") {
-        if (!incoming || incoming.status !== "PENDING") throw new Error("REQUEST_NOT_FOUND");
+        // Idempotent: declining a request that no longer exists (already answered
+        // on another tab, retried) is a no-op success, never a 404.
+        if (existing?.status === "ACCEPTED") {
+          if (incoming) await settleFriendRequestNotifications(tx, me.id, incoming.senderId);
+          return { kind: "existing", row: existing };
+        }
+        if (!incoming || incoming.status !== "PENDING") return { kind: "declined", row: null };
         await tx.friend.delete({ where: { id: incoming.id } });
+        await settleFriendRequestNotifications(tx, me.id, incoming.senderId);
         return { kind: "declined", row: null };
       }
 

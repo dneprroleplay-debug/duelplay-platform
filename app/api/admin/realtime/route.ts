@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAdminAccess } from "@/lib/admin-rbac";
+import { getPresenceCutoff } from "@/lib/presence";
 
 export async function GET() {
   try {
@@ -18,7 +19,7 @@ export async function GET() {
 
     const [users, online, matches24h, liveMatches, servers, disputes, fraud, pendingWithdrawals, pendingDeposits, activeMatches] = await Promise.all([
       canUsers ? prisma.user.count({ where: { deletedAt: null } }) : Promise.resolve(null),
-      prisma.userSession.count({ where: { isRevoked: false, expiresAt: { gt: now }, lastActiveAt: { gte: new Date(now.getTime() - 5 * 60 * 1000) } } }),
+      prisma.userSession.count({ where: { isRevoked: false, expiresAt: { gt: now }, lastActiveAt: { gte: getPresenceCutoff(now) } } }),
       canMatches || canReports ? prisma.match.count({ where: { createdAt: { gte: dayAgo } } }) : Promise.resolve(null),
       canMatches ? prisma.match.count({ where: { status: "LIVE" } }) : Promise.resolve(null),
       canServers ? prisma.gameServer.count({ where: { status: { in: ["BUSY", "STARTING"] } } }) : Promise.resolve(null),

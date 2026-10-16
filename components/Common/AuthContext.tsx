@@ -70,13 +70,12 @@ export function AuthProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [user, setUser] = useState<HeaderUser | null>(
-    readStoredUser
-  );
+  // Always start from the server-rendered (signed-out) state so the first
+  // client render matches SSR. The cached session is applied in the mount
+  // effect below, which runs after hydration and cannot cause error #418.
+  const [user, setUser] = useState<HeaderUser | null>(null);
 
-  const [loading, setLoading] = useState(
-    () => readStoredUser() === null
-  );
+  const [loading, setLoading] = useState(true);
 
   // A stable identity is required: consumers list `refresh` in effect
   // dependency arrays. If it changed on every auth update, those effects would
@@ -101,6 +100,15 @@ export function AuthProvider({
   }, []);
 
   useEffect(() => {
+    // Restore the cached session after hydration to avoid a signed-out flash,
+    // then verify it against the server.
+    const stored = readStoredUser();
+
+    if (stored) {
+      setUser(stored);
+      setLoading(false);
+    }
+
     void refresh();
 
     const onAuth = () => {
@@ -157,6 +165,39 @@ export function AuthProvider({
       );
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!user) return;
+    let disposed = false;
+
+    const ping = async () => {
+      if (disposed || document.visibilityState === "hidden") return;
+      try {
+        await fetch("/api/auth/heartbeat", { method: "POST", cache: "no-store" });
+      } catch {}
+    };
+
+    if (document.visibilityState === "visible") {
+      void ping();
+    }
+
+    const interval = window.setInterval(() => {
+      void ping();
+    }, 35000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void ping();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [user?.id]);
 
   const logout = useCallback(async () => {
     try {

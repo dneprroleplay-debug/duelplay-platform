@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
+import { getPresenceCutoff } from "@/lib/presence";
 
 export async function GET() {
   const me = await getCurrentUser();
@@ -28,11 +29,11 @@ export async function GET() {
 
   const accepted = relations.filter((x) => x.status === "ACCEPTED");
   const normalizedFriends = accepted.map((x) => ({ ...x, person: x.senderId === me.id ? x.receiver : x.sender }));
-  // Online presence reuses the platform's existing truthful source: a non-revoked,
-  // unexpired session active within the last 5 minutes (same window the admin uses).
+  // Online presence reuses the platform's unified presence source: a non-revoked,
+  // unexpired session active within the unified 120s inactivity threshold.
   const friendIds = normalizedFriends.map((x) => x.person.id);
   const now = new Date();
-  const activeSince = new Date(now.getTime() - 5 * 60 * 1000);
+  const activeSince = getPresenceCutoff(now);
   const onlineSessions = friendIds.length
     ? await prisma.userSession.findMany({
         where: { userId: { in: friendIds }, isRevoked: false, expiresAt: { gt: now }, lastActiveAt: { gte: activeSince } },

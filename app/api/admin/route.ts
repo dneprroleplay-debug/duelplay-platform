@@ -13,6 +13,7 @@ import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
 import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
 import { evaluateAndUnlockAchievements } from "@/lib/achievements";
+import { getPresenceCutoff } from "@/lib/presence";
 import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
 import { assertFinancialStatusUpdateSucceeded, canTransitionDepositStatus, canTransitionWithdrawalStatus, financialStatusPermission, hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
 import { getClientIp } from "@/lib/request-meta";
@@ -76,7 +77,7 @@ export async function GET(request:NextRequest){
       prisma.creatorPayout.findMany({orderBy:{createdAt:"desc"},take:100,include:{user:{select:{nickname:true}}}}),
       prisma.withdrawal.findMany({orderBy:{createdAt:"desc"},take:100,include:{wallet:{include:{user:{select:{nickname:true}}}}}}),
       prisma.deposit.findMany({orderBy:{createdAt:"desc"},take:100,include:{wallet:{include:{user:{select:{nickname:true}}}}}}),
-      prisma.userSession.count({where:{isRevoked:false,expiresAt:{gt:new Date()},lastActiveAt:{gte:new Date(Date.now()-5*60*1000)}}})
+      prisma.userSession.count({where:{isRevoked:false,expiresAt:{gt:new Date()},lastActiveAt:{gte:getPresenceCutoff()}}})
     ]);
     const row=settings.find(x=>x.key==="standardTheme");
     const standard=typeof row?.value==="object"&&row?.value&&"id" in row.value?String((row.value as {id?:unknown}).id):"STANDARD";

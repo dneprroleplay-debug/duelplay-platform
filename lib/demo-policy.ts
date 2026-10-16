@@ -170,7 +170,10 @@ async function getDemoModeSettingsInTransaction(tx: PolicyTx) {
 async function assertDemoUserCanCreateOrJoinInTransaction(tx: PolicyTx, userId: string, action: "CREATE" | "JOIN") {
   if (action !== "CREATE" && action !== "JOIN") throw new Error("INVALID_DEMO_POLICY_ACTION");
   if (!userId) throw new Error("USER_REQUIRED");
-  // Global enablement and quota control new starts, not formation of a match.
+  // Global DEMO mode is a server-side kill switch: when it is off (or the
+  // settings row is missing) no new DEMO match may be formed. Fail closed.
+  const settings = await readSettings(tx, "SHARE");
+  if (!settings?.enabled) throw new Error("DEMO_DISABLED");
   // Individual policy remains an admission restriction for CREATE/JOIN.
   await lockUsers(tx, [userId]);
   const blocked = await tx.$queryRaw<Array<{ userId: string }>>`

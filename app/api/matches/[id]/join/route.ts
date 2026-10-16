@@ -92,6 +92,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (msg === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно виртуальных кредитов DC для ставки", errorCode: msg }, { status: 400 });
     if (msg === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для входа в матч", errorCode: msg }, { status: 400 });
     if (msg === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "Присоединение к DEMO-матчам для аккаунта отключено", errorCode: msg }, { status: 403 });
+    if (msg === "DEMO_DISABLED") return NextResponse.json({ error: "DEMO-режим сейчас отключён", errorCode: msg }, { status: 409 });
     if (["ACCOUNT_SUSPENDED", "ACCOUNT_BANNED", "ACCOUNT_DEACTIVATED"].includes(msg)) return NextResponse.json({ error: "Аккаунт временно недоступен для игры", errorCode: msg }, { status: 403 });
     console.error(error); return NextResponse.json({ error: "Не удалось присоединиться", errorCode: "JOIN_ERROR" }, { status: 500 });
   }

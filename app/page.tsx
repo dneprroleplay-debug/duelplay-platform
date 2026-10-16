@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { preloadImage, preloadImages } from "../lib/image-preload";
 import { useSearchParams } from "next/navigation";
 import Live from "../components/Live/Live";
@@ -22,21 +23,20 @@ function HomeContent(){
   const [openMatches,setOpenMatches]=useState<any[]>([]);
   const HERO_STORAGE_KEY="duelplay-hero-background-v1";
 
-  const [heroBackground,setHeroBackground]=useState(()=>{
-    if(typeof window==="undefined")return "hero-01";
+  // The server always renders the default hero. Reading sessionStorage during
+  // the first client render made returning visitors hydrate a different
+  // background than the SSR markup, which React reports as hydration error #418.
+  // The stored value is applied in an effect after hydration instead.
+  const [heroBackground,setHeroBackground]=useState("hero-01");
 
+  useEffect(()=>{
     try{
-      const saved=window.sessionStorage.getItem(
-        HERO_STORAGE_KEY
-      );
-
-      return saved&&/^hero-(0[1-9]|10)$/.test(saved)
-        ?saved
-        :"hero-01";
-    }catch{
-      return "hero-01";
-    }
-  });
+      const saved=window.sessionStorage.getItem(HERO_STORAGE_KEY);
+      if(saved&&/^hero-(0[1-9]|10)$/.test(saved)){
+        setHeroBackground(saved);
+      }
+    }catch{}
+  },[]);
 
   const warmAllHomeImages=async()=>{
     const heroes=Array.from(
@@ -171,7 +171,19 @@ function HomeContent(){
 
 function Stat({value,label}:{value:React.ReactNode;label:string}){return <div className="panel rounded-2xl border-white/10 bg-black/30 p-4"><div className="text-2xl font-black text-pink-400">{value}</div><div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">{label}</div></div>}
 function HowItWorks(){const{t}=useLanguage();return <div className="panel rounded-3xl p-7 sm:p-9"><span className="pill">{t.howItWorks}</span><h2 className="mt-4 text-3xl font-black uppercase">{t.fromDuelToWin}</h2><div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">{[["01",t.stepCreateMatchTitle,t.stepCreateMatchText],["02",t.stepFindOpponentTitle,t.stepFindOpponentText],["03",t.stepPlayTitle,t.stepPlayText],["04",t.stepWinningsTitle,t.stepWinningsText]].map(([n,x,d])=><div key={n} className="group rounded-2xl border border-white/5 bg-white/[.025] p-4 transition hover:-translate-y-0.5 hover:border-pink-400/20"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-pink-400/10 text-xs font-black text-pink-400">{n}</span><div className="font-bold">{x}</div></div><div className="mt-2 pl-11 text-xs leading-5 text-zinc-500">{d}</div></div>)}</div></div>}
-function Ranking(){const [users,setUsers]=useState<any[]>([]);useEffect(()=>{fetch("/api/ranking",{cache:"no-store"}).then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])).catch(()=>{})},[]);return <div className="grid gap-3 sm:grid-cols-3">{users.slice(0,3).map((u,i)=><div key={u.nickname} className={`rounded-2xl bg-white/[.03] p-4 transition hover:-translate-y-0.5 hover:bg-white/[.06] ${i===0?"ring-1 ring-pink-400/30":""}`}><div className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-pink-400/10 text-sm font-black text-pink-300">#{i+1}</span><div className="min-w-0"><div data-player-name className="truncate font-bold">{u.nickname}</div><div className="mt-1 text-xs text-zinc-500">Level {u.level}</div></div></div><div className="mt-4 text-xl font-black text-pink-400">{u.rating} <span className="text-xs text-zinc-600">RATING</span></div></div>)}</div>}
+function Ranking(){
+ const {t}=useLanguage();
+ const [users,setUsers]=useState<any[]>([]);
+ const [loading,setLoading]=useState(true);
+ useEffect(()=>{fetch("/api/ranking",{cache:"no-store"}).then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])).catch(()=>{}).finally(()=>setLoading(false))},[]);
+ const top=users.slice(0,3);
+ return <div className="flex h-full flex-col justify-center">
+  <div className="grid gap-3 sm:grid-cols-3">
+   {loading?[0,1,2].map(i=><div key={i} className="h-32 animate-pulse rounded-2xl bg-white/[.03]"/>):top.length?top.map((u,i)=><Link key={u.nickname} href={`/profile/${encodeURIComponent(u.nickname)}`} className={`group rounded-2xl bg-white/[.03] p-4 transition hover:-translate-y-0.5 hover:bg-white/[.06] ${i===0?"ring-1 ring-pink-400/30":""}`}><div className="flex items-center gap-3"><img src={u.avatarUrl||"/avatars/premium/01-cyan.svg"} alt="" className="h-10 w-10 shrink-0 rounded-xl object-cover"/><div className="min-w-0 flex-1"><div data-player-name className="truncate font-bold">{u.nickname}</div><div className="mt-0.5 text-xs text-zinc-500">Level {u.level}</div></div><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-pink-400/10 text-sm font-black text-pink-300">#{i+1}</span></div><div className="mt-4 text-xl font-black text-pink-400">{u.rating} <span className="text-xs text-zinc-600">RATING</span></div></Link>):<div className="rounded-2xl bg-white/[.03] p-6 text-center text-sm text-zinc-500 sm:col-span-3">{t.noResults}</div>}
+  </div>
+  <div className="mt-5 text-center"><Link href="/rating" className="text-sm font-bold text-pink-400 transition hover:text-pink-300">Full rating →</Link></div>
+ </div>;
+}
 
 export default function Home(){
   return <Suspense fallback={null}><HomeContent /></Suspense>
