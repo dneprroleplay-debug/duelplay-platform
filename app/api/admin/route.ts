@@ -12,6 +12,7 @@ import { creditWallet, debitWallet, releaseWalletHold } from "@/lib/wallet";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { validateFeatureFlagPayload } from "@/lib/feature-flags";
 import { cancelMatchWithRefund } from "@/lib/match-lifecycle";
+import { evaluateAndUnlockAchievements } from "@/lib/achievements";
 import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
 import { assertFinancialStatusUpdateSucceeded, canTransitionDepositStatus, canTransitionWithdrawalStatus, financialStatusPermission, hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
 import { getClientIp } from "@/lib/request-meta";
@@ -229,6 +230,8 @@ export async function PATCH(request:NextRequest){
             await updateMatchProgress(tx,winnerId,true);
             await updateMatchProgress(tx,loserId!,false);
             await updateRatingAfterDuel(tx,winnerId,loserId!);
+            await evaluateAndUnlockAchievements(tx,winnerId,{matchId:match.id,won:true,weapon:match.weaponModifier==="KNIFE_ONLY"?"KNIFE_ONLY":null});
+            await evaluateAndUnlockAchievements(tx,loserId!,{matchId:match.id,won:false,weapon:null});
           }
         }
 
@@ -393,9 +396,11 @@ export async function PATCH(request:NextRequest){
       const id=String(body.userId),role=String(body.role);
       const target=await prisma.user.findUnique({where:{id},select:{id:true,steamId:true,nickname:true,role:true,passwordHash:true,status:true}});
       if(!target)return NextResponse.json({error:"Пользователь не найден"},{status:404});
+      if(id===me.id)return NextResponse.json({error:"Нельзя изменять собственную роль"},{status:403});
       if(protectedOwner(target))return NextResponse.json({error:"Главный администратор защищён и не может быть изменён."},{status:403});
       if(!["USER","SUPPORT","MODERATOR","ADMIN","SUPERADMIN"].includes(role))return NextResponse.json({error:"Неверная роль"},{status:400});
       const isAdminRole=adminLevel(role)>=1;
+      if(isAdminRole&&target.status!=="ACTIVE")return NextResponse.json({error:"Сначала активируйте аккаунт пользователя, затем назначайте административную роль."},{status:409});
       const wasAdmin=adminLevel(target.role)>=1;
       let adminInviteUrl:string|undefined;
       await prisma.$transaction(async tx=>{

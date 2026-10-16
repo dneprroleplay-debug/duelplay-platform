@@ -110,7 +110,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       await tx.user.update({ where: { id: loserId }, data: { reputation: { decrement: 10 } } });
       await recalculateTrust(tx, winnerId);
       await recalculateTrust(tx, loserId);
-      const winnerWeapon = typeof winnerStats.weapon === 'string' ? winnerStats.weapon : null;
+      const winnerWeapon = match.weaponModifier === 'KNIFE_ONLY' ? 'KNIFE_ONLY' : (typeof winnerStats.weapon === 'string' ? winnerStats.weapon : null);
       await evaluateAndUnlockAchievements(tx, winnerId, { matchId: match.id, won: true, weapon: winnerWeapon });
       await evaluateAndUnlockAchievements(tx, loserId, { matchId: match.id, won: false, weapon: typeof loserStats.weapon === 'string' ? loserStats.weapon : null });
       await tx.notification.create({ data: { userId: winnerId, type: "WIN", title: "Победа в дуэли", body: `Ты победил в CS2 1v1 и получил $${payout.toFixed(2)}.`, payload: { matchId: match.id, payout } } });

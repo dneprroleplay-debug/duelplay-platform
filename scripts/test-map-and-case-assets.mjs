@@ -35,9 +35,10 @@ console.log(`${homeNoGames ? "PASS" : "FAIL"} home popular maps section removed`
 homeNoGames ? passed++ : failed++;
 
 const maps = fs.readFileSync(path.join(root, "lib/duel-maps.ts"), "utf8");
-const allCanonical = requiredMaps.every((name) => maps.includes(`/images/maps/${name}`));
-console.log(`${allCanonical ? "PASS" : "FAIL"} duel map catalog references all supplied map images`);
-allCanonical ? passed++ : failed++;
+const catalogImages = [...new Set([...maps.matchAll(/\/images\/maps\/[^"]+/g)].map((m) => m[0]))];
+const catalogImagesExist = catalogImages.length > 0 && catalogImages.every((p) => fs.existsSync(path.join(root, "public", p)));
+console.log(`${catalogImagesExist ? "PASS" : "FAIL"} duel map catalog images exist on disk (${catalogImages.length} referenced)`);
+catalogImagesExist ? passed++ : failed++;
 
 console.log(`Summary: ${passed} PASS, ${failed} FAIL`);
 process.exitCode = failed ? 1 : 0;

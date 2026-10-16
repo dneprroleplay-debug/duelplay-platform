@@ -9,7 +9,7 @@ assert.match(policy,/VALUE_OUT_OF_RANGE/);
 assert.match(route,/requireAdmin\(5\)/);
 assert.match(route,/validatePlatformSettingValue/);
 assert.match(route,/validatePlatformSettingRelationships/);
-assert.match(admin,/adminLevel\(me\.role\)<5/);
+assert.match(admin,/permissionForAdminAction\(action\)/);
 assert.match(admin,/validatePlatformSettingValue/);
 assert.match(admin,/validatePlatformSettingRelationships/);
 console.log('platform settings policy: 11/11 PASS');

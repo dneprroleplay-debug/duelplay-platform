@@ -27,9 +27,9 @@ const checks = [
  ['maintenance uses exact CS2 update message', policy.includes('Идёт обновление серверов CS2. Пожалуйста, подождите')],
  ['match creation is backend-gated', createMatch.includes('assertMatchmakingAvailable(tx)')],
  ['match joining is backend-gated', joinMatch.includes('assertMatchmakingAvailable(tx)')],
- ['match starts are backend-gated and require a fresh ready server', startMatch.includes('assertMatchmakingAvailable(tx)') && startMatch.includes('CS2_SERVERS_UNAVAILABLE')],
+ ['match starts are maintenance-gated and request a manager assignment', startMatch.includes('assertMatchmakingAvailable(tx)') && startMatch.includes('managerRequested: true') && startMatch.includes('startDeadlineAt: new Date(Date.now() + MATCH_SERVER_START_TIMEOUT_MS)')],
  ['queue is drained during maintenance', serverQueue.includes('maintenance.enabled') && serverQueue.includes('pending: null')],
- ['server claims reject maintenance and unready servers', serverClaim.includes('assertMatchmakingAvailable(tx)') && serverClaim.includes('SERVER_UNAVAILABLE')],
+ ['server claims reject maintenance, unready, stale or busy servers', serverClaim.includes('assertMatchmakingAvailable(tx)') && serverClaim.includes('SERVER_UNAVAILABLE') && serverClaim.includes('existing.status !== "READY"') && serverClaim.includes('lastHeartbeat: { gte: new Date(Date.now() - 30_000) }')],
  ['manager health is authenticated and timestamped', serverHealth.includes('isServerManagerRequest(request)') && serverHealth.includes('lastHeartbeat: now')],
  ['auto updater can toggle maintenance and observe active matches', updaterMaintenance.includes('activeMatches') && updaterMaintenance.includes('ENABLE_CS2_AUTO_UPDATE_MAINTENANCE')],
 ];

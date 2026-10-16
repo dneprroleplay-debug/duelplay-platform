@@ -12,8 +12,8 @@ assert.ok(page.includes("Math.random().toString(36).slice(2)"), 'match polling u
 assert.match(page,/path==="join"&&d\?\.playerOne&&d\?\.playerTwo/,'join immediately renders both hydrated players');
 assert.match(join,/include:\s*\{\s*playerOne:/,'join response contains player relations');
 assert.match(claim,/weaponModifier:\s*match\.weaponModifier/,'manager receives weapon modifier');
-assert.match(claim,/status:\s*\{ in: \[\"OFFLINE\", \"ERROR\"\] \}, matchId:\s*null/,'server claim can recover an ERROR server with no assigned match');
-assert.match(claim,/existing\.status !== \"OFFLINE\" && existing\.status !== \"ERROR\"/,'server claim still blocks genuinely busy non-OFFLINE servers');
+assert.match(claim,/status:\s*"READY",\s*matchId:\s*null,\s*lastHeartbeat:\s*\{ gte: new Date\(Date\.now\(\) - 30_000\) \}/,'server claim selects a fresh READY server');
+assert.ok(claim.includes('existing.status !== "READY"') && claim.includes('SERVER_UNAVAILABLE'),'server claim rejects unready, stale or busy servers');
 assert.match(manager,/function applyDuelRules/,'manager applies duel rules');
 assert.match(modePolicy,/mp_t_default_primary weapon_awp/,'AWP mode gives AWP to T');
 assert.match(modePolicy,/mp_ct_default_primary weapon_awp/,'AWP mode gives AWP to CT');

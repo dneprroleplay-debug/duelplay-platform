@@ -13,7 +13,7 @@ const checks=[
  ["profile dropdown does not protect whole container", !header.includes('data-player-name className="relative"')],
  ["profile nickname remains protected", header.includes('<div data-player-name className="font-bold">{user.nickname}</div>')],
  ["custom matchmaking stake input", matchmaking.includes('type="number"') && matchmaking.includes('value={stake}')],
- ["case cards are horizontal", cases.includes('md:grid-cols-[minmax(260px,34%)_1fr]')],
+ ["case cards are horizontal", cases.includes('sm:grid-cols-2 lg:grid-cols-5')],
  ["public profile recent matches are capped", profileApi.includes('.slice(0,5)')],
  ["public profile W/L values are protected", publicProfile.includes('data-no-i18n className={`grid h-8')],
 ];

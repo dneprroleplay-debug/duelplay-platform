@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { levelFromXp } from './level.ts';
 
 export type AchievementContext = {
   matchId?: string;
@@ -49,7 +50,7 @@ export async function evaluateAndUnlockAchievements(
     const xpReward = Math.max(0, Number(achievement.xpReward) || 0);
     if (xpReward > 0) {
       const nextXp = Math.max(0, Math.floor(user.xp + xpReward));
-      const nextLevel = Math.max(1, Math.min(100, Math.floor(Math.sqrt(nextXp / 100)) + 1));
+      const nextLevel = levelFromXp(nextXp);
       user.xp = nextXp;
       user.level = nextLevel;
       await tx.user.update({ where: { id: userId }, data: { xp: nextXp, level: nextLevel } });
