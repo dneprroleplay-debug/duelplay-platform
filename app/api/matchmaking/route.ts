@@ -253,6 +253,7 @@ export async function POST(request: NextRequest) {
     if (code === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Insufficient balance", errorCode: "INSUFFICIENT_BALANCE" }, { status: 400 });
     if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Not enough virtual DC credits for DEMO matchmaking", errorCode: code }, { status: 400 });
     if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "DEMO matchmaking is unavailable for this account", errorCode: code }, { status: 403 });
+    if (code === "DEMO_DISABLED") return NextResponse.json({ error: "DEMO mode is currently disabled", errorCode: code }, { status: 409 });
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Idempotency key conflict", errorCode: code }, { status: 409 });
     if (code === "WALLET_NOT_FOUND") return NextResponse.json({ error: "Wallet not found", errorCode: "WALLET_NOT_FOUND" }, { status: 409 });
     console.error("matchmaking failed", error);

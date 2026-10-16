@@ -19,7 +19,6 @@ export async function GET(request: NextRequest) {
     const user = await getCurrentUser();
     const mine = request.nextUrl.searchParams.get("mine") === "active";
     const status = request.nextUrl.searchParams.get("status");
-    const allowed = status === "waiting" ? ["WAITING_FOR_PLAYERS"] : status === "active" ? ["READY", "STARTING", "LIVE"] : ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"];
     const requestedEconomyMode = request.nextUrl.searchParams.get("economyMode") ?? "REAL";
     if (requestedEconomyMode !== "REAL" && requestedEconomyMode !== "DEMO") return NextResponse.json({ error: "Invalid economy mode", errorCode: "INVALID_ECONOMY_MODE" }, { status: 400 });
     const economyMode = requestedEconomyMode;
@@ -29,7 +28,19 @@ export async function GET(request: NextRequest) {
       const match = await prisma.match.findFirst({ where: { ...economyFilter, status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"] }, OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, select: { id: true, status: true, economyMode: true, mapName: true, mode: true, weaponModifier: true, betAmount: true, playerOneId: true, playerTwoId: true }, orderBy: { createdAt: "desc" } });
       return NextResponse.json({ active: Boolean(match), match });
     }
-    const matches = await prisma.match.findMany({ where: { ...economyFilter, status: { in: allowed as never[] } }, include: { playerOne: { select: { nickname: true, avatarUrl: true } }, playerTwo: { select: { nickname: true, avatarUrl: true } }, game: { select: { title: true, slug: true } }, winner: { select: { nickname: true } } }, orderBy: { createdAt: "desc" }, take: 100 });
+    const statusFilter: Prisma.MatchWhereInput = status === "waiting"
+      ? (user
+          ? {
+              OR: [
+                { status: "WAITING_FOR_PLAYERS" },
+                { status: "READY", OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] },
+              ],
+            }
+          : { status: "WAITING_FOR_PLAYERS" })
+      : status === "active"
+      ? { status: { in: ["READY", "STARTING", "LIVE"] } }
+      : { status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"] } };
+    const matches = await prisma.match.findMany({ where: { ...economyFilter, ...statusFilter }, include: { playerOne: { select: { nickname: true, avatarUrl: true } }, playerTwo: { select: { nickname: true, avatarUrl: true } }, game: { select: { title: true, slug: true } }, winner: { select: { nickname: true } } }, orderBy: { createdAt: "desc" }, take: 100 });
     return NextResponse.json(matches);
   } catch (e) { console.error(e); return NextResponse.json({ error: "Не удалось загрузить матчи" }, { status: 500 }); }
 }
@@ -135,6 +146,7 @@ export async function POST(request: NextRequest) {
     if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Недостаточно виртуальных кредитов DC для создания DEMO-матча", errorCode: code }, { status: 400 });
     if (code === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для создания матча", errorCode: code }, { status: 400 });
     if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "Создание DEMO-матчей для аккаунта отключено", errorCode: code }, { status: 403 });
+    if (code === "DEMO_DISABLED") return NextResponse.json({ error: "DEMO-режим сейчас отключён", errorCode: code }, { status: 409 });
     if (["ACCOUNT_SUSPENDED", "ACCOUNT_BANNED", "ACCOUNT_DEACTIVATED"].includes(code)) return NextResponse.json({ error: "Аккаунт временно недоступен для игры", errorCode: code }, { status: 403 });
     console.error(error); return NextResponse.json({ error: "Не удалось создать матч" }, { status: 500 });
   }

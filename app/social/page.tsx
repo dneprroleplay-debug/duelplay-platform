@@ -1,30 +1,54 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useLanguage } from "../../components/Common/LanguageContext";
+import { useAuth } from "@/components/Common/AuthContext";
 
 type Person={id:string;nickname:string;avatarUrl?:string|null;status?:string;online?:boolean};
 type SocialData={friends:any[];rivals:any[];pendingIncoming:any[];pendingOutgoing:any[];blocked:any[];mutes:any[];unreadMessages:number};
 export default function SocialPage(){
  const {t}=useLanguage();
+ const {user}=useAuth();
  const [d,setD]=useState<SocialData>({friends:[],rivals:[],pendingIncoming:[],pendingOutgoing:[],blocked:[],mutes:[],unreadMessages:0});
  const [loading,setLoading]=useState(true); const [loadErr,setLoadErr]=useState(false);
  const [uid,setUid]=useState(""); const [text,setText]=useState(""); const [messages,setMessages]=useState<any[]>([]); const [msg,setMsg]=useState(""); const [busy,setBusy]=useState(false);
+ const chatEndRef=useRef<HTMLDivElement>(null);
  async function load(){try{const r=await fetch("/api/social",{cache:"no-store"});const f=await r.json().catch(()=>({}));if(!r.ok)throw new Error("social failed");setD({friends:Array.isArray(f?.friends)?f.friends:[],rivals:Array.isArray(f?.rivals)?f.rivals:[],pendingIncoming:Array.isArray(f?.pendingIncoming)?f.pendingIncoming:[],pendingOutgoing:Array.isArray(f?.pendingOutgoing)?f.pendingOutgoing:[],blocked:Array.isArray(f?.blocked)?f.blocked:[],mutes:Array.isArray(f?.mutes)?f.mutes:[],unreadMessages:Number(f?.unreadMessages||0)});setLoadErr(false)}catch{setLoadErr(true)}finally{setLoading(false)}}
  useEffect(()=>{
   void load();
+  const chat=new URLSearchParams(window.location.search).get("chat");
+  if(chat) void loadMessages(chat);
   const tick=()=>{ if(document.visibilityState==="visible") void load(); };
   const id=window.setInterval(tick,15000);
   document.addEventListener("visibilitychange",tick);
   return ()=>{window.clearInterval(id);document.removeEventListener("visibilitychange",tick)};
  },[]);
+
+ useEffect(()=>{
+  if(!uid)return;
+  const timer=window.setInterval(()=>{
+   if(document.visibilityState==="visible"){
+    fetch("/api/messages?userId="+encodeURIComponent(uid),{cache:"no-store"})
+     .then(r=>r.json())
+     .then(x=>{if(Array.isArray(x))setMessages(x)})
+     .catch(()=>{});
+   }
+  },5000);
+  return ()=>window.clearInterval(timer);
+ },[uid]);
+
+ useEffect(()=>{
+  chatEndRef.current?.scrollIntoView({behavior:"smooth"});
+ },[messages.length]);
+
  async function action(url:string,body:any,method="POST"){setBusy(true);try{const r=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const x=await r.json().catch(()=>({}));setMsg(r.ok?"✓":x.error||t.error);if(r.ok){await load();window.dispatchEvent(new Event("duelplay:profile-updated"))}}finally{setBusy(false)}}
- async function loadMessages(id=uid){if(!id)return;setUid(id);const r=await fetch("/api/messages?userId="+encodeURIComponent(id),{cache:"no-store"});const x=await r.json().catch(()=>[]);setMessages(Array.isArray(x)?x:[]);void fetch("/api/messages",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({all:true})}).then(()=>load()).catch(()=>{})}
+ async function loadMessages(id=uid){if(!id)return;setUid(id);const r=await fetch("/api/messages?userId="+encodeURIComponent(id),{cache:"no-store"});const x=await r.json().catch(()=>[]);setMessages(Array.isArray(x)?x:[]);void fetch("/api/messages",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fromUserId:id})}).then(()=>{void load();window.dispatchEvent(new Event("duelplay:notifications-updated"));}).catch(()=>{})}
  async function sendMessage(){if(!uid||!text.trim())return;setBusy(true);try{const r=await fetch("/api/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({receiverId:uid,body:text.trim()})});const x=await r.json().catch(()=>({}));setMsg(r.ok?"✓":x.error||t.error);if(r.ok){setText("");await loadMessages(uid)}}finally{setBusy(false)}}
  const accepted=d.friends.filter(x=>x.status==="ACCEPTED");
  const friendPerson=(x:any):Person=>x.person||x.receiver||x.sender;
  const onlineFriends=accepted.filter(x=>Boolean(friendPerson(x)?.online));
  const offlineFriends=accepted.filter(x=>!friendPerson(x)?.online);
+ const activePartner = uid ? (accepted.map(friendPerson).find(p => p.id === uid || p.nickname === uid) || d.rivals.map(r => r.target).find(p => p.id === uid || p.nickname === uid) || messages.find(m => m.senderId === uid)?.sender || messages.find(m => m.receiverId === uid)?.receiver) : null;
  return <main className="mx-auto min-h-screen max-w-7xl px-4 pb-20 pt-28"><section className="panel rounded-3xl p-6 sm:p-10">
   <div className="flex flex-wrap items-center gap-3"><span className="pill">SOCIAL CENTER</span>{d.unreadMessages>0&&<span className="rounded-full border border-pink-400/20 bg-pink-400/10 px-3 py-1 text-xs font-black text-pink-300">{d.unreadMessages} unread</span>}</div><h1 className="mt-4 text-4xl font-black">{t.socialTitle}</h1><p className="mt-2 max-w-3xl text-zinc-500">Friends, rivals and private messages in one place.</p>
   <div className="mt-7 grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]"><input className="input" value={uid} onChange={e=>setUid(e.target.value)} placeholder={t.playerId}/><button disabled={busy} onClick={()=>action("/api/friends",{userId:uid,action:"add"})} className="rounded-xl bg-pink-400 px-5 py-3 font-black text-black">+ Friend</button><button disabled={busy} onClick={()=>action("/api/rivals",{targetId:uid})} className="rounded-xl border border-white/10 px-5 py-3 font-bold">Add Rival</button><button disabled={busy} onClick={()=>loadMessages()} className="rounded-xl border border-white/10 px-5 py-3 font-bold">{t.loadChat}</button></div>{msg&&<p className="mt-3 text-sm text-pink-300">{msg}</p>}{loadErr&&<p className="mt-3 text-sm text-red-300">{t.error}</p>}
@@ -41,7 +65,42 @@ export default function SocialPage(){
    </Panel>
    <Panel title={`${t.rivals} · ${d.rivals.length}`}><div className="space-y-2">{d.rivals.length?d.rivals.map(x=><div key={x.id} className="flex items-center justify-between rounded-xl bg-white/[.025] p-3"><Link href={`/profile/${encodeURIComponent(x.target.nickname)}`} className="font-bold hover:text-pink-300">⚔ <span data-player-name>{x.target.nickname}</span></Link><button disabled={busy} onClick={()=>action(`/api/rivals?targetId=${encodeURIComponent(x.target.id)}`,{},"DELETE")} className="rounded-lg border border-white/10 px-3 py-2 text-xs">Remove</button></div>):<Empty text="No rivals yet."/>}</div></Panel>
   </div>
-  <div className="mt-6 rounded-2xl border border-white/5 p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-xl font-black">{t.messages}</h2><p className="text-xs text-zinc-600">Select a friend or enter a player ID to open a private chat.</p></div>{uid&&<Link href={`/profile/${encodeURIComponent(uid)}`} className="text-sm text-pink-400">Open profile →</Link>}</div><div className="mt-4 max-h-72 space-y-2 overflow-auto">{messages.length?messages.map(x=><div key={x.id} className="rounded-xl bg-white/[.025] p-3 text-sm"><b data-player-name>{x.sender?.nickname||"Player"}</b><span className="ml-2 text-zinc-400">{x.body}</span></div>):<Empty text="No messages in this chat."/>}</div><div className="mt-4 flex flex-col gap-2 sm:flex-row"><input className="input" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void sendMessage()}} placeholder={t.messagePlaceholder}/><button disabled={busy||!uid||!text.trim()} onClick={sendMessage} className="rounded-xl bg-pink-400 px-5 py-2 font-black text-black disabled:opacity-40 sm:py-0">{t.send}</button></div></div>
+  <div className="mt-6 rounded-2xl border border-white/5 p-5">
+   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex items-center gap-3">
+     {activePartner?.avatarUrl&&<img src={activePartner.avatarUrl} className="h-10 w-10 rounded-xl object-cover border border-white/10" alt=""/>}
+     <div>
+      <h2 className="text-xl font-black flex items-center gap-2">
+       <span>{t.messages}</span>
+       {activePartner&&<span data-player-name className="text-pink-400 font-bold text-base">· {activePartner.nickname}</span>}
+      </h2>
+      <p className="text-xs text-zinc-500">Select a friend or enter a player ID/nickname to chat.</p>
+     </div>
+    </div>
+    {uid&&<Link href={`/profile/${encodeURIComponent(activePartner?.nickname||uid)}`} className="text-sm text-pink-400 hover:underline">Open profile →</Link>}
+   </div>
+   <div className="mt-4 max-h-80 space-y-3 overflow-y-auto p-1">
+    {messages.length?messages.map(x=>{
+     const isMine = x.senderId === user?.id || (user?.nickname && x.sender?.nickname === user?.nickname);
+     const timeStr = x.createdAt ? new Date(x.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+     return <div key={x.id} className={`flex items-start gap-2.5 ${isMine ? "flex-row-reverse" : "flex-row"}`}>
+      <img src={x.sender?.avatarUrl || "/avatars/premium/01-cyan.svg"} className="h-8 w-8 shrink-0 rounded-xl object-cover border border-white/10" alt=""/>
+      <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${isMine ? "rounded-tr-sm bg-[var(--theme-accent-bg)] border border-[var(--theme-accent)]/30 text-white" : "rounded-tl-sm bg-white/[.04] border border-white/10 text-zinc-200"}`}>
+       <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? "justify-end text-[var(--theme-accent)]" : "text-zinc-400"}`}>
+        <b data-player-name>{x.sender?.nickname || "Player"}</b>
+        {timeStr && <span className="text-[10px] text-zinc-500">{timeStr}</span>}
+       </div>
+       <div className="break-words text-sm whitespace-pre-wrap leading-relaxed">{x.body}</div>
+      </div>
+     </div>;
+    }):<Empty text="No messages in this chat."/>}
+    <div ref={chatEndRef}/>
+   </div>
+   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+    <input className="input" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void sendMessage()}} placeholder={t.messagePlaceholder}/>
+    <button disabled={busy||!uid||!text.trim()} onClick={sendMessage} className="rounded-xl bg-pink-400 px-6 py-2.5 font-black text-black disabled:opacity-40">{t.send}</button>
+   </div>
+  </div>
   <div className="mt-6 grid gap-3 sm:grid-cols-3"><Link href="/matches" className="rounded-2xl border border-white/5 p-4 hover:border-pink-400/30"><b>⚔ Find a duel</b><span className="mt-1 block text-xs text-zinc-600">Play against the community</span></Link><Link href="/clans" className="rounded-2xl border border-white/5 p-4 hover:border-pink-400/30"><b>🛡 Clans</b><span className="mt-1 block text-xs text-zinc-600">Meet and manage your team</span></Link><Link href="/notifications" className="rounded-2xl border border-white/5 p-4 hover:border-pink-400/30"><b>🔔 Notifications</b><span className="mt-1 block text-xs text-zinc-600">Friend and challenge alerts</span></Link></div>
  </section></main>
 }
