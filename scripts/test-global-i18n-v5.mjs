@@ -9,7 +9,7 @@ const av=fs.readFileSync('components/Profile/AvatarPicker.tsx','utf8');
 const u=fs.readFileSync('lib/ui-i18n.ts','utf8');
 const checks=[
  ['select options are translatable',!/OPTION/.test(g.match(/const SKIP_TAGS[^;]+;/)?.[0]||'')],
- ['current locale values are protected',g.includes('localizedValues.has(source.trim())')],
+ ['current locale values are protected',g.includes('NON_TRANSLATABLE_EXACT.has(value)')],
  ['text node source tracking is stable',g.includes('type ProcessedText')&&g.includes('previous.translated')],
  ['observer reruns after mutations during translation',g.includes('rerunAfterCurrent.current = true')],
  ['Lv protected',g.includes('"Lv"')&&g.includes('"Lv."')],

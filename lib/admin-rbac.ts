@@ -44,7 +44,7 @@ export const ADMIN_ROLE_DEFINITIONS: Record<AdminRoleCode, {
   legacyAuthority: number;
   permissions: readonly string[];
 }> = {
-  SUPERADMIN: { level: 1, title: "SUPERADMIN", description: "Полный операционный контроль без права физического удаления неизменяемой финансовой истории.", legacyAuthority: 5, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","finance.view","ledger.view","deposits.review","deposits.approve","deposits.reject","withdrawals.review","withdrawals.approve","withdrawals.complete","withdrawals.reject","servers.view","servers.manage","system.logs.view","system.incidents.view","system.incidents.manage","system.maintenance","content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","reports.view","security.view","security.sessions.revoke_all","settings.manage","feature_flags.manage","admin.audit.view","admin.audit.write","roles.manage","roles.assign","staff.admin_invite","finance.wallet.adjust","finance.freeze","finance.reconciliation.view","creator.payouts.manage"] },
+  SUPERADMIN: { level: 1, title: "SUPERADMIN", description: "Полный операционный контроль без права физического удаления неизменяемой финансовой истории.", legacyAuthority: 5, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","finance.view","ledger.view","deposits.review","deposits.approve","deposits.reject","withdrawals.review","withdrawals.approve","withdrawals.complete","withdrawals.reject","servers.view","servers.manage","system.logs.view","system.incidents.view","system.incidents.manage","system.maintenance","content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","reports.view","security.view","security.sessions.revoke_all","settings.manage","feature_flags.manage","admin.audit.view","admin.audit.write","roles.manage","roles.assign","staff.admin_invite","finance.wallet.adjust","finance.freeze","finance.reconciliation.view","creator.payouts.manage","creator.payouts.pay","settings.content.manage"] },
   FINANCIAL_ADMIN: { level: 2, title: "FINANCIAL ADMIN", description: "Финансы, ledger, депозиты, выводы, source of funds и сверка.", legacyAuthority: 3, permissions: ["users.view","matches.view","finance.view","ledger.view","deposits.review","deposits.approve","deposits.reject","withdrawals.review","withdrawals.approve","withdrawals.complete","withdrawals.reject","finance.reconciliation.view","finance.source_of_funds.view","finance.freeze","reports.view","admin.audit.view","support.view","finance.wallet.adjust","creator.payouts.manage"] },
   ADMIN: { level: 3, title: "ADMIN", description: "Операционное управление пользователями, матчами, контентом и поддержкой.", legacyAuthority: 3, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","content.manage","maps.manage","modes.manage","seasons.manage","notifications.send","support.view","support.tickets.reply","support.tickets.manage","support.tickets.delete","reports.view","risk.cases.review"] },
   MODERATOR: { level: 4, title: "MODERATOR", description: "Модерация матчей, споров, доказательств, инцидентов и ограничений.", legacyAuthority: 2, permissions: ["users.view","users.restrict","matches.view","matches.cancel","matches.investigate","disputes.view","disputes.resolve","evidence.view","evidence.manage","incidents.view","incidents.manage","support.view","support.tickets.reply","reports.view","risk.cases.review"] },
@@ -108,6 +108,7 @@ export function effectivePermissions(roleCode: AdminRoleCode, overrides: unknown
   const isProtectedFounder = roleCode === "FOUNDER" && base.has("*");
   const canReviewDepositAndWithdrawal = ["FOUNDER", "SUPERADMIN", "FINANCIAL_ADMIN", "SUPPORT", "AUDITOR"].includes(roleCode);
   const canMutateDepositAndWithdrawal = ["FOUNDER", "SUPERADMIN", "FINANCIAL_ADMIN"].includes(roleCode);
+  const canConfirmCreatorPayout = ["FOUNDER", "SUPERADMIN"].includes(roleCode);
 
   // Enforce role boundaries before applying overrides. This preserves the
   // ordinary allow/deny model for unrelated permissions while preventing an
@@ -117,6 +118,7 @@ export function effectivePermissions(roleCode: AdminRoleCode, overrides: unknown
     base.delete("deposits.review");
     base.delete("withdrawals.review");
   }
+  if (!canConfirmCreatorPayout) base.delete("creator.payouts.pay");
 
   if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
     const value = overrides as { allow?: unknown; deny?: unknown };
@@ -127,6 +129,7 @@ export function effectivePermissions(roleCode: AdminRoleCode, overrides: unknown
         if (typeof permission !== "string" || permission === "*") continue;
         if (FINANCIAL_STATUS_MUTATION_PERMISSIONS.includes(permission as typeof FINANCIAL_STATUS_MUTATION_PERMISSIONS[number]) && !canMutateDepositAndWithdrawal) continue;
         if ((permission === "deposits.review" || permission === "withdrawals.review") && !canReviewDepositAndWithdrawal) continue;
+        if (permission === "creator.payouts.pay" && !canConfirmCreatorPayout) continue;
         base.add(permission);
       }
     }

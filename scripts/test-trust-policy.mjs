@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-const root = new URL('..', import.meta.url).pathname;
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]$/, '');
 const files = ['lib/trust.ts','lib/match-lifecycle.ts','app/api/matches/[id]/result/route.ts','app/api/matches/[id]/local-test/route.ts'];
 for (const f of files) {
   if (!fs.existsSync(root + '/' + f)) throw new Error(`missing ${f}`);

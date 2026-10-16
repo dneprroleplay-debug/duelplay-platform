@@ -8,6 +8,7 @@ import { referralMultiplier } from "@/lib/promotions";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { MATCH_START_TIMEOUT_MS, MATCH_LIVE_TIMEOUT_MS, MATCH_HEARTBEAT_TIMEOUT_MS } from "@/lib/match-timers";
 import { withDemoPolicyTransaction } from "@/lib/demo-policy";
+import { evaluateAndUnlockAchievements } from "@/lib/achievements";
 
 const START_TIMEOUT_MS = MATCH_START_TIMEOUT_MS;
 const CONNECTION_TIMEOUT_MS = MATCH_LIVE_TIMEOUT_MS;
@@ -143,6 +144,8 @@ export async function resolveConnectionTimeout(matchId: string, connectedSteamId
       await tx.user.update({ where: { id: winnerId }, data: { reputation: { increment: 15 } } });
       await tx.user.update({ where: { id: loserId }, data: { reputation: { decrement: 10 } } });
       await recalculateTrust(tx, winnerId); await recalculateTrust(tx, loserId);
+      await evaluateAndUnlockAchievements(tx, winnerId, { matchId: full.id, won: true, weapon: full.weaponModifier === 'KNIFE_ONLY' ? 'KNIFE_ONLY' : null });
+      await evaluateAndUnlockAchievements(tx, loserId, { matchId: full.id, won: false, weapon: null });
       await tx.notification.create({ data: { userId: winnerId, type: "TECHNICAL_WIN", title: "Technical win", body: "You won because the opponent did not connect.", payload: { matchId: full.id } } });
       await tx.notification.create({ data: { userId: loserId, type: "LOSS", title: "Match finished", body: "You lost by forfeit after the connection timeout.", payload: { matchId: full.id } } });
     }

@@ -19,18 +19,19 @@ function progressFor(name: string, conditions: unknown, stats: any, kills: numbe
 export async function GET() {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const [achievements, unlocked, stats, kills, user] = await Promise.all([
+  const [achievements, unlocked, stats, kills, user, knifeWin] = await Promise.all([
     prisma.achievement.findMany({ orderBy: { createdAt: 'asc' } }),
     prisma.userAchievement.findMany({ where: { userId: me.id }, select: { achievementId: true, unlockedAt: true } }),
     prisma.playerStats.findUnique({ where: { userId: me.id }, select: { wins: true, totalDuels: true, winStreak: true } }),
     prisma.matchPlayerStat.aggregate({ where: { userId: me.id }, _sum: { kills: true } }),
     prisma.user.findUnique({ where: { id: me.id }, select: { level: true } }),
+    prisma.match.findFirst({ where: { winnerId: me.id, economyMode: 'REAL', status: 'FINISHED', weaponModifier: 'KNIFE_ONLY' }, select: { id: true } }),
   ]);
   const unlockedMap = new Map(unlocked.map(x => [x.achievementId, x.unlockedAt]));
   return NextResponse.json({ achievements: achievements.map(a => ({
     ...a,
     unlocked: unlockedMap.has(a.id),
     unlockedAt: unlockedMap.get(a.id) ?? null,
-    progress: progressFor(a.name, a.conditions, { wins: stats?.wins ?? 0, totalDuels: stats?.totalDuels ?? 0, winStreak: stats?.winStreak ?? 0 }, kills._sum.kills ?? 0, user?.level ?? 1, false, null),
+    progress: progressFor(a.name, a.conditions, { wins: stats?.wins ?? 0, totalDuels: stats?.totalDuels ?? 0, winStreak: stats?.winStreak ?? 0 }, kills._sum.kills ?? 0, user?.level ?? 1, Boolean(knifeWin), knifeWin ? 'KNIFE_ONLY' : null),
   })) });
 }

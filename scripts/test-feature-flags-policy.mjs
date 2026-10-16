@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-const base = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+const base = fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]$/, '');
 const policy=fs.readFileSync(`${base}/lib/feature-flags.ts`,'utf8');
 const route=fs.readFileSync(`${base}/app/api/feature-flags/route.ts`,'utf8');
 const admin=fs.readFileSync(`${base}/app/api/admin/route.ts`,'utf8');

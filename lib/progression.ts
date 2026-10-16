@@ -2,11 +2,9 @@
 import { awardDuelPassXp } from '@/lib/duel-pass';
 import { boostedXpAmount } from '@/lib/xp-booster';
 import { refreshEventMissionsForUser } from '@/lib/event-pass';
+import { levelFromXp } from '@/lib/level';
 
-export function levelFromXp(xp:number){
-  const safe=Math.max(0,Math.floor(xp));
-  return Math.max(0,Math.min(100,Math.floor(Math.sqrt(safe/100))));
-}
+export { levelFromXp };
 
 export function eloDelta(winnerRating:number, loserRating:number, k=32){
   const expectedWinner=1/(1+Math.pow(10,(loserRating-winnerRating)/400));

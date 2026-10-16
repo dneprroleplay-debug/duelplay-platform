@@ -8,7 +8,7 @@ import { THEMES, ThemeId } from "@/lib/themes";
 import { getDuelMap } from "@/lib/duel-maps";
 
 type User={id:string;nickname:string;steamId:string|null;email:string|null;avatarUrl:string|null;steamAvatarUrl:string|null;themePreference:string;profileVisibility:string;showStatsPublic:boolean;allowChallenges:boolean;allowMessages:boolean;level:number;xp:number;reputation:number;trustScore:string;referralCode:string;balance:string;lockedBalance:string};
-type Data={referralLink:string;user:User;stats:{matches:number;wins:number;losses:number;active:number;winRate:number;referralCount:number;referralEarned:number};profileCompletion:number;profileCompletionProgress:{completed:number;total:number;rewardUnlocked:boolean;friends:number;finishedMatches:number;achievements:number;hasCustomAvatar:boolean};matches:any[];achievements:any[]};
+type Data={referralLink:string;user:User;stats:{matches:number;wins:number;losses:number;active:number;winRate:number;referralCount:number;referralEarned:number};profileCompletion:number;profileCompletionProgress:{completed:number;total:number;rewardUnlocked:boolean;items:{id:string;weight:number;complete:boolean}[];friends:number;finishedMatches:number;achievements:number;hasCustomAvatar:boolean};matches:any[];achievements:any[]};
 
 
 export default function ProfilePage(){
@@ -38,6 +38,7 @@ export default function ProfilePage(){
   PL:{title:"Uzupełnienie profilu",subtitle:"Uzupełnij profil do 100% i odblokuj ekskluzywnego awatara.",avatar:"Wybierz awatar",friends:"Dodaj 3 znajomych",match:"Zagraj pierwszy mecz",achievement:"Zdobądź pierwsze osiągnięcie",reward:"🎁 Nagroda odblokowana — ekskluzywny awatar DuelPlay Complete"},
   EN:{title:"Profile completion",subtitle:"Complete your profile to 100% and unlock an exclusive avatar.",avatar:"Choose an avatar",friends:"Add 3 friends",match:"Play your first match",achievement:"Earn your first achievement",reward:"🎁 Reward unlocked — exclusive DuelPlay Complete avatar"},
  } as const)[language] || ({title:"Profile completion",subtitle:"Complete your profile to 100% and unlock an exclusive avatar.",avatar:"Choose an avatar",friends:"Add 3 friends",match:"Play your first match",achievement:"Earn your first achievement",reward:"🎁 Reward unlocked — exclusive DuelPlay Complete avatar"} as const);
+ const completionLabels:Record<string,string>={avatar:completionCopy.avatar,friends:completionCopy.friends,matches:completionCopy.match,achievement:completionCopy.achievement};
  async function privacy(patch:Record<string,unknown>){const r=await fetch("/api/profile",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});const x=await r.json().catch(()=>({}));if(r.ok&&x.user)setData(prev=>prev?{...prev,referralLink:x.referralLink??prev.referralLink??"",stats:prev.stats,user:{...prev.user,...x.user}}:prev)}
  return <><main className="mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-28">
   <div className="panel rounded-3xl p-7 sm:p-10">
@@ -51,10 +52,7 @@ export default function ProfilePage(){
    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><span className="pill">{completionCopy.title}</span><h2 className="mt-3 text-2xl font-black">{Math.round(data.profileCompletion)}%</h2><p className="mt-1 text-sm text-zinc-500">{completionCopy.subtitle}</p></div><span className="text-xs font-bold text-zinc-500">{data.profileCompletionProgress.completed}/{data.profileCompletionProgress.total}</span></div>
    <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-pink-400 transition-all" style={{width:`${Math.min(100,Math.max(0,Number(data.profileCompletion||0)))}%`}}/></div>
    <div className="mt-5 grid gap-2 sm:grid-cols-2">
-    <ProgressRow done={data.profileCompletionProgress.hasCustomAvatar} label={completionCopy.avatar}/>
-    <ProgressRow done={data.profileCompletionProgress.friends>=3} label={completionCopy.friends}/>
-    <ProgressRow done={data.profileCompletionProgress.finishedMatches>=1} label={completionCopy.match}/>
-    <ProgressRow done={data.profileCompletionProgress.achievements>=1} label={completionCopy.achievement}/>
+    {data.profileCompletionProgress.items.map(item=><ProgressRow key={item.id} done={item.complete} label={completionLabels[item.id]||item.id}/>)}
    </div>
    {data.profileCompletionProgress.rewardUnlocked&&<div className="mt-4 rounded-2xl border border-pink-400/20 bg-pink-400/[.06] p-4 text-sm font-bold text-pink-200">{completionCopy.reward}</div>}
   </section>

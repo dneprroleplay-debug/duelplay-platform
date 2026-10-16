@@ -25,7 +25,7 @@ check("global translator protects player names", /\[data-player-name\]/.test(glo
 check("global translator protects brands", /\[data-brand\]/.test(globalI18n));
 check("global translator protects home intro", /\[data-home-intro\]/.test(globalI18n));
 check("global translator processes batches up to 250 texts", /start \+= 250/.test(globalI18n));
-check("global translator has persistent browser cache", /duelplay-i18n-cache-v10/.test(globalI18n));
+check("global translator has persistent browser cache", /duelplay-i18n-cache-v12/.test(globalI18n));
 check("global translator does not depend on locale dictionary", !globalI18n.includes("translateUi(lang, source)"));
 check("global translator can translate uppercase dynamic phrases", !/if \(\/\^\[A-Z0-9_:\+\.\/-\]\+\$\/\.test\(value\)\) return false/.test(globalI18n));
 check("global translator starts promptly after mount", /window\.setTimeout\(\(\) => \{\s*timer = null;\s*void translatePage\(\);\s*\}, 50\)/.test(globalI18n));
@@ -36,7 +36,7 @@ check("profile privacy uses locale keys", /t\.profileVisibility[\s\S]*t\.visibil
 check("profile email row removed", !/<Row label=\"Email\"/.test(read("app/profile/page.tsx")));
 check("XP multiplier is protected", /data-no-i18n className=\"text-xl font-black\">\{plan\.multiplier\}× XP/.test(read("app/xp-boosters/page.tsx")));
 check("cosmetic select uses locale dictionary", /t\.cosmeticTypes/.test(read("app/shop/page.tsx")));
-check("HUB uses locale dictionary", /t\.hubTitle[\s\S]*t\.hubCards/.test(read("app/hub/page.tsx")));
+check("HUB uses locale dictionary", /t\.hubTitle[\s\S]*t\.hubCards/.test(read("app/hub/HubClient.tsx")));
 
 const translateRoute = read("app/api/translate/route.ts");
 check("DeepL maps UA to UK", /UA:\s*"UK"/.test(translateRoute));
@@ -51,7 +51,7 @@ check("header keeps DUELPLAY brand", header.includes("DUEL<span"));
 check("header language names are readable", header.includes('name:"Русский"') && header.includes('name:"Українська"'));
 check("mobile search uses locale text", header.includes("{t.search}</Link>"));
 check("mobile create uses locale text", header.includes("{t.create}</Link>"));
-check("profile nickname is protected", /data-player-name[^>]*className="relative"[\s\S]*\{user\.nickname\}/.test(header));
+check("profile nickname is protected", /data-player-name className="font-bold">\{user\.nickname\}/.test(header));
 
 const home = read("app/page.tsx");
 check("hero title uses locale dictionary", /t\.heroTitleNew/.test(home));
@@ -76,7 +76,7 @@ for (const p of [
   "app/referral-race/page.tsx",
   "app/social/page.tsx",
   "app/clans/page.tsx",
-  "app/admin/page.tsx",
+  "components/Admin/LegacyAdminPanel.tsx",
 ]) {
   check(`${p} protects rendered player names`, read(p).includes("data-player-name"));
 }

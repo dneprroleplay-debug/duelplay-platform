@@ -27,7 +27,11 @@ assert.match(route, /status: "UNREAD"/);
 assert.match(route, /status: "ARCHIVED"/);
 assert.match(lib, /NOTIFICATION_PAGE_LIMIT = 50/);
 assert.match(schema, /model Notification/);
-assert.match(fs.readFileSync('prisma/migrations/20260906040000_notification_feed_index/migration.sql', 'utf8'), /Notification_user_status_createdAt_idx/);
+const baseline = fs.readFileSync('prisma/migrations/00000000000000_duelplay_baseline/migration.sql', 'utf8');
+assert.match(baseline, /CREATE INDEX "Notification_userId_idx" ON "Notification"\("userId"\)/, 'applied baseline indexes notifications by userId');
+assert.match(baseline, /CREATE INDEX "Notification_createdAt_idx" ON "Notification"\("createdAt"\)/, 'applied baseline indexes notifications by createdAt');
+assert.match(route, /status: \{ not: "ARCHIVED" \}/, 'feed excludes archived notifications');
+assert.match(route, /orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\]/, 'feed is ordered deterministically by createdAt,id desc');
 
 const required = [
   ['MATCH_FOUND', 'matchmaking'],

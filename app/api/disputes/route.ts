@@ -6,6 +6,7 @@ import { isModeratorRole } from "@/lib/role-policy";
 import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
+import { evaluateAndUnlockAchievements } from "@/lib/achievements";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { withDemoPolicyTransaction } from "@/lib/demo-policy";
 import { Prisma } from "@prisma/client";
@@ -164,6 +165,8 @@ export async function PATCH(request: NextRequest) {
           await awardXp(tx, winnerId, 100); await awardXp(tx, loserId!, 25);
           await updateMatchProgress(tx, winnerId, true); await updateMatchProgress(tx, loserId!, false);
           await updateRatingAfterDuel(tx, winnerId, loserId!);
+          await evaluateAndUnlockAchievements(tx, winnerId, { matchId: match.id, won: true, weapon: match.weaponModifier === 'KNIFE_ONLY' ? 'KNIFE_ONLY' : null });
+          await evaluateAndUnlockAchievements(tx, loserId!, { matchId: match.id, won: false, weapon: null });
         }
       } else {
         for (const userId of [p1, p2]) {

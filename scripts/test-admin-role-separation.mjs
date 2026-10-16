@@ -2,25 +2,76 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const admin = fs.readFileSync(path.join(root,"app","admin","page.tsx"),"utf8");
-const layout = fs.readFileSync(path.join(root,"app","admin","operations","layout.tsx"),"utf8");
-const api = fs.readFileSync(path.join(root,"app","api","admin","route.ts"),"utf8");
+const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
+
+const admin = read(path.join("app", "api", "admin", "route.ts"));
+const rbac = read(path.join("lib", "admin-rbac.ts"));
+const payout = read(path.join("app", "api", "creator-payouts", "route.ts"));
+const layout = read(path.join("app", "admin", "operations", "layout.tsx"));
+const legacy = read(path.join("components", "Admin", "LegacyAdminPanel.tsx"));
+const accessPage = read(path.join("app", "admin", "access", "page.tsx"));
+
+function rolePermissionsSource(role) {
+  const match = rbac.match(new RegExp(`\\n\\s*${role}:\\s*\\{[^}]*permissions:\\s*\\[([^\\]]*)\\]`));
+  return match ? match[1] : "";
+}
+function roleHas(role, permission) {
+  return rolePermissionsSource(role).includes(`"${permission}"`);
+}
+function actionMapsTo(action, permission) {
+  return rbac.includes(`${action}: "${permission}"`);
+}
 
 const checks = [
-  ["Control Center link is SUPERADMIN-only in UI", admin.includes('d.me.level>=5&&<a href="/admin/operations"')],
-  ["Operations route has server-side SUPERADMIN guard", layout.includes('await requireAdmin(5)') && layout.includes('redirect("/admin")')],
-  ["Platform settings API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","platform-settings","route.ts"),"utf8").includes('requireAdmin(5)')],
-  ["Feature flags API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","feature-flags","route.ts"),"utf8").includes('requireAdmin(5)')],
-  ["Site settings mutation API is SUPERADMIN-only", fs.readFileSync(path.join(root,"app","api","site-settings","route.ts"),"utf8").includes('requireAdmin(5)')],
-  ["Admin role changes are SUPERADMIN-only", api.includes('if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});') && api.includes('if(action==="userRole")')],
-  ["Owner protection remains in admin API", api.includes('protectedOwner(target)')],
-  ["Wallet debit and credit both require level 3", api.includes('if(adminLevel(me.role)<3)return NextResponse.json({error:"Недостаточно прав"},{status:403});') && !api.includes('if(amount>0 && adminLevel(me.role)<3)')],
-  ["Standard theme is SUPERADMIN-only", api.includes('if(action==="standardTheme")') && api.includes('if(adminLevel(me.role)<5)return NextResponse.json({error:"Только SUPERADMIN"},{status:403});')],
-  ["Lower roles do not receive financial dashboard totals", api.includes('const dashboard=level>=3?fullDashboard:')],
-  ["Creator payout controls are level-separated", fs.readFileSync(path.join(root,"app","api","creator-payouts","route.ts"),"utf8").includes('requireAdmin(3)') && fs.readFileSync(path.join(root,"app","api","creator-payouts","route.ts"),"utf8").includes("status==='PAID'&&adminLevel(me.role)<5")],
-  ["Creator admin section is level 3+", admin.includes('["creator",L.creator,d.creatorPayouts.length,"◈"]') && admin.includes('creator:3') && admin.includes('tab==="creator"&&d.me.level>=3')],
+  ["Operations route has server-side SUPERADMIN guard", layout.includes("requireAdmin(5)") && layout.includes('redirect("/admin")')],
+  ["Platform settings API is SUPERADMIN-only", read(path.join("app", "api", "platform-settings", "route.ts")).includes("requireAdmin(5)")],
+  ["Feature flags API is SUPERADMIN-only", read(path.join("app", "api", "feature-flags", "route.ts")).includes("requireAdmin(5)")],
+  ["Site settings mutation API is SUPERADMIN-only", read(path.join("app", "api", "site-settings", "route.ts")).includes("requireAdmin(5)")],
+  [
+    "Admin role changes are gated by roles.assign",
+    actionMapsTo("userRole", "roles.assign") && admin.includes('if(action==="userRole")') && admin.includes("permissionForAdminAction") && admin.includes("requirePermission(requiredPermission)"),
+  ],
+  [
+    "roles.assign is reserved for SUPERADMIN",
+    roleHas("SUPERADMIN", "roles.assign") && !roleHas("FINANCIAL_ADMIN", "roles.assign") && !roleHas("ADMIN", "roles.assign") && !roleHas("MODERATOR", "roles.assign") && !roleHas("SUPPORT", "roles.assign"),
+  ],
+  ["Self role change is rejected with 403", admin.includes("if(id===me.id)") && admin.includes("Нельзя изменять собственную роль")],
+  ["Owner/Founder protection remains in admin API", admin.includes("protectedOwner(target)") && rbac.includes("DuelPlayOwner")],
+  [
+    "Wallet adjustment is gated by finance.wallet.adjust",
+    actionMapsTo("walletAdjust", "finance.wallet.adjust") && roleHas("SUPERADMIN", "finance.wallet.adjust") && roleHas("FINANCIAL_ADMIN", "finance.wallet.adjust") && !roleHas("ADMIN", "finance.wallet.adjust") && !roleHas("MODERATOR", "finance.wallet.adjust") && !roleHas("SUPPORT", "finance.wallet.adjust"),
+  ],
+  [
+    "Theme controls require settings.content.manage and stay off lower roles",
+    actionMapsTo("standardTheme", "settings.content.manage") && actionMapsTo("backgroundTheme", "settings.content.manage") && actionMapsTo("heroBackground", "settings.content.manage") && roleHas("SUPERADMIN", "settings.content.manage") && roleHas("CONTENT_ADMIN", "settings.content.manage") && !roleHas("ADMIN", "settings.content.manage") && !roleHas("FINANCIAL_ADMIN", "settings.content.manage") && !roleHas("SUPPORT", "settings.content.manage"),
+  ],
+  ["Lower roles do not receive financial dashboard totals", admin.includes("const dashboard=level>=3?fullDashboard:")],
+  [
+    "PAID confirmation is split from creator.payouts.manage",
+    payout.includes("const requiredPermission=status==='PAID'?'creator.payouts.pay':'creator.payouts.manage'") && roleHas("SUPERADMIN", "creator.payouts.pay") && roleHas("SUPERADMIN", "creator.payouts.manage") && roleHas("FINANCIAL_ADMIN", "creator.payouts.manage") && !roleHas("FINANCIAL_ADMIN", "creator.payouts.pay"),
+  ],
+  [
+    "Payout permission is checked before the financial mutation",
+    payout.indexOf("requirePermission(requiredPermission)") > 0 && payout.indexOf("requirePermission(requiredPermission)") < payout.indexOf("tx.creatorPayout.update"),
+  ],
+  [
+    "Payout denial maps to 403 and hides internal errors",
+    payout.includes("if(error.message==='FORBIDDEN')return NextResponse.json({error:'Недостаточно прав'},{status:403});") && payout.includes("status:500"),
+  ],
+  [
+    "Creator UI sections use permission gates",
+    legacy.includes('can("creator.payouts.manage")&&x.status==="PENDING"') && legacy.includes('can("creator.payouts.pay")&&x.status==="APPROVED"') && !legacy.includes('can("finance.view")&&x.status==="APPROVED"'),
+  ],
+  [
+    "RBAC catalog documents payout and theme permissions",
+    accessPage.includes('["creator.payouts.pay",') && accessPage.includes('["creator.payouts.manage",') && accessPage.includes('["settings.content.manage",'),
+  ],
 ];
-let failed=0;
-for (const [name,ok] of checks) { console.log(`${ok?'PASS':'FAIL'} ${name}`); if(!ok) failed++; }
-if(failed) process.exit(1);
+
+let failed = 0;
+for (const [name, ok] of checks) {
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}`);
+  if (!ok) failed++;
+}
+if (failed) process.exit(1);
 console.log(`Admin role separation: ${checks.length}/${checks.length} PASS`);
