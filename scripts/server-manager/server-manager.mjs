@@ -253,6 +253,13 @@ function writeConfigs() {
     if (existsSync(filePath)) return;
     writeFileSync(filePath, contents);
   };
+  // Generated mode cfgs are loaded verbatim by `+exec duelplay_<mode>` at server
+  // launch. They must track the current mode policy, otherwise an already
+  // provisioned server keeps a stale (and previously invalid) rule set forever.
+  const writeIfChanged = (filePath, contents) => {
+    if (existsSync(filePath) && readFileSync(filePath, 'utf8') === contents) return;
+    writeFileSync(filePath, contents);
+  };
   const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
   mkdirSync(cfgDir, { recursive: true });
   writeIfMissing(join(cfgDir, 'gamemode_competitive_server.cfg'), [
@@ -294,7 +301,7 @@ function writeConfigs() {
     ['duelplay_first_to_10.cfg', 'FIRST_TO_10', null],
   ]) {
     const rules = buildDuelModeCommands(mode, modifier);
-    writeIfMissing(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
+    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
   }
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
   const gsiPath = join(cfgDir, 'gamestate_integration_duelplay.cfg');
