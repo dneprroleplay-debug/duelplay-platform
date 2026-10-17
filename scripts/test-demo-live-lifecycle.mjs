@@ -41,8 +41,14 @@ assert.match(
 
 assert.match(
   live,
-  /myActiveMatch&&myActiveMatch\.status==="READY"/,
-  "Live.tsx tracks the current user's ready match to present in the lobby banner",
+  /activeStatus&&myActiveMatch&&/,
+  "Live.tsx presents a return banner for the current user's active match",
+);
+
+assert.match(
+  live,
+  /activeDuelStatuses=\["WAITING_FOR_PLAYERS","READY","STARTING","LIVE"\]/,
+  "the return banner covers waiting, ready, starting and live matches",
 );
 
 assert.match(
