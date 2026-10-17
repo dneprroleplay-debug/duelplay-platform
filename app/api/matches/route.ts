@@ -19,13 +19,19 @@ export async function GET(request: NextRequest) {
     const user = await getCurrentUser();
     const mine = request.nextUrl.searchParams.get("mine") === "active";
     const status = request.nextUrl.searchParams.get("status");
-    const requestedEconomyMode = request.nextUrl.searchParams.get("economyMode") ?? "REAL";
-    if (requestedEconomyMode !== "REAL" && requestedEconomyMode !== "DEMO") return NextResponse.json({ error: "Invalid economy mode", errorCode: "INVALID_ECONOMY_MODE" }, { status: 400 });
-    const economyMode = requestedEconomyMode;
-    const economyFilter: Prisma.MatchWhereInput = { economyMode };
+    const economyParam = request.nextUrl.searchParams.get("economyMode");
+    const requestedEconomyMode = economyParam ?? "REAL";
+    if (requestedEconomyMode !== "REAL" && requestedEconomyMode !== "DEMO" && requestedEconomyMode !== "ALL") return NextResponse.json({ error: "Invalid economy mode", errorCode: "INVALID_ECONOMY_MODE" }, { status: 400 });
+    const economyMode = requestedEconomyMode === "ALL" ? null : requestedEconomyMode;
+    const economyFilter: Prisma.MatchWhereInput = economyMode ? { economyMode } : {};
     if (mine) {
+      // A player's own active duel must stay reachable regardless of which
+      // economy tab is open. Omitting `economyMode` (or passing `ALL`) returns
+      // the single active match in either economy so the lobby can always offer
+      // a way back into it; an explicit REAL/DEMO filter is still honored.
+      const mineEconomyFilter: Prisma.MatchWhereInput = !economyParam || requestedEconomyMode === "ALL" ? {} : economyFilter;
       if (!user) return NextResponse.json({ active: false, match: null });
-      const match = await prisma.match.findFirst({ where: { ...economyFilter, status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"] }, OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, select: { id: true, status: true, economyMode: true, mapName: true, mode: true, weaponModifier: true, betAmount: true, playerOneId: true, playerTwoId: true }, orderBy: { createdAt: "desc" } });
+      const match = await prisma.match.findFirst({ where: { ...mineEconomyFilter, status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"] }, OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, select: { id: true, status: true, economyMode: true, mapName: true, mode: true, weaponModifier: true, betAmount: true, playerOneId: true, playerTwoId: true, startedAt: true, startDeadlineAt: true, liveDeadlineAt: true, connectionPhaseCompleted: true }, orderBy: { createdAt: "desc" } });
       return NextResponse.json({ active: Boolean(match), match });
     }
     const statusFilter: Prisma.MatchWhereInput = status === "waiting"
