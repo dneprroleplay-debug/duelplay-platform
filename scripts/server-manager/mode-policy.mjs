@@ -91,12 +91,12 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
 
   if (effectiveMode === 'AWP_ONLY') {
     commands.push(
-      'mp_weapons_allow_rifles 1', 'mp_t_default_primary weapon_awp', 'mp_ct_default_primary weapon_awp',
+      'mp_weapons_allow_rifles -1', 'mp_t_default_primary weapon_awp', 'mp_ct_default_primary weapon_awp',
       'mp_free_armor 2',
     );
   } else if (effectiveMode === 'DEAGLE_ONLY') {
     commands.push(
-      'mp_weapons_allow_pistols 1', 'mp_t_default_secondary weapon_deagle', 'mp_ct_default_secondary weapon_deagle',
+      'mp_weapons_allow_pistols -1', 'mp_t_default_secondary weapon_deagle', 'mp_ct_default_secondary weapon_deagle',
       'mp_free_armor 2',
     );
   } else if (effectiveMode === 'KNIFE_ONLY') {
@@ -105,7 +105,7 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
     const selected = WEAPONS.find((entry) => entry.weapon === randomWeapon?.weapon && entry.slot === randomWeapon?.slot)
       ?? chooseRandomWeapon();
     for (const category of WEAPON_CATEGORIES) {
-      commands.push(`mp_weapons_allow_${category} ${selected.category === category ? '1' : '0'}`);
+      commands.push(`mp_weapons_allow_${category} ${selected.category === category ? '-1' : '0'}`);
     }
     if (selected.slot === 'primary') {
       commands.push(`mp_t_default_primary ${selected.weapon}`, `mp_ct_default_primary ${selected.weapon}`);

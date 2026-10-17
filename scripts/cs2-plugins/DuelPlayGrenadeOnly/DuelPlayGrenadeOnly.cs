@@ -17,9 +17,9 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     private readonly record struct EngineRoundIdentity(int TotalRoundsPlayed, int RoundStartNumber, byte RoundStartCount);
 
     public override string ModuleName => "DuelPlay Grenade Only";
-    public override string ModuleVersion => "1.1.0";
+    public override string ModuleVersion => "1.1.1";
     public override string ModuleAuthor => "DuelPlay";
-    public override string ModuleDescription => "Grants a verified round-limited grenade set, then one knife per life.";
+    public override string ModuleDescription => "Grants a verified round-scoped grenade set (reset per round), then one knife per life.";
 
     private bool _enabled;
     private bool _roundStarted;
@@ -104,7 +104,10 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             var player = @event.Userid;
             if (player is not null)
             {
-                _playerRoundStates.Remove(player.SteamID);
+                // Keep the per-round entitlement so that reconnecting inside the same round
+                // only re-issues the grenades that were not thrown yet; the round-start reset
+                // still clears it when the next round begins. Only the pawn-scoped pickup
+                // snapshot is dropped.
                 _pickupSnapshots.Remove(player.SteamID);
             }
             return HookResult.Continue;

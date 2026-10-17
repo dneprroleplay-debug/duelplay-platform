@@ -54,6 +54,7 @@ assert.match(plugin, /CountGrenades\(pawn\)/, 'actual inventory is verified afte
 assert.match(plugin, /No knife will be granted/);
 assert.match(plugin, /TeamNum == \(byte\)CsTeam\.Terrorist \? "weapon_molotov" : "weapon_incgrenade"/, 'T and CT receive their respective incendiaries');
 assert.match(plugin, /RegisterEventHandler<EventPlayerDisconnect>/);
+assert.doesNotMatch(plugin, /_playerRoundStates\.Remove\(player\.SteamID\)/, 'a reconnect in the same round cannot refill already-spent grenades');
 assert.match(plugin, /override void Unload\(bool hotReload\)/);
 assert.match(plugin, /PreventWeaponPickup = snapshot\.WasPrevented/, 'the previous pickup-block value is restored');
 assert.match(plugin, /RestoreGrenadeLimits\(\)/, 'plugin disable/unload restores captured grenade cvars');

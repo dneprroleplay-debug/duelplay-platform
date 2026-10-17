@@ -51,7 +51,7 @@ assert.equal(soloAfterAwp.get('mp_weapons_allow_map_placed'), '1', 'SOLO restore
 const awp = finalRules('SOLO_1V1', 'AWP_ONLY');
 assert.equal(awp.get('mp_t_default_primary'), 'weapon_awp');
 assert.equal(awp.get('mp_ct_default_primary'), 'weapon_awp');
-assert.equal(awp.get('mp_weapons_allow_rifles'), '1', 'the required AWP category remains enabled');
+assert.equal(awp.get('mp_weapons_allow_rifles'), '-1', 'the required AWP category remains enabled for both teams');
 assert.equal(awp.get('mp_weapons_allow_pistols'), '0');
 assert.equal(awp.get('mp_t_default_secondary'), '0');
 assert.equal(awp.get('mp_t_default_melee'), 'weapon_knife', 'AWP mode keeps its knife');
@@ -60,7 +60,7 @@ assert.equal(awp.get('mp_buy_allow_guns'), '0');
 assert.equal(awp.get('mp_weapons_allow_map_placed'), '0');
 
 const deagle = finalRules('DEAGLE_ONLY');
-assert.equal(deagle.get('mp_weapons_allow_pistols'), '1', 'the required pistol category remains enabled');
+assert.equal(deagle.get('mp_weapons_allow_pistols'), '-1', 'the required pistol category remains enabled for both teams');
 assert.equal(deagle.get('mp_t_default_secondary'), 'weapon_deagle');
 assert.equal(deagle.get('mp_ct_default_secondary'), 'weapon_deagle');
 assert.equal(deagle.get('mp_t_default_primary'), '0');
@@ -87,9 +87,21 @@ assert.equal(randomOne.get(`mp_${randomWeapon.slot === 'primary' ? 't_default_pr
 assert.equal(randomOne.get(`mp_${randomWeapon.slot === 'primary' ? 'ct_default_primary' : 'ct_default_secondary'}`), randomWeapon.weapon);
 assert.equal(randomOne.get('mp_t_default_melee'), 'weapon_knife');
 assert.equal(randomOne.get('mp_buy_allow_guns'), '0');
-assert.equal(randomOne.get(`mp_weapons_allow_${randomWeapon.category}`), '1');
+assert.equal(randomOne.get(`mp_weapons_allow_${randomWeapon.category}`), '-1');
 for (const category of ['pistols', 'smgs', 'rifles', 'heavy']) {
   if (category !== randomWeapon.category) assert.equal(randomOne.get(`mp_weapons_allow_${category}`), '0');
+}
+
+// mp_weapons_allow_<category> only accepts -1 / 0 / 2 / 3. A stray "1" silently
+// disables the category (neither team may carry it), which is exactly how the
+// AWP/Deagle/random matches ended up knife-only. Guard every generated mode.
+const allowValuePattern = /^mp_weapons_allow_(pistols|smgs|rifles|heavy) (\S+)$/;
+for (const mode of modes) {
+  for (const command of buildDuelModeCommands(mode, null, randomWeapon)) {
+    const match = command.match(allowValuePattern);
+    if (!match) continue;
+    assert.ok(['-1', '0', '2', '3'].includes(match[2]), `${mode} emits a valid ${match[1]} allow value (got "${match[2]}")`);
+  }
 }
 
 const grenade = finalRules('GRENADE_ONLY');
@@ -131,6 +143,8 @@ assert.match(modePolicySource, /mp_damage_headshot_only \$\{headshotOnly \? '1' 
 assert.match(modePolicySource, /duelplay_grenade_only \$\{effectiveMode === 'GRENADE_ONLY' \? '1' : '0'\}/, 'GRENADE_ONLY enforcement stays enabled only for that mode');
 assert.match(manager, /getFirstToTenWinnerTeam\(ctScore, tScore\)/);
 assert.match(manager, /FIRST_TO_10 reached/);
+assert.match(manager, /writeIfChanged\(join\(cfgDir, name\)/, 'generated mode cfgs are refreshed when the mode policy changes');
+assert.doesNotMatch(manager, /writeIfMissing\(join\(cfgDir, name\)/, 'mode cfgs are never frozen at first boot, so stale invalid rules cannot persist');
 
 const grenadePlugin = readFileSync('scripts/cs2-plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.cs', 'utf8');
 assert.match(grenadePlugin, /GiveNamedItem/);
@@ -138,4 +152,5 @@ assert.match(grenadePlugin, /PreventWeaponPickup = true/);
 assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife availability follows actual grenade throws');
 assert.match(grenadePlugin, /CountGrenades\(pawn\)/, 'GRENADE_ONLY verifies the actual inventory after issuing items');
 assert.match(grenadePlugin, /state\.ResetForNewRound\(_roundNumber\)/, 'GRENADE_ONLY resets per-player quotas using a new engine round identity');
+assert.doesNotMatch(grenadePlugin, /GamePhase|ResetForNewPhase/, 'the half is never used to reset the grenade set');
 console.log(`CS2 mode policy: ${maps.length} maps × ${modes.length} modes; mode command, round, and winner regressions PASS`);

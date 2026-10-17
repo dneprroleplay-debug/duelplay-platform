@@ -70,4 +70,15 @@ Check(deathDrop.TryRecordThrow(9, GrenadeKind.He, 0, 1, out var eventBacked) && 
     "inventory lost at death is bounded by actual matching throw events");
 CheckRemaining(deathDrop, 2, 3, 3, 3, "death does not falsely consume the whole quota");
 
-Console.WriteLine("DuelPlayGrenadeOnly state scenarios: PASS (inventory-backed throw, duplicate events, per-type quotas, knife timing, respawn, team change, round identity, stale event rejection)");
+// A reconnecting player keeps the round entitlement: only unthrown grenades are re-issued,
+// and the next round still restores the full set.
+var reconnect = new GrenadeRoundState(5);
+SetInventory(reconnect, 5, 3, 3, 3, 3);
+Check(reconnect.TryBeginLoadout(5, 300, 2), "pre-disconnect loadout");
+Check(reconnect.TryRecordThrow(5, GrenadeKind.He, 2, 1, out _), "throw before disconnect is observed");
+Check(reconnect.TryBeginLoadout(5, 301, 2), "reconnect in the same round receives only the remaining quota");
+CheckRemaining(reconnect, 2, 3, 3, 3, "reconnect does not refill the spent grenade");
+Check(reconnect.ResetForNewRound(6), "the round after the reconnect resets the entitlement");
+CheckRemaining(reconnect, 3, 3, 3, 3, "a new round restores the full set for the reconnected player");
+
+Console.WriteLine("DuelPlayGrenadeOnly state scenarios: PASS (inventory-backed throw, duplicate events, per-type quotas, knife timing, respawn, team change, round identity, stale event rejection, reconnect)");

@@ -13,10 +13,11 @@ Behavior when `duelplay_grenade_only 1` is enabled:
 - preserves only unthrown grenades after death/respawn and adapts the remaining incendiary to the player's current side;
 - resets each player's throw counts using the engine round identity (not a timing window); deferred checks carry a round generation and are discarded after a round transition;
 - makes duplicate spawn events idempotent within one pawn lifetime, while a genuine respawn can restore only the remaining round quota;
+- keeps the per-round entitlement across a disconnect, so a reconnect inside the same round can only be given the grenades that were not thrown yet (never a refilled kit); the round-start reset still clears it for the next round;
 - restores the prior pickup-block state and grenade limits when the mode is disabled or the plugin unloads;
 - does not use `sv_cheats`, `ent_remove_all`, or `sv_infinite_ammo`.
 
-Thrown grenades are not replenished within a round. Repeated enable commands do not grant another loadout.
+Thrown grenades are not replenished within a round; each new round resets the count and re-issues the full set. Repeated enable commands do not grant another loadout.
 
 The DuelPlay server manager enables this mode with `duelplay_grenade_only 1` and disables it with `duelplay_grenade_only 0`.
 
@@ -39,7 +40,7 @@ Copy the build output DLL (and its `.deps.json` / `.pdb` when produced) into tha
 The state-machine checks use only the .NET SDK and no game server:
 
 ```powershell
-dotnet run --project .\DuelPlayGrenadeOnly.Tests\DuelPlayGrenadeOnly.Tests.csproj
+dotnet run --project ..\DuelPlayGrenadeOnly.Tests\DuelPlayGrenadeOnly.Tests.csproj
 ```
 
 These tests do not replace a live CS2 check of engine grenade limits, inventory behavior, or event ordering.
