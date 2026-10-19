@@ -226,8 +226,8 @@ try {
   const servers = [1, 2, 3].map(index => ({ name: `cs2-${index}`, root: path.join(root, `root-${index}`) }));
   const componentFixtures = [
     { path: 'csgo/addons/example/plugin.bin', component: 'fixture' },
-    { path: 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly.dll', component: 'grenade root copy' },
-    { path: 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll', component: 'grenade nested copy' },
+    { path: 'csgo/addons/example/plugin-extra.bin', component: 'fixture extra copy' },
+    { path: 'csgo/addons/example/nested/plugin.bin', component: 'fixture nested copy' },
   ];
   for (const server of servers) {
     for (const fixture of componentFixtures) {
@@ -236,10 +236,10 @@ try {
     }
   }
   assert.ok(compareComponentParity(servers, componentFixtures).every(result => result.status === 'PASS'));
-  const nestedGrenadeCopy = componentFixtures[2].path;
-  fs.writeFileSync(path.join(servers[1].root, nestedGrenadeCopy), 'different nested copy');
+  const nestedFixtureCopy = componentFixtures[2].path;
+  fs.writeFileSync(path.join(servers[1].root, nestedFixtureCopy), 'different nested copy');
   assert.equal(compareComponentParity(servers, componentFixtures)[2].status, 'DRIFT');
-  fs.rmSync(path.join(servers[1].root, nestedGrenadeCopy));
+  fs.rmSync(path.join(servers[1].root, nestedFixtureCopy));
   assert.equal(compareComponentParity(servers, componentFixtures)[2].status, 'MISSING');
 
   const updater = fs.readFileSync(new URL('./server-manager/update-all.mjs', import.meta.url), 'utf8');
@@ -249,8 +249,8 @@ try {
   assert.doesNotMatch(updater, /copyFileSync\([^\n]*DuelPlayGrenadeOnly/);
   const draftManifest = JSON.parse(fs.readFileSync(new URL('./server-manager/component-bundle/manifest.json', import.meta.url), 'utf8'));
   assert.equal(draftManifest.approval, 'UNVERIFIED');
-  assert.ok(draftManifest.components.some(item => item.path.endsWith('/plugins/DuelPlayGrenadeOnly.dll')));
   assert.ok(draftManifest.components.some(item => item.path.endsWith('/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll')));
+  assert.ok(!draftManifest.components.some(item => item.path.endsWith('/plugins/DuelPlayGrenadeOnly.dll')), 'the legacy root-level grenade DLL is no longer a managed component');
   assert.ok(inspectComponentRoot(servers[0].root, draftManifest).every(item => ['UNKNOWN', 'MISSING'].includes(item.status)));
   assert.throws(() => createRepairPlan(servers[0].root, root, draftManifest), /not approved/);
   assert.throws(() => validateComponentManifest({ ...draftManifest, components: [{ name: 'bad', path: 'csgo/gameinfo.gi' }] }), /Instance-specific configuration/);
@@ -350,7 +350,7 @@ try {
   assert.match(registryApi, /requirePermission\("servers\.manage"\)/);
   assert.match(schema, /model ServerTechnicalEvent/);
   assert.match(schema, /model ServerIncident/);
-  console.log('Server infrastructure primitives: PASS (event outbox/redaction, dynamic registry, add planning, idle-vs-process health, manifest draft/hash validation, protected config paths, dry-run and backup restore fixtures, dual grenade DLL paths)');
+  console.log('Server infrastructure primitives: PASS (event outbox/redaction, dynamic registry, add planning, idle-vs-process health, manifest draft/hash validation, protected config paths, dry-run and backup restore fixtures, canonical grenade DLL path, legacy root copy absent)');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

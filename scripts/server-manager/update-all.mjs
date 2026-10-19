@@ -215,8 +215,8 @@ async function smokeCheckServer(server) {
     }
     for (const [label, path] of [
       ['nickname plugin', 'csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll'],
-      // The project and CounterStrikeSharp's documented plugin layout use the named subdirectory.
-      // The separate root-level duplicate is parity-checked above but is not treated as the deployed plugin.
+      // CounterStrikeSharp loads plugins from their named subdirectory; the legacy
+      // root-level DuelPlayGrenadeOnly.dll is no longer shipped or installed.
       ['grenade plugin', 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll'],
       ['avatar plugin', 'csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so'],
       ['avatar loader', 'csgo/addons/metamod/duelplayplayeravatar.vdf'],

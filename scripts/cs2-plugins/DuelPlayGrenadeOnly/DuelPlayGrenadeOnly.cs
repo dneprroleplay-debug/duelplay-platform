@@ -16,8 +16,11 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     private sealed record PickupSnapshot(long LifeId, bool WasPrevented);
     private readonly record struct EngineRoundIdentity(int TotalRoundsPlayed, int RoundStartNumber, byte RoundStartCount);
 
+    private const int MaxLoadoutAttempts = 3;
+    private const int MaxThrowVerifyAttempts = 3;
+
     public override string ModuleName => "DuelPlay Grenade Only";
-    public override string ModuleVersion => "1.1.1";
+    public override string ModuleVersion => "1.2.0";
     public override string ModuleAuthor => "DuelPlay";
     public override string ModuleDescription => "Grants a verified round-scoped grenade set (reset per round), then one knife per life.";
 
@@ -26,8 +29,9 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     private long _roundNumber;
     private EngineRoundIdentity? _engineRoundIdentity;
     private readonly Dictionary<ulong, GrenadeRoundState> _playerRoundStates = new();
-    private readonly Dictionary<(long RoundId, ulong SteamId, GrenadeKind Kind), int> _pendingThrowChecks = new();
+    private readonly HashSet<(long RoundId, ulong SteamId, GrenadeKind Kind)> _pendingThrowChecks = new();
     private readonly Dictionary<ulong, PickupSnapshot> _pickupSnapshots = new();
+    private readonly Dictionary<ulong, long> _lastLifeBySteamId = new();
     private int? _previousGrenadeTotal;
     private int? _previousGrenadeDefault;
     private int? _previousFlashbangLimit;
@@ -43,15 +47,20 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         RegisterEventHandler<EventRoundStart>((@event, info) =>
         {
             var engineRoundIdentity = GetEngineRoundIdentity();
-            if (engineRoundIdentity is null)
+            if (engineRoundIdentity is not null)
             {
-                _roundStarted = false;
-                Logger.LogError("GRENADE_ONLY cannot identify the active game round; loadouts and knife grants are blocked");
-                return HookResult.Continue;
+                if (_engineRoundIdentity == engineRoundIdentity) return HookResult.Continue;
+                _engineRoundIdentity = engineRoundIdentity;
             }
-            if (_engineRoundIdentity == engineRoundIdentity) return HookResult.Continue;
+            else
+            {
+                // The round is already starting even when the game-rules proxy cannot be
+                // read yet, which is most likely on the very first round. Blocking here is
+                // what left the opening round without grenades, so fall back to the local
+                // round counter: the round is still marked active and still resets.
+                Logger.LogWarning("GRENADE_ONLY could not read the engine round identity; using the local round counter for round {Round}", _roundNumber + 1);
+            }
 
-            _engineRoundIdentity = engineRoundIdentity;
             _roundStarted = true;
             _roundNumber++;
             _pendingThrowChecks.Clear();
@@ -81,8 +90,19 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             if (!_enabled || !_roundStarted || player is null || !player.IsValid) return HookResult.Continue;
 
             var kind = GetGrenadeKind(@event.Weapon);
-            if (kind is null || !_playerRoundStates.ContainsKey(player.SteamID)) return HookResult.Continue;
+            if (kind is null || !_playerRoundStates.TryGetValue(player.SteamID, out var state)) return HookResult.Continue;
+            if (!state.NoteThrow(_roundNumber, kind.Value)) return HookResult.Continue;
             QueueThrowInventoryCheck(player, kind.Value, _roundNumber);
+            return HookResult.Continue;
+        });
+
+        RegisterEventHandler<EventPlayerDeath>((@event, info) =>
+        {
+            var player = @event.Userid;
+            if (!_enabled || player is null || !player.IsValid) return HookResult.Continue;
+            // The throw callback may not have been reconciled with the pawn inventory yet;
+            // event-backed throws must still be counted before the respawn re-issues the kit.
+            FinalizePendingThrows(player);
             return HookResult.Continue;
         });
 
@@ -102,14 +122,13 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         RegisterEventHandler<EventPlayerDisconnect>((@event, info) =>
         {
             var player = @event.Userid;
-            if (player is not null)
-            {
-                // Keep the per-round entitlement so that reconnecting inside the same round
-                // only re-issues the grenades that were not thrown yet; the round-start reset
-                // still clears it when the next round begins. Only the pawn-scoped pickup
-                // snapshot is dropped.
-                _pickupSnapshots.Remove(player.SteamID);
-            }
+            if (player is null) return HookResult.Continue;
+            FinalizePendingThrows(player);
+            _pickupSnapshots.Remove(player.SteamID);
+            _lastLifeBySteamId.Remove(player.SteamID);
+            // Keep the per-round entitlement so that reconnecting inside the same round
+            // only re-issues the grenades that were not thrown yet; the round-start reset
+            // still clears it when the next round begins.
             return HookResult.Continue;
         });
 
@@ -120,6 +139,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             _engineRoundIdentity = null;
             _pendingThrowChecks.Clear();
             _playerRoundStates.Clear();
+            _lastLifeBySteamId.Clear();
             Logger.LogInformation("GRENADE_ONLY map state reset");
         });
 
@@ -133,6 +153,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         RestoreGrenadeLimits();
         _roundStarted = false;
         _playerRoundStates.Clear();
+        _lastLifeBySteamId.Clear();
         Logger.LogInformation("DuelPlay Grenade Only unloaded; mode state restored");
     }
 
@@ -185,6 +206,12 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         if (!EnsureGrenadeLimits(player!)) return;
 
         var lifeId = GetLifeId(player!);
+
+        // A new life inherits any throw callback the death event could not reconcile yet.
+        if (_lastLifeBySteamId.TryGetValue(player!.SteamID, out var previousLife) && previousLife != lifeId)
+            FinalizePendingThrows(player!);
+        _lastLifeBySteamId[player!.SteamID] = lifeId;
+
         if (!_playerRoundStates.TryGetValue(player!.SteamID, out var state))
         {
             state = new GrenadeRoundState(_roundNumber);
@@ -200,51 +227,68 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
 
         if (!state.TryBeginLoadout(_roundNumber, lifeId, player.TeamNum)) return;
 
-        try
+        var expected = new Dictionary<GrenadeKind, int>
         {
-            // This is reached only for a live pawn during an active round, with required
-            // game limits verified. Failed item creation is logged and never becomes a knife.
-            player.RemoveWeapons();
-            var incendiary = player.TeamNum == (byte)CsTeam.Terrorist ? "weapon_molotov" : "weapon_incgrenade";
-            var expected = new Dictionary<GrenadeKind, int>
-            {
-                [GrenadeKind.He] = state.Remaining(GrenadeKind.He),
-                [GrenadeKind.Flash] = state.Remaining(GrenadeKind.Flash),
-                [GrenadeKind.Smoke] = state.Remaining(GrenadeKind.Smoke),
-                [GrenadeKind.Incendiary] = state.Remaining(GrenadeKind.Incendiary),
-            };
+            [GrenadeKind.He] = state.Remaining(GrenadeKind.He),
+            [GrenadeKind.Flash] = state.Remaining(GrenadeKind.Flash),
+            [GrenadeKind.Smoke] = state.Remaining(GrenadeKind.Smoke),
+            [GrenadeKind.Incendiary] = state.Remaining(GrenadeKind.Incendiary),
+        };
 
-            GiveGrenades(player, "weapon_hegrenade", expected[GrenadeKind.He]);
-            GiveGrenades(player, "weapon_flashbang", expected[GrenadeKind.Flash]);
-            GiveGrenades(player, "weapon_smokegrenade", expected[GrenadeKind.Smoke]);
-            GiveGrenades(player, incendiary, expected[GrenadeKind.Incendiary]);
-
-            var actual = CountGrenades(pawn);
-            if (Enum.GetValues<GrenadeKind>().Any(kind => actual[kind] != expected[kind]))
+        for (var attempt = 1; attempt <= MaxLoadoutAttempts; attempt++)
+        {
+            try
             {
-                Logger.LogError(
-                    "GRENADE_ONLY loadout verification failed for SteamID {SteamId}, round {Round}. Expected HE={ExpectedHe} flash={ExpectedFlash} smoke={ExpectedSmoke} incendiary={ExpectedIncendiary}; actual HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}. No knife will be granted.",
-                    player.SteamID, _roundNumber, expected[GrenadeKind.He], expected[GrenadeKind.Flash], expected[GrenadeKind.Smoke], expected[GrenadeKind.Incendiary],
+                // Reached only for a live pawn during an active round, with required
+                // game limits verified. Failed item creation is logged and never becomes a knife.
+                player.RemoveWeapons();
+                var incendiary = player.TeamNum == (byte)CsTeam.Terrorist ? "weapon_molotov" : "weapon_incgrenade";
+                GiveGrenades(player, "weapon_hegrenade", expected[GrenadeKind.He]);
+                GiveGrenades(player, "weapon_flashbang", expected[GrenadeKind.Flash]);
+                GiveGrenades(player, "weapon_smokegrenade", expected[GrenadeKind.Smoke]);
+                GiveGrenades(player, incendiary, expected[GrenadeKind.Incendiary]);
+
+                var actual = CountGrenades(pawn);
+
+                if (Enum.GetValues<GrenadeKind>().All(kind => actual[kind] == expected[kind]))
+                {
+                    state.CompleteLoadout(_roundNumber, lifeId, expected);
+                    Logger.LogInformation(
+                        "GRENADE_ONLY loadout verified for SteamID {SteamId}, round {Round}: HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
+                        player.SteamID, _roundNumber, actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
+                    return;
+                }
+
+                Logger.LogWarning(
+                    "GRENADE_ONLY loadout attempt {Attempt}/{Max} for SteamID {SteamId}, round {Round}: expected HE={ExpectedHe} flash={ExpectedFlash} smoke={ExpectedSmoke} incendiary={ExpectedIncendiary}; CS2 reports HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
+                    attempt, MaxLoadoutAttempts, player.SteamID, _roundNumber,
+                    expected[GrenadeKind.He], expected[GrenadeKind.Flash], expected[GrenadeKind.Smoke], expected[GrenadeKind.Incendiary],
                     actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
-                return;
             }
-
-            foreach (var kind in Enum.GetValues<GrenadeKind>()) state.SetVerifiedInventory(_roundNumber, kind, actual[kind]);
-
-            Logger.LogInformation(
-                "GRENADE_ONLY loadout verified for SteamID {SteamId}, round {Round}: HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
-                player.SteamID, _roundNumber, actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
-        }
-        catch (Exception ex)
-        {
-            if (TryGetValidPawn(player, out var failedPawn))
+            catch (Exception ex)
             {
-                var actual = CountGrenades(failedPawn);
-                Logger.LogError(ex,
-                    "GRENADE_ONLY loadout failed for SteamID {SteamId}, round {Round}; actual inventory HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}; no knife will be granted",
-                    player.SteamID, _roundNumber, actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
+                Logger.LogError(ex, "GRENADE_ONLY loadout attempt {Attempt}/{Max} failed for SteamID {SteamId}, round {Round}",
+                    attempt, MaxLoadoutAttempts, player.SteamID, _roundNumber);
             }
-            else Logger.LogError(ex, "GRENADE_ONLY loadout failed for SteamID {SteamId}, round {Round}; inventory unavailable, no knife will be granted", player.SteamID, _roundNumber);
+        }
+
+        // Never adopt a partial grant as ground truth: leaving the loadout uncommitted
+        // keeps the missing grenades on the books so the round can retry and the knife
+        // is not granted for grenades CS2 never made throwable.
+        state.AbortLoadout(_roundNumber, lifeId);
+        if (TryGetValidPawn(player, out var failedPawn))
+        {
+            var actual = CountGrenades(failedPawn);
+            Logger.LogError(
+                "GRENADE_ONLY loadout incomplete for SteamID {SteamId}, round {Round} after {Max} attempts; actual inventory HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}; loadout left uncommitted and no knife will be granted",
+                player.SteamID, _roundNumber, MaxLoadoutAttempts,
+                actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
+        }
+        else
+        {
+            Logger.LogError(
+                "GRENADE_ONLY loadout incomplete for SteamID {SteamId}, round {Round} after {Max} attempts; inventory unavailable, loadout left uncommitted and no knife will be granted",
+                player.SteamID, _roundNumber, MaxLoadoutAttempts);
         }
     }
 
@@ -291,18 +335,48 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         }
     }
 
+    /// <summary>
+    /// Counts grenade ammo from <c>CPlayer_WeaponServices.Ammo</c> using each weapon's
+    /// <c>PrimaryAmmoType</c> index. Counting weapon entities instead under-reports
+    /// stacked grenades (CS2 keeps one entity and tracks the count in the ammo pool).
+    /// </summary>
     private static Dictionary<GrenadeKind, int> CountGrenades(CCSPlayerPawn pawn)
     {
         var counts = Enum.GetValues<GrenadeKind>().ToDictionary(kind => kind, _ => 0);
         var services = pawn.WeaponServices?.As<CCSPlayer_WeaponServices>();
         if (services is null) return counts;
+
+        var ammo = services.Ammo;
+        var ammoTypesByKind = new Dictionary<GrenadeKind, HashSet<byte>>();
+
         foreach (var handle in services.MyWeapons)
         {
             var weapon = handle.Value;
             if (weapon is null || !weapon.IsValid) continue;
             var kind = GetGrenadeKind(weapon.GetWeaponName() ?? string.Empty);
-            if (kind is not null) counts[kind.Value]++;
+            if (kind is null) continue;
+
+            var vdata = weapon.VData;
+            if (vdata is null) continue;
+
+            var ammoType = vdata.PrimaryAmmoType;
+            if (ammoType >= ammo.Length) continue;
+
+            if (!ammoTypesByKind.TryGetValue(kind.Value, out var ammoTypes))
+            {
+                ammoTypes = new HashSet<byte>();
+                ammoTypesByKind[kind.Value] = ammoTypes;
+            }
+            ammoTypes.Add(ammoType);
         }
+
+        foreach (var (kind, ammoTypes) in ammoTypesByKind)
+        {
+            var total = 0;
+            foreach (var ammoType in ammoTypes) total += ammo[ammoType];
+            counts[kind] = total;
+        }
+
         return counts;
     }
 
@@ -409,6 +483,22 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         _pickupSnapshots.Clear();
     }
 
+    private void FinalizePendingThrows(CCSPlayerController player)
+    {
+        if (!_playerRoundStates.TryGetValue(player.SteamID, out var state)) return;
+
+        var finalized = state.FinalizePendingThrows(_roundNumber);
+        _pendingThrowChecks.RemoveWhere(key => key.RoundId == _roundNumber && key.SteamId == player.SteamID);
+        if (finalized > 0)
+        {
+            Logger.LogInformation(
+                "GRENADE_ONLY finalized {Count} unverified throw(s) for SteamID {SteamId}, round {Round}; remaining HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
+                finalized, player.SteamID, _roundNumber,
+                state.Remaining(GrenadeKind.He), state.Remaining(GrenadeKind.Flash),
+                state.Remaining(GrenadeKind.Smoke), state.Remaining(GrenadeKind.Incendiary));
+        }
+    }
+
     private static long GetLifeId(CCSPlayerController player) => player.PawnLifetimeStart;
 
     private static bool IsLivePlayer(CCSPlayerController? player) =>
@@ -424,16 +514,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     private void QueueThrowInventoryCheck(CCSPlayerController player, GrenadeKind kind, long roundId, int attempt = 0)
     {
         var key = (roundId, player.SteamID, kind);
-        if (attempt == 0)
-        {
-            if (_pendingThrowChecks.TryGetValue(key, out var pendingEvents))
-            {
-                if (pendingEvents < GrenadeRoundState.GrenadesPerType)
-                    _pendingThrowChecks[key] = pendingEvents + 1;
-                return;
-            }
-            _pendingThrowChecks[key] = 1;
-        }
+        if (attempt == 0 && !_pendingThrowChecks.Add(key)) return;
 
         // CSS schedules this on its game thread after the engine has removed the thrown item.
         Server.NextFrame(() =>
@@ -447,14 +528,15 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
 
             if (!player.IsValid || !TryGetValidPawn(player, out var pawn))
             {
+                // The throw event is authoritative; keep the pending count so death can
+                // finalize it instead of refilling the grenade on the next life.
                 _pendingThrowChecks.Remove(key);
-                Logger.LogWarning("GRENADE_ONLY could not verify post-throw inventory for SteamID {SteamId}, round {Round}, type {Type}", player.SteamID, roundId, kind);
+                Logger.LogWarning("GRENADE_ONLY could not verify post-throw inventory for SteamID {SteamId}, round {Round}, type {Type}; throw remains event-backed", player.SteamID, roundId, kind);
                 return;
             }
 
             var actualCount = CountGrenades(pawn)[kind];
-            var matchingEvents = _pendingThrowChecks.GetValueOrDefault(key);
-            if (state.TryRecordThrow(roundId, kind, actualCount, matchingEvents, out var consumed))
+            if (state.TryRecordThrow(roundId, kind, actualCount, out var consumed))
             {
                 Logger.LogInformation(
                     "GRENADE_ONLY throw verified: SteamID {SteamId}, round {Round}, type {Type}, consumed {Consumed}, remaining HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
@@ -465,15 +547,15 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
                 return;
             }
 
-            if (attempt < 2 && state.RoundId == _roundNumber)
+            if (attempt < MaxThrowVerifyAttempts && state.RoundId == _roundNumber)
             {
-                QueueThrowInventoryCheck(player, kind, roundId, attempt + 1);
+                Server.NextFrame(() => QueueThrowInventoryCheck(player, kind, roundId, attempt + 1));
                 return;
             }
 
             _pendingThrowChecks.Remove(key);
             Logger.LogWarning(
-                "GRENADE_ONLY throw was not deducted: SteamID {SteamId}, round {Round}, type {Type}, actual inventory={Inventory}; entitlement unchanged",
+                "GRENADE_ONLY post-throw inventory not observed yet: SteamID {SteamId}, round {Round}, type {Type}, inventory={Inventory}; throw remains event-backed",
                 player.SteamID, roundId, kind, actualCount);
         });
     }

@@ -6,8 +6,8 @@
     <LangVersion>latest</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <AssemblyName>DuelPlayPlayerNameTest</AssemblyName>
-    <RootNamespace>DuelPlayPlayerNameTest</RootNamespace>
+    <AssemblyName>DuelPlayPlayerName</AssemblyName>
+    <RootNamespace>DuelPlayPlayerName</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

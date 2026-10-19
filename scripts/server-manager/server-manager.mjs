@@ -13,6 +13,12 @@ import {
   getRuleReapplyDelays,
   resolveEffectiveMode,
 } from './mode-policy.mjs';
+import {
+  buildMapConfigNames,
+  buildMapLaunchArgs,
+  buildMatchMapConfig,
+  safeMapConfigName,
+} from './map-launch.mjs';
 
 const required = (name) => {
   const value = process.env[name];
@@ -334,6 +340,35 @@ function syncPlayerNickname(steamId) {
   console.log(`[DuelPlay] syncing CS2 nickname ${normalized} -> ${match[1]}`);
 }
 
+const syncedAvatarKeys = new Map();
+
+async function syncPlayerAvatar(steamId) {
+  if (!current || !steamId) return;
+
+  const normalized = canonicalPlayerSteamId(steamId);
+  const entries = [
+    [current.playerOneSteamId, current.playerOneAvatarUrl],
+    [current.playerTwoSteamId, current.playerTwoAvatarUrl]
+  ];
+
+  const match = entries.find(([id]) => canonicalPlayerSteamId(id) === normalized);
+  const avatarUrl = match?.[1];
+  if (!avatarUrl) return;
+
+  const matchId = current.id;
+  const syncKey = `${matchId}:${normalized}`;
+  if (syncedAvatarKeys.get(syncKey) === avatarUrl) return;
+
+  const avatarPath = await preparePlayerAvatar(normalized, avatarUrl);
+  if (!avatarPath) return;
+  if (!current || current.id !== matchId) return;
+
+  if (command(`duelplay_set_player_avatar ${normalized} ${avatarPath}`)) {
+    syncedAvatarKeys.set(syncKey, avatarUrl);
+    console.log(`[DuelPlay] syncing CS2 avatar ${normalized} -> ${avatarPath}`);
+  }
+}
+
 function clearCurrentTimers() {
   if (readyTimer) clearTimeout(readyTimer);
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
@@ -418,42 +453,11 @@ function scanLatestServerLog() {
   } catch { /* log may be rotated while reading */ }
 }
 
-function mapCode(name) {
-  const raw = String(name || 'Dust2').trim();
-  const normalized = raw.replace(/^de_/, '').toLowerCase();
-  const customMapNames = new Set([
-    'aim_redline', 'aim_dust2', 'fy_pool_day', '1v1_map', 'minecraft_aim_map',
-    '1v1_oasis', '1v1_v3', '1v1_arena', '1v1_de_anubis_aim', 'aim_halloween'
-  ]);
-  if (customMapNames.has(normalized)) return normalized;
-  const aliases = { dust2: 'de_dust2' };
-  return aliases[normalized] || `de_${normalized}`;
-}
-
 function applyDuelRules(mode, weaponModifier) {
   if (resolveEffectiveMode(mode, weaponModifier) === 'RANDOM_WEAPON' && current && !current.randomWeapon) {
     current.randomWeapon = chooseRandomWeapon();
   }
   for (const rule of buildDuelModeCommands(mode, weaponModifier, current?.randomWeapon)) command(rule);
-}
-
-const WORKSHOP_MAP_SOURCE_FOLDERS = Object.freeze({
-  '3754320383': 'aim_cache',
-  '3592238209': 'fy_snow_legacy',
-  '3383710636': 'testmap',
-  '3596198331': 'halloween_map',
-});
-
-function safeMapConfigName(name) {
-  const value = String(name || '').trim().toLowerCase();
-  return /^[a-z0-9_]+$/.test(value) ? value : null;
-}
-
-function buildMatchMapConfig(mode, weaponModifier, randomWeapon = null) {
-  return [
-    '// DuelPlay per-match map rules. Generated before Workshop map load.',
-    ...buildDuelModeCommands(mode, weaponModifier, randomWeapon),
-  ].join('\n') + '\n';
 }
 
 function writeMatchMapConfig(mapNames, mode, weaponModifier, randomWeapon = null) {
@@ -619,6 +623,9 @@ function observeServerLine(text) {
       syncPlayerNickname(playerSteamId);
       setTimeout(() => syncPlayerNickname(playerSteamId), 500);
       setTimeout(() => syncPlayerNickname(playerSteamId), 1500);
+      void syncPlayerAvatar(playerSteamId);
+      setTimeout(() => { void syncPlayerAvatar(playerSteamId); }, 1000);
+      setTimeout(() => { void syncPlayerAvatar(playerSteamId); }, 3000);
 
       // Force the next manager tick to send the new count immediately.
       lastHeartbeatSentAt = 0;
@@ -655,6 +662,7 @@ function observeServerLine(text) {
       console.log(
         `[DuelPlay] server log player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
       );
+      void syncPlayerAvatar(playerSteamId);
       if (current) finalizePlayerLoadoutAfterConnect();
     }
   }
@@ -694,22 +702,9 @@ async function claimAndStart(match) {
   const weaponModifier = claimed.weaponModifier || match.weaponModifier || null;
   const randomWeapon = resolveEffectiveMode(mode, weaponModifier) === 'RANDOM_WEAPON' ? chooseRandomWeapon() : null;
   const workshopId = claimed.workshopId ? String(claimed.workshopId).trim() : '';
-  const mapConfigNames = new Set();
-  if (match.mapName) mapConfigNames.add(String(match.mapName));
-  const fallbackMapName = mapCode(match.mapName);
-  if (fallbackMapName) mapConfigNames.add(String(fallbackMapName));
-  const workshopSourceFolder = WORKSHOP_MAP_SOURCE_FOLDERS[workshopId];
-  if (workshopSourceFolder) mapConfigNames.add(workshopSourceFolder);
-  writeMatchMapConfig([...mapConfigNames], mode, weaponModifier, randomWeapon);
-  const mapLaunchArgs = workshopId
-    ? ['+map', 'de_dust2', '+host_workshop_map', workshopId]
-    : (() => {
-        const fallback = mapCode(match.mapName);
-        if (/^(aim_|fy_|1v1_|minecraft_aim_map)/i.test(fallback)) {
-          throw new Error(`Workshop ID is required for custom duel map: ${fallback}`);
-        }
-        return ['+map', fallback];
-      })();
+  const mapConfigNames = buildMapConfigNames(match.mapName, workshopId);
+  writeMatchMapConfig(mapConfigNames, mode, weaponModifier, randomWeapon);
+  const mapLaunchArgs = buildMapLaunchArgs(match.mapName, workshopId);
   const args = [
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
@@ -766,6 +761,7 @@ async function claimAndStart(match) {
   duelRulesAppliedAfterConnect = false;
   lastHeartbeatSentAt = 0;
   lastRoundRuleApplyAt = 0;
+  syncedAvatarKeys.clear();
   resetRefereeState();
 
   child.stdout.on('data', (chunk) => {

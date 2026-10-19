@@ -6,6 +6,15 @@ import {
   getFirstToTenWinnerTeam,
   getRuleReapplyDelays,
 } from './server-manager/mode-policy.mjs';
+import {
+  CUSTOM_MAP_NAMES,
+  WORKSHOP_MAP_SOURCE_FOLDERS,
+  buildMapConfigNames,
+  buildMapLaunchArgs,
+  buildMatchMapConfig,
+  mapCode,
+  safeMapConfigName,
+} from './server-manager/map-launch.mjs';
 
 const manager = readFileSync('scripts/server-manager/server-manager.mjs', 'utf8');
 const modePolicySource = readFileSync('scripts/server-manager/mode-policy.mjs', 'utf8');
@@ -21,10 +30,67 @@ assert.match(catalog, /const ALL_GAMEPLAY = \{[\s\S]*?\} as const;/);
 const supportBlock = catalog.match(/const ALL_GAMEPLAY = \{([\s\S]*?)\} as const;/)?.[1] ?? '';
 for (const mode of modes) assert.match(supportBlock, new RegExp(`${mode}: true`), `${mode} must be supported on every map`);
 
+const mapDetails = mapEntries.map(([, mapId, body]) => ({
+  id: mapId,
+  serverMapName: body.match(/serverMapName: "([^"]+)"/)?.[1] ?? null,
+  workshopId: body.match(/workshopId: "([^"]+)"/)?.[1] ?? null,
+}));
+for (const map of mapDetails) {
+  assert.ok(map.serverMapName, `${map.id} declares a serverMapName`);
+  assert.ok(/^\d{9,10}$/.test(map.workshopId ?? ''), `${map.id} declares a numeric Workshop ID`);
+}
+assert.equal(new Set(mapDetails.map((map) => map.serverMapName)).size, 10, 'server map names are unique');
+assert.equal(new Set(mapDetails.map((map) => map.workshopId)).size, 10, 'Workshop IDs are unique');
+assert.equal(new Set(mapDetails.map((map) => map.id)).size, 10, 'map IDs are unique');
+
+// Per-map catalog -> manager wiring: every catalog serverMapName must resolve to a
+// real config name and a real launch command, without a bogus de_ prefix.
+for (const map of mapDetails) {
+  const code = mapCode(map.serverMapName);
+  assert.ok(CUSTOM_MAP_NAMES.has(code), `${map.serverMapName} resolves to a custom map code (got "${code}")`);
+  assert.doesNotMatch(code, /^de_/, `${map.serverMapName} must not be launched as a de_ map`);
+  const configNames = buildMapConfigNames(map.serverMapName, map.workshopId);
+  assert.ok(configNames.includes(map.serverMapName), `${map.id} writes the raw catalog name to cfg/maps`);
+  assert.ok(configNames.includes(code), `${map.id} writes the mapCode fallback to cfg/maps`);
+  for (const name of configNames) assert.ok(safeMapConfigName(name), `${map.id} config name "${name}" is a valid cfg file name`);
+  const internalName = WORKSHOP_MAP_SOURCE_FOLDERS[map.workshopId];
+  if (internalName) assert.ok(configNames.includes(internalName), `${map.id} also writes the Workshop internal name ${internalName}`);
+  assert.deepEqual(
+    buildMapLaunchArgs(map.serverMapName, map.workshopId),
+    ['+map', 'de_dust2', '+host_workshop_map', map.workshopId],
+    `${map.id} launches through the Workshop host command`,
+  );
+  assert.throws(() => buildMapLaunchArgs(map.serverMapName, ''), /Workshop ID is required/, `${map.id} cannot launch without its Workshop ID`);
+}
+for (const workshopId of Object.keys(WORKSHOP_MAP_SOURCE_FOLDERS)) {
+  assert.ok(mapDetails.some((map) => map.workshopId === workshopId), `WORKSHOP_MAP_SOURCE_FOLDERS entry ${workshopId} must reference a catalog map`);
+}
+assert.deepEqual(buildMapLaunchArgs('Dust2', ''), ['+map', 'de_dust2'], 'the official fallback map launches by name');
+assert.deepEqual(buildMapLaunchArgs('de_mirage', null), ['+map', 'de_mirage'], 'standard maps boot directly without a Workshop item');
+
+// The manager must pass the selected map and Workshop ID through the shared helpers.
+assert.match(manager, /buildMapConfigNames\(match\.mapName, workshopId\)/, 'manager derives cfg names from the catalog map + Workshop ID');
+assert.match(manager, /writeMatchMapConfig\(mapConfigNames, mode, weaponModifier, randomWeapon\)/, 'manager writes the per-match rules for that map');
+assert.match(manager, /buildMapLaunchArgs\(match\.mapName, workshopId\)/, 'manager derives launch args from the catalog map + Workshop ID');
+
 function finalRules(mode, modifier = null, randomWeapon = null) {
   const result = new Map();
   for (const command of buildDuelModeCommands(mode, modifier, randomWeapon)) {
     const [name, ...value] = command.split(' ');
+    result.set(name, value.join(' '));
+  }
+  return result;
+}
+
+// Parse the real per-match config file content that writeMatchMapConfig would drop
+// into csgo/cfg/maps/<name>.cfg, so the matrix checks the shipped artifact.
+function mapConfigRules(mode, modifier = null, randomWeapon = null) {
+  const content = buildMatchMapConfig(mode, modifier, randomWeapon);
+  assert.match(content, /^\/\/ DuelPlay per-match map rules\. Generated before Workshop map load\.\n/, `${mode} config keeps its header`);
+  const result = new Map();
+  for (const line of content.split('\n')) {
+    if (!line || line.startsWith('//')) continue;
+    const [name, ...value] = line.split(' ');
     result.set(name, value.join(' '));
   }
   return result;
@@ -37,6 +103,36 @@ for (const mode of modes) {
   assert.equal(rules.get('mp_ct_default_melee'), expectedMelee, `${mode} sets the CT knife policy`);
   assert.equal(rules.get('duelplay_grenade_only'), mode === 'GRENADE_ONLY' ? '1' : '0', `${mode} toggles only its matching grenade-only plugin mode`);
 }
+
+// Full 10 maps x 8 modes matrix: for every catalog map we build the real cfg
+// content and assert the mode-correct rules, so a regression on any single
+// map/mode combination fails with the offending map id.
+const RESTRICTED_MODES = new Set(['AWP_ONLY', 'DEAGLE_ONLY', 'KNIFE_ONLY', 'RANDOM_WEAPON', 'GRENADE_ONLY']);
+assert.equal(modes.length * mapDetails.length, 80, 'the mode/map matrix must cover 8 modes over 10 maps');
+let matrixChecked = 0;
+for (const map of mapDetails) {
+  for (const mode of modes) {
+    const rules = mapConfigRules(mode);
+    const restricted = RESTRICTED_MODES.has(mode);
+    const at = `${mode} on ${map.id} (${map.serverMapName})`;
+    assert.equal(rules.get('duelplay_grenade_only'), mode === 'GRENADE_ONLY' ? '1' : '0', `${at} toggles grenade-only`);
+    assert.equal(rules.get('mp_damage_headshot_only'), mode === 'HEADSHOT_ONLY' ? '1' : '0', `${at} sets headshot-only`);
+    assert.equal(rules.get('mp_buy_allow_guns'), restricted ? '0' : '255', `${at} sets the buy policy`);
+    assert.equal(rules.get('mp_t_default_grenades'), '0', `${at} never grants engine grenades`);
+    assert.equal(rules.get('mp_t_default_melee'), mode === 'GRENADE_ONLY' ? '0' : 'weapon_knife', `${at} sets the knife policy`);
+    assert.equal(rules.get('mp_maxrounds'), '19', `${at} keeps the 19-round ceiling`);
+    if (mode === 'GRENADE_ONLY') {
+      assert.equal(rules.get('ammo_grenade_limit_total'), '12', `${at} grenade total cap`);
+      assert.equal(rules.get('ammo_grenade_limit_default'), '3', `${at} grenade default cap`);
+      assert.equal(rules.get('ammo_grenade_limit_flashbang'), '3', `${at} flashbang cap`);
+    }
+    if (mode === 'AWP_ONLY') assert.equal(rules.get('mp_t_default_primary'), 'weapon_awp', `${at} primary`);
+    if (mode === 'DEAGLE_ONLY') assert.equal(rules.get('mp_t_default_secondary'), 'weapon_deagle', `${at} secondary`);
+    if (mode === 'KNIFE_ONLY') assert.equal(rules.get('mp_t_default_primary'), '0', `${at} has no primary`);
+    matrixChecked += 1;
+  }
+}
+assert.equal(matrixChecked, 80, 'every one of the 80 map/mode combinations was evaluated');
 
 const solo = finalRules('SOLO_1V1');
 assert.equal(solo.get('mp_buy_allow_guns'), '255');
@@ -127,7 +223,6 @@ assert.deepEqual(getRuleReapplyDelays('ROUND_START'), [150, 1000, 2500, 5000]);
 assert.deepEqual(getRuleReapplyDelays('PLAYER_CONNECTED'), [250, 750, 1500, 2500]);
 assert.equal(getRuleReapplyDelays('MATCH_FINISHED').length, 0);
 assert.match(manager, /buildDuelModeCommands\(mode, weaponModifier/);
-assert.match(manager, /writeMatchMapConfig\(\[\.\.\.mapConfigNames\], mode, weaponModifier, randomWeapon\)/);
 assert.match(manager, /for \(const delay of getRuleReapplyDelays\('ROUND_START'\)\)/);
 assert.match(manager, /function applyDuelRules\(mode, weaponModifier\)[\s\S]*?buildDuelModeCommands\(mode, weaponModifier/);
 assert.match(manager, /for \(const timer of duelRuleTimers\) clearTimeout\(timer\)/, 'round and map reapply timers are cleared at lifecycle end');
@@ -137,7 +232,7 @@ assert.match(manager, /child\.on\('exit',[\s\S]*?clearCurrentTimers\(\)/, 'match
 assert.match(manager, /\['FINISHED', 'CANCELLED'\]\.includes\(state\.match\?\.status\)/, 'finished and cancelled matches close their dedicated server');
 assert.match(manager, /claimed\.mode \|\| match\.mode \|\| 'SOLO_1V1'/, 'manager receives the canonical claimed mode');
 assert.match(manager, /claimed\.weaponModifier \|\| match\.weaponModifier \|\| null/, 'manager receives the canonical weapon modifier');
-const applyRulesBody = manager.slice(manager.indexOf('function applyDuelRules'), manager.indexOf('const WORKSHOP_MAP_SOURCE_FOLDERS'));
+const applyRulesBody = manager.slice(manager.indexOf('function applyDuelRules'), manager.indexOf('function writeMatchMapConfig'));
 assert.doesNotMatch(applyRulesBody, /pulseGrenadeLoadout\(\)/, 'general applyDuelRules must not grant grenade loadouts');
 assert.match(modePolicySource, /mp_damage_headshot_only \$\{headshotOnly \? '1' : '0'\}/, 'all map reapplications set the headshot rule explicitly');
 assert.match(modePolicySource, /duelplay_grenade_only \$\{effectiveMode === 'GRENADE_ONLY' \? '1' : '0'\}/, 'GRENADE_ONLY enforcement stays enabled only for that mode');
@@ -153,4 +248,4 @@ assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife a
 assert.match(grenadePlugin, /CountGrenades\(pawn\)/, 'GRENADE_ONLY verifies the actual inventory after issuing items');
 assert.match(grenadePlugin, /state\.ResetForNewRound\(_roundNumber\)/, 'GRENADE_ONLY resets per-player quotas using a new engine round identity');
 assert.doesNotMatch(grenadePlugin, /GamePhase|ResetForNewPhase/, 'the half is never used to reset the grenade set');
-console.log(`CS2 mode policy: ${maps.length} maps × ${modes.length} modes; mode command, round, and winner regressions PASS`);
+console.log(`CS2 mode policy: ${mapDetails.length} maps × ${modes.length} modes (${matrixChecked} combinations); map cfg/launch wiring, mode command, round, and winner regressions PASS`);
