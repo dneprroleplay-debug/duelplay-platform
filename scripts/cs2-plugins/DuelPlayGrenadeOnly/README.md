@@ -29,11 +29,11 @@ Requires the .NET SDK compatible with the installed CounterStrikeSharp API. The 
 dotnet build .\DuelPlayGrenadeOnly.csproj --configuration Release
 ```
 
-CounterStrikeSharp plugin binaries are installed under:
+CounterStrikeSharp plugin binaries are installed under each CS2 instance root (`CS2_DIR`), for example `/home/ubuntu/cs2/instances/cs2-1/root`:
 
-`<server>/game/csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/`
+`$CS2_DIR/csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/`
 
-Copy the build output DLL (and its `.deps.json` / `.pdb` when produced) into that folder according to the installed CounterStrikeSharp version.
+Copy the build output DLL and its `.deps.json` (and `.pdb` when produced) into that folder on **every** registered instance so all servers run the same plugin build. Do not copy the DLL into the shared `/home/ubuntu/cs2/game` tree (no instance loads plugins from there) or to the `counterstrikesharp/plugins/` root, and delete any legacy root-level `DuelPlayGrenadeOnly.dll`.
 
 ## Local state tests
 
