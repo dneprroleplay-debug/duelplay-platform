@@ -20,7 +20,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     private const int MaxThrowVerifyAttempts = 3;
 
     public override string ModuleName => "DuelPlay Grenade Only";
-    public override string ModuleVersion => "1.2.0";
+    public override string ModuleVersion => "1.2.1";
     public override string ModuleAuthor => "DuelPlay";
     public override string ModuleDescription => "Grants a verified round-scoped grenade set (reset per round), then one knife per life.";
 
@@ -218,7 +218,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
             _playerRoundStates[player.SteamID] = state;
         }
 
-        CaptureAndBlockPickup(player, pawn, lifeId);
+        CapturePickupState(player, pawn, lifeId);
         if (state.RemainingTotal == 0)
         {
             GiveKnifeIfGrenadesSpent(player, state, lifeId, pawn);
@@ -253,6 +253,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
                 if (Enum.GetValues<GrenadeKind>().All(kind => actual[kind] == expected[kind]))
                 {
                     state.CompleteLoadout(_roundNumber, lifeId, expected);
+                    BlockPickup(pawn);
                     Logger.LogInformation(
                         "GRENADE_ONLY loadout verified for SteamID {SteamId}, round {Round}: HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
                         player.SteamID, _roundNumber, actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
@@ -309,7 +310,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
 
         try
         {
-            CaptureAndBlockPickup(player, knownPawn ?? pawn, lifeId);
+            CapturePickupState(player, knownPawn ?? pawn, lifeId);
             if (CountWeapon(pawn, "weapon_knife") == 0)
             {
                 var knife = player.GiveNamedItem<CBasePlayerWeapon>("weapon_knife");
@@ -317,6 +318,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
                     throw new InvalidOperationException("CS2 did not place weapon_knife in the player's inventory.");
             }
 
+            BlockPickup(knownPawn ?? pawn);
             Logger.LogInformation("GRENADE_ONLY knife granted/verified for SteamID {SteamId}, round {Round}: all 12 allotted grenades were thrown", player.SteamID, _roundNumber);
         }
         catch (Exception ex)
@@ -455,12 +457,16 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         _previousFlashbangLimit = null;
     }
 
-    private void CaptureAndBlockPickup(CCSPlayerController player, CCSPlayerPawn pawn, long lifeId)
+    private void CapturePickupState(CCSPlayerController player, CCSPlayerPawn pawn, long lifeId)
     {
         var services = pawn.WeaponServices!.As<CCSPlayer_WeaponServices>();
         if (!_pickupSnapshots.TryGetValue(player.SteamID, out var snapshot) || snapshot.LifeId != lifeId)
             _pickupSnapshots[player.SteamID] = new PickupSnapshot(lifeId, services.PreventWeaponPickup);
-        services.PreventWeaponPickup = true;
+    }
+
+    private static void BlockPickup(CCSPlayerPawn pawn)
+    {
+        pawn.WeaponServices!.As<CCSPlayer_WeaponServices>().PreventWeaponPickup = true;
     }
 
     private void RestoreAllPickupStates()

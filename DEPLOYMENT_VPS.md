@@ -22,13 +22,15 @@ Copy `scripts/server-manager/.env.example` to `scripts/server-manager/.env` and 
 DUELPLAY_API_URL=https://YOUR-DUELPLAY-DOMAIN
 DUELPLAY_SERVER_MANAGER_SECRET=LONG_RANDOM_SECRET
 CS2_GSI_TOKEN=LONG_RANDOM_SECRET
-CS2_DIR=/home/ubuntu/cs2/game
+CS2_DIR=/home/ubuntu/cs2/instances/cs2-1/root
 CS2_PUBLIC_HOST=YOUR_PUBLIC_VPS_IP
 CS2_PORT=27015
 DUELPLAY_SERVER_ID=cs2-1
 DUELPLAY_MANAGER_PORT=3010
 CS2_READY_DELAY_MS=20000
 ```
+
+Every server runs from its own CS2 root, so a multi-server VPS keeps one env file per instance (`.env`, `.env.cs2-2`, `.env.cs2-3`, ...) whose `CS2_DIR` points at that instance's root (`/home/ubuntu/cs2/instances/cs2-N/root`). CounterStrikeSharp plugins, the gameinfo loader entry and the per-match configs are all resolved relative to `CS2_DIR`, so a new plugin build must be copied to `$CS2_DIR/csgo/addons/counterstrikesharp/plugins/<Plugin>/` on **every** instance. The shared `/home/ubuntu/cs2/game` tree (used by SteamCMD) is not read by the running instances.
 
 ## 3. Node.js
 
