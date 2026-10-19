@@ -16,7 +16,27 @@ PLUGIN_GLOBALVARS();
 
 namespace
 {
+ISmmAPI* g_ismm = nullptr;
 INetworkStringTableContainer* g_stringTables = nullptr;
+
+INetworkStringTableContainer* AcquireStringTables()
+{
+    if (!g_ismm)
+        return nullptr;
+
+    return static_cast<INetworkStringTableContainer*>(
+        g_ismm->GetEngineFactory()(
+            INTERFACENAME_NETWORKSTRINGTABLESERVER,
+            nullptr));
+}
+
+INetworkStringTableContainer* EnsureStringTables()
+{
+    if (!g_stringTables)
+        g_stringTables = AcquireStringTables();
+
+    return g_stringTables;
+}
 
 void FormatSteamId(uint64_t steamId, char* buffer, size_t length)
 {
@@ -50,11 +70,16 @@ bool EnsureReliableAvatarData()
 
 bool ClearAvatarOverride(uint64_t steamId)
 {
-    if (!g_stringTables || steamId == 0)
+    if (steamId == 0)
+        return false;
+
+    INetworkStringTableContainer* stringTables = EnsureStringTables();
+
+    if (!stringTables)
         return false;
 
     INetworkStringTable* table =
-        g_stringTables->FindTable("ServerAvatarOverrides");
+        stringTables->FindTable("ServerAvatarOverrides");
 
     if (!table)
     {
@@ -92,11 +117,19 @@ bool SetAvatarOverride(
     uint64_t steamId,
     const std::vector<unsigned char>& data)
 {
-    if (!g_stringTables || steamId == 0 || data.empty())
+    if (steamId == 0 || data.empty())
         return false;
 
+    INetworkStringTableContainer* stringTables = EnsureStringTables();
+
+    if (!stringTables)
+    {
+        META_CONPRINTF("[DuelPlayPlayerAvatar] network string tables unavailable\n");
+        return false;
+    }
+
     INetworkStringTable* table =
-        g_stringTables->FindTable("ServerAvatarOverrides");
+        stringTables->FindTable("ServerAvatarOverrides");
 
     if (!table)
     {
@@ -345,7 +378,17 @@ public:
         char const*,
         char const*,
         bool,
-        bool) override {}
+        bool) override
+    {
+        g_stringTables = AcquireStringTables();
+
+        META_CONPRINTF(
+            "[DuelPlayPlayerAvatar] level init, string tables=%s, ServerAvatarOverrides=%s\n",
+            g_stringTables ? "acquired" : "unavailable",
+            g_stringTables && g_stringTables->FindTable("ServerAvatarOverrides")
+                ? "available"
+                : "not yet available");
+    }
 
     void OnLevelShutdown() override
     {
@@ -368,11 +411,8 @@ bool DuelPlayPlayerAvatar::Load(
 {
     PLUGIN_SAVEVARS();
 
-    g_stringTables =
-        static_cast<INetworkStringTableContainer*>(
-            ismm->GetEngineFactory()(
-                INTERFACENAME_NETWORKSTRINGTABLESERVER,
-                nullptr));
+    g_ismm = ismm;
+    g_stringTables = AcquireStringTables();
 
     if (!g_stringTables)
     {
@@ -421,5 +461,6 @@ bool DuelPlayPlayerAvatar::Unload(
     size_t maxlen)
 {
     g_stringTables = nullptr;
+    g_ismm = nullptr;
     return true;
 }

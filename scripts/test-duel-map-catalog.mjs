@@ -39,4 +39,56 @@ assert.match(integrations.matchApi, /MODE_NOT_SUPPORTED_FOR_MAP/);
 assert.match(integrations.matchmakingApi, /isMapModeSupported/);
 assert.match(integrations.profile, /getDuelMap\(m\.mapName\)/);
 assert.match(integrations.live, /DUEL_MAPS/);
-console.log("Duel map catalog regression: 17/17 PASS");
+
+const mapBody = catalog.slice(catalog.indexOf("export const DUEL_MAPS"), catalog.indexOf("export const DUEL_MAP_IDS"));
+const catalogMaps = [...mapBody.matchAll(/\{\s*id: "([^"]+)"([\s\S]*?)\n  \},/g)].map(([, id, body]) => ({
+  id,
+  displayName: body.match(/displayName: "([^"]+)"/)?.[1] ?? null,
+  serverMapName: body.match(/serverMapName: "([^"]+)"/)?.[1] ?? null,
+  workshopId: body.match(/workshopId: "([^"]+)"/)?.[1] ?? null,
+}));
+assert.equal(catalogMaps.length, 10, "the canonical catalog has exactly ten maps");
+
+// The setup document must mirror the catalog: its active table lists the exact
+// same maps and Workshop IDs, and any removed maps live in a separate archive
+// section so they cannot be mistaken for selectable maps.
+function parseMapTable(section) {
+  const rows = [];
+  const rowPattern = /^\|\s*([^|]+?)\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*$/gm;
+  let match;
+  while ((match = rowPattern.exec(section))) rows.push({ label: match[1].trim(), serverMapName: match[2].trim(), workshopId: match[3].trim() });
+  return rows;
+}
+
+const setupDoc = fs.readFileSync("DUELPLAY_MAPS_SETUP.md", "utf8");
+const archivedSplit = setupDoc.split(/^## Archived maps/m);
+assert.equal(archivedSplit.length, 2, "the setup doc separates active maps from an archived maps section");
+const activeRows = parseMapTable(archivedSplit[0]);
+const archivedRows = parseMapTable(archivedSplit[1]);
+assert.equal(activeRows.length, 10, "the setup doc must list exactly ten active maps");
+for (const row of activeRows) {
+  const map = catalogMaps.find((entry) => entry.serverMapName === row.serverMapName);
+  assert.ok(map, `setup doc map ${row.serverMapName} exists in the canonical catalog`);
+  assert.equal(row.label, map.displayName, `setup doc label for ${row.serverMapName} matches the catalog display name`);
+  assert.equal(row.workshopId, map.workshopId, `setup doc Workshop ID for ${row.serverMapName} matches the catalog`);
+}
+assert.deepEqual(
+  new Set(activeRows.map((row) => row.serverMapName)),
+  new Set(catalogMaps.map((map) => map.serverMapName)),
+  "the active setup doc map set equals the canonical catalog set",
+);
+assert.deepEqual(
+  new Set(activeRows.map((row) => row.workshopId)),
+  new Set(catalogMaps.map((map) => map.workshopId)),
+  "the active setup doc Workshop ID set equals the canonical catalog set",
+);
+const activeServerNames = new Set(activeRows.map((row) => row.serverMapName));
+const catalogWorkshopIds = new Set(catalogMaps.map((map) => map.workshopId));
+for (const row of archivedRows) {
+  assert.ok(!activeServerNames.has(row.serverMapName), `archived map ${row.serverMapName} is not in the active list`);
+  assert.ok(!catalogWorkshopIds.has(row.workshopId), `archived map ${row.serverMapName} is not in the canonical catalog`);
+}
+assert.ok(archivedRows.length > 0, "the archived section documents the removed maps");
+
+console.log(`Duel map catalog regression: 17/17 PASS`);
+console.log(`Duel map docs parity: ${activeRows.length} active maps match the catalog; ${archivedRows.length} archived maps excluded. PASS`);

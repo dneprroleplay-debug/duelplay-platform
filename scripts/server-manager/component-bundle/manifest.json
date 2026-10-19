@@ -12,7 +12,6 @@
     { "name": "DuelPlay Player Name", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll", "version": null, "sha256": null, "artifact": null },
     { "name": "DuelPlay Player Avatar", "path": "csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so", "version": null, "sha256": null, "artifact": null },
     { "name": "DuelPlay Player Avatar loader", "path": "csgo/addons/metamod/duelplayplayeravatar.vdf", "version": null, "sha256": null, "artifact": null },
-    { "name": "DuelPlay Grenade Only root-level duplicate", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly.dll", "version": null, "sha256": null, "artifact": null },
     { "name": "DuelPlay Grenade Only plugin", "path": "csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll", "version": null, "sha256": null, "artifact": null }
   ],
   "instanceSpecificPaths": [
@@ -23,7 +22,7 @@
   ],
   "knownLimitations": [
     "All hashes and versions are unknown; this manifest is not a repair source.",
-    "The two Grenade Only DLL paths are checked independently; loaded path is not established by hash parity.",
+    "Only the canonical CounterStrikeSharp plugin path is tracked; the legacy root-level DuelPlayGrenadeOnly.dll is not installed and any stale copy on a server must be removed manually.",
     "Metamod, CounterStrikeSharp and plugin compatibility has not been verified on production after launch."
   ]
 }
