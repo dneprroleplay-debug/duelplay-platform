@@ -121,10 +121,16 @@ for (const map of mapDetails) {
     assert.equal(rules.get('mp_t_default_grenades'), '0', `${at} never grants engine grenades`);
     assert.equal(rules.get('mp_t_default_melee'), mode === 'GRENADE_ONLY' ? '0' : 'weapon_knife', `${at} sets the knife policy`);
     assert.equal(rules.get('mp_maxrounds'), '19', `${at} keeps the 19-round ceiling`);
+    assert.equal(rules.get('mp_respawn_on_death_t'), mode === 'GRENADE_ONLY' ? '1' : '0', `${at} respawns on death only in grenade mode`);
+    assert.equal(rules.get('mp_respawn_on_death_ct'), mode === 'GRENADE_ONLY' ? '1' : '0', `${at} respawns on death only in grenade mode`);
+    assert.equal(rules.get('mp_use_respawn_waves'), '0', `${at} keeps respawn waves off so a respawn is immediate`);
+    assert.equal(rules.get('mp_autokick'), mode === 'GRENADE_ONLY' ? '0' : '1', `${at} sets the suicide-kick policy explicitly`);
     if (mode === 'GRENADE_ONLY') {
       assert.equal(rules.get('ammo_grenade_limit_total'), '12', `${at} grenade total cap`);
       assert.equal(rules.get('ammo_grenade_limit_default'), '3', `${at} grenade default cap`);
       assert.equal(rules.get('ammo_grenade_limit_flashbang'), '3', `${at} flashbang cap`);
+      assert.equal(rules.get('mp_respawnwavetime_t'), '0', `${at} immediate T respawn`);
+      assert.equal(rules.get('mp_respawnwavetime_ct'), '0', `${at} immediate CT respawn`);
     }
     if (mode === 'AWP_ONLY') assert.equal(rules.get('mp_t_default_primary'), 'weapon_awp', `${at} primary`);
     if (mode === 'DEAGLE_ONLY') assert.equal(rules.get('mp_t_default_secondary'), 'weapon_deagle', `${at} secondary`);
@@ -208,6 +214,16 @@ assert.equal(grenade.get('mp_t_default_grenades'), '0', 'the plugin supplies the
 assert.equal(grenade.get('ammo_grenade_limit_total'), '12');
 assert.equal(grenade.get('ammo_grenade_limit_default'), '3');
 assert.equal(grenade.get('ammo_grenade_limit_flashbang'), '3');
+assert.equal(grenade.get('mp_respawn_on_death_t'), '1', 'GRENADE_ONLY respawns dead players inside the round');
+assert.equal(grenade.get('mp_respawn_on_death_ct'), '1', 'GRENADE_ONLY respawns dead players inside the round');
+assert.equal(grenade.get('mp_use_respawn_waves'), '0', 'GRENADE_ONLY respawns immediately without waves');
+assert.equal(grenade.get('mp_respawnwavetime_t'), '0', 'GRENADE_ONLY has no T respawn wave delay');
+assert.equal(grenade.get('mp_respawnwavetime_ct'), '0', 'GRENADE_ONLY has no CT respawn wave delay');
+assert.equal(grenade.get('mp_autokick'), '0', 'GRENADE_ONLY disables CS2 five-suicide kick');
+assert.equal(solo.get('mp_respawn_on_death_t'), '0', 'the respawn-on-death rule is reset outside grenade mode');
+assert.equal(solo.get('mp_respawn_on_death_ct'), '0', 'the respawn-on-death rule is reset outside grenade mode');
+assert.equal(solo.get('mp_autokick'), '1', 'leaving GRENADE_ONLY restores the normal five-suicide kick');
+assert.equal(finalRules('GRENADE_ONLY').get('mp_autokick'), '0', 're-entering GRENADE_ONLY disables the kick again');
 
 const firstTo10 = finalRules('FIRST_TO_10');
 assert.equal(firstTo10.get('mp_maxrounds'), '19');
@@ -236,6 +252,7 @@ const applyRulesBody = manager.slice(manager.indexOf('function applyDuelRules'),
 assert.doesNotMatch(applyRulesBody, /pulseGrenadeLoadout\(\)/, 'general applyDuelRules must not grant grenade loadouts');
 assert.match(modePolicySource, /mp_damage_headshot_only \$\{headshotOnly \? '1' : '0'\}/, 'all map reapplications set the headshot rule explicitly');
 assert.match(modePolicySource, /duelplay_grenade_only \$\{effectiveMode === 'GRENADE_ONLY' \? '1' : '0'\}/, 'GRENADE_ONLY enforcement stays enabled only for that mode');
+assert.match(modePolicySource, /mp_autokick \$\{grenadeOnly \? '0' : '1'\}/, 'mp_autokick is explicit in every generated mode');
 assert.match(manager, /getFirstToTenWinnerTeam\(ctScore, tScore\)/);
 assert.match(manager, /FIRST_TO_10 reached/);
 assert.match(manager, /writeIfChanged\(join\(cfgDir, name\)/, 'generated mode cfgs are refreshed when the mode policy changes');
@@ -244,6 +261,8 @@ assert.doesNotMatch(manager, /writeIfMissing\(join\(cfgDir, name\)/, 'mode cfgs 
 const grenadePlugin = readFileSync('scripts/cs2-plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.cs', 'utf8');
 assert.match(grenadePlugin, /GiveNamedItem/);
 assert.match(grenadePlugin, /PreventWeaponPickup = true/);
+const grenadePhase = grenadePlugin.slice(grenadePlugin.indexOf('private void ApplyLoadout'), grenadePlugin.indexOf('private void GiveKnifeIfGrenadesSpent'));
+assert.doesNotMatch(grenadePhase, /BlockPickup\(/, 'GRENADE_ONLY keeps pickup unblocked during the grenade phase so the last grenade can be re-equipped');
 assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife availability follows actual grenade throws');
 assert.match(grenadePlugin, /CountGrenades\(pawn\)/, 'GRENADE_ONLY verifies the actual inventory after issuing items');
 assert.match(grenadePlugin, /state\.ResetForNewRound\(_roundNumber\)/, 'GRENADE_ONLY resets per-player quotas using a new engine round identity');
