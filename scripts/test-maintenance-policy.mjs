@@ -14,16 +14,16 @@ const serverClaim = read('app/api/server-manager/claim/route.ts');
 const serverHealth = read('app/api/server-manager/health/route.ts');
 const updaterMaintenance = read('app/api/server-manager/maintenance/route.ts');
 const checks = [
- ['PATCH requires SUPERADMIN + MFA', route.includes('requireAdmin(5)')],
+ ['PATCH requires system.maintenance permission + MFA', route.includes('requirePermission("system.maintenance")')],
  ['PATCH rejects non-boolean enabled', route.includes('typeof (body as Record<string, unknown>).enabled !== "boolean"')],
  ['GET is no-store', route.includes('Cache-Control') && route.includes('no-store')],
- ['GET exposes admin bypass', route.includes('hasAdminLevel(me.role, 1)')],
+ ['GET exposes admin bypass for every RBAC admin', route.includes('resolveAdminAccess(me.id)') && route.includes('access.level > 0')],
  ['audit on enable/disable', route.includes('ENABLE_MAINTENANCE') && route.includes('DISABLE_MAINTENANCE')],
  ['client gate exists', gate.includes('state?.enabled&&!state.isAdmin')],
  ['login remains accessible', gate.includes('path!=="/login"')],
  ['test-login remains accessible', gate.includes('path!=="/test-login"')],
  ['server policy reads flag', policy.includes('key: "MAINTENANCE_MODE"')],
- ['server policy bypasses staff', policy.includes('hasAdminLevel(me.role, 1)')],
+ ['server policy bypasses every RBAC admin', policy.includes('resolveAdminAccess(me.id)') && policy.includes('access.level > 0')],
  ['maintenance uses exact CS2 update message', policy.includes('Идёт обновление серверов CS2. Пожалуйста, подождите')],
  ['match creation is backend-gated', createMatch.includes('assertMatchmakingAvailable(tx)')],
  ['match joining is backend-gated', joinMatch.includes('assertMatchmakingAvailable(tx)')],

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
 import { requirePermission } from "@/lib/admin-rbac";
 import { normalizeCosmeticType, validateCosmeticMetadata, validateCosmeticPrice } from "@/lib/cosmetic-shop";
 import { validateCollectionRequirements } from "@/lib/collection-policy";
@@ -27,7 +27,6 @@ function cleanItem(body: any) {
 }
 
 export async function GET() {
-  await requireAdmin(5);
   await requirePermission("content.manage");
   const [items, collections, missions, achievements] = await Promise.all([
     prisma.cosmeticItem.findMany({ orderBy: { createdAt: "desc" }, take: 200 }),
@@ -39,15 +38,15 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const me = await requireAdmin(5);
-  await requirePermission("content.manage");
+  const access = await requirePermission("content.manage");
+  const me = access.user;
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   if (!["ITEM", "COLLECTION", "MISSION", "ACHIEVEMENT"].includes(type)) return NextResponse.json({ error: "Invalid content type" }, { status: 400 });
   try {
     let row: any;
     if (type === "ITEM") {
-      const item = cleanItem(body);
+      const item = cleanItem({ ...body, itemType: body.itemType ?? "COSMETIC" });
       const existing = await prisma.cosmeticItem.findUnique({ where: { slug: item.slug }, select: { id: true } });
       if (existing) throw new Error("SLUG_EXISTS");
       row = await prisma.cosmeticItem.create({ data: { ...item, metadata: item.metadata ? (item.metadata as Prisma.InputJsonValue) : Prisma.JsonNull } });
@@ -80,8 +79,8 @@ export async function POST(request: NextRequest) {
 
 
 export async function PATCH(request: NextRequest) {
-  const me = await requireAdmin(5);
-  await requirePermission("content.manage");
+  const access = await requirePermission("content.manage");
+  const me = access.user;
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   const id = String(body.id || "");
@@ -95,7 +94,7 @@ export async function PATCH(request: NextRequest) {
         slug: body.slug !== undefined ? body.slug : current.slug,
         name: body.name !== undefined ? body.name : current.name,
         price: body.price !== undefined ? body.price : current.price,
-        itemType: body.type !== undefined ? body.type : current.type,
+        itemType: body.itemType !== undefined ? body.itemType : current.type,
         imageUrl: body.imageUrl !== undefined ? body.imageUrl : current.imageUrl,
         metadata: body.metadata !== undefined ? body.metadata : current.metadata,
         active: body.active !== undefined ? body.active : current.active,
@@ -116,7 +115,8 @@ export async function PATCH(request: NextRequest) {
       row = await prisma.collection.update({ where: { id }, data });
     } else if (type === "MISSION") {
       const data: any = {};
-      for (const k of ["name", "description", "type", "reward"]) if (body[k] !== undefined) data[k] = k === "reward" ? body[k] : String(body[k]);
+      for (const k of ["name", "description", "reward"]) if (body[k] !== undefined) data[k] = k === "reward" ? body[k] : String(body[k]);
+      if (body.missionType !== undefined) data.type = String(body.missionType);
       if (body.target !== undefined) { const n = Number(body.target); if (!Number.isInteger(n) || n < 1) throw new Error("INVALID"); data.target = n; }
       if (body.startsAt !== undefined) data.startsAt = body.startsAt ? new Date(body.startsAt) : null;
       if (body.endsAt !== undefined) data.endsAt = body.endsAt ? new Date(body.endsAt) : null;
@@ -140,8 +140,8 @@ export async function PATCH(request: NextRequest) {
 
 
 export async function DELETE(request: NextRequest) {
-  const me = await requireAdmin(5);
-  await requirePermission("content.manage");
+  const access = await requirePermission("content.manage");
+  const me = access.user;
   const body = await request.json().catch(() => ({}));
   const type = String(body.type || "");
   const id = String(body.id || "");

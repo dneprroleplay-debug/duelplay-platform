@@ -10,6 +10,7 @@ const payout = read(path.join("app", "api", "creator-payouts", "route.ts"));
 const layout = read(path.join("app", "admin", "operations", "layout.tsx"));
 const legacy = read(path.join("components", "Admin", "LegacyAdminPanel.tsx"));
 const accessPage = read(path.join("app", "admin", "access", "page.tsx"));
+const commandCatalog = read(path.join("lib", "admin-commands.ts"));
 
 function rolePermissionsSource(role) {
   const match = rbac.match(new RegExp(`\\n\\s*${role}:\\s*\\{[^}]*permissions:\\s*\\[([^\\]]*)\\]`));
@@ -24,9 +25,9 @@ function actionMapsTo(action, permission) {
 
 const checks = [
   ["Operations route has server-side SUPERADMIN guard", layout.includes("requireAdmin(5)") && layout.includes('redirect("/admin")')],
-  ["Platform settings API is SUPERADMIN-only", read(path.join("app", "api", "platform-settings", "route.ts")).includes("requireAdmin(5)")],
-  ["Feature flags API is SUPERADMIN-only", read(path.join("app", "api", "feature-flags", "route.ts")).includes("requireAdmin(5)")],
-  ["Site settings mutation API is SUPERADMIN-only", read(path.join("app", "api", "site-settings", "route.ts")).includes("requireAdmin(5)")],
+  ["Platform settings API is permission-gated (SUPERADMIN-only)", read(path.join("app", "api", "platform-settings", "route.ts")).includes('requirePermission("settings.manage")') && !roleHas("TECH_ADMIN", "settings.manage") && !roleHas("CONTENT_ADMIN", "settings.manage")],
+  ["Feature flags API is permission-gated (SUPERADMIN-only)", read(path.join("app", "api", "feature-flags", "route.ts")).includes('requirePermission("feature_flags.manage")') && !roleHas("TECH_ADMIN", "feature_flags.manage") && !roleHas("CONTENT_ADMIN", "feature_flags.manage")],
+  ["Site settings mutation API is permission-gated", read(path.join("app", "api", "site-settings", "route.ts")).includes('requirePermission("settings.content.manage")')],
   [
     "Admin role changes are gated by roles.assign",
     actionMapsTo("userRole", "roles.assign") && admin.includes('if(action==="userRole")') && admin.includes("permissionForAdminAction") && admin.includes("requirePermission(requiredPermission)"),
@@ -45,7 +46,8 @@ const checks = [
     "Theme controls require settings.content.manage and stay off lower roles",
     actionMapsTo("standardTheme", "settings.content.manage") && actionMapsTo("backgroundTheme", "settings.content.manage") && actionMapsTo("heroBackground", "settings.content.manage") && roleHas("SUPERADMIN", "settings.content.manage") && roleHas("CONTENT_ADMIN", "settings.content.manage") && !roleHas("ADMIN", "settings.content.manage") && !roleHas("FINANCIAL_ADMIN", "settings.content.manage") && !roleHas("SUPPORT", "settings.content.manage"),
   ],
-  ["Lower roles do not receive financial dashboard totals", admin.includes("const dashboard=level>=3?fullDashboard:")],
+  ["Financial dashboard totals require finance.view", admin.includes('const dashboard=can("finance.view")?fullDashboard:')],
+  ["Private user fields are scoped by role instead of legacy level", admin.includes("const canSeeUserPrivate=") && !admin.includes("const level=access.legacyAuthority")],
   [
     "PAID confirmation is split from creator.payouts.manage",
     payout.includes("const requiredPermission=status==='PAID'?'creator.payouts.pay':'creator.payouts.manage'") && roleHas("SUPERADMIN", "creator.payouts.pay") && roleHas("SUPERADMIN", "creator.payouts.manage") && roleHas("FINANCIAL_ADMIN", "creator.payouts.manage") && !roleHas("FINANCIAL_ADMIN", "creator.payouts.pay"),
@@ -64,7 +66,7 @@ const checks = [
   ],
   [
     "RBAC catalog documents payout and theme permissions",
-    accessPage.includes('["creator.payouts.pay",') && accessPage.includes('["creator.payouts.manage",') && accessPage.includes('["settings.content.manage",'),
+    commandCatalog.includes('["creator.payouts.pay",') && commandCatalog.includes('["creator.payouts.manage",') && commandCatalog.includes('["settings.content.manage",') && accessPage.includes("ADMIN_COMMAND_CATALOG"),
   ],
 ];
 

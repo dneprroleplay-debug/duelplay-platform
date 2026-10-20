@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/admin";
 import { requirePermission } from "@/lib/admin-rbac";
 
 const REVENUE_TYPES = [
@@ -24,8 +23,8 @@ function parseDate(value: string | null, fallback: Date) {
 
 export async function GET(request: Request) {
   try {
-    const me = await requireAdmin(3);
-    await requirePermission("finance.view");
+    const access = await requirePermission("finance.view");
+    const me = access.user;
     const url = new URL(request.url);
     const now = new Date();
     const from = parseDate(url.searchParams.get("from"), new Date(now.getTime() - 30 * 86400000));
@@ -91,7 +90,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       from: from.toISOString(),
       to: to.toISOString(),
-      admin: { id: me.id, role: me.role },
+      admin: { id: me.id, role: access.roleCode || me.role },
       categories,
       byType: Object.fromEntries(ALL_TYPES.map(type => [type, byType[type] ?? 0])),
       platformLedgerByType: Object.fromEntries(platformRevenueTypes.map(type => [type, platformByType[type] ?? 0])),
@@ -105,7 +104,9 @@ export async function GET(request: Request) {
       platformLedgerCount: platformRows.length,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "FORBIDDEN") return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+    const code = error instanceof Error ? error.message : "";
+    if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: code }, { status: 401 });
+    if (code === "FORBIDDEN" || code.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: code }, { status: 403 });
     console.error("admin revenue failed", error);
     return NextResponse.json({ error: "Не удалось загрузить аналитику доходов" }, { status: 500 });
   }

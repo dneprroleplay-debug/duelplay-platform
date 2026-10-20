@@ -45,6 +45,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const actor = await requirePermission("roles.manage");
+    await requirePermission("roles.assign");
     const body = await request.json().catch(() => ({}));
     const userId = String(body.userId || "");
     const roleCode = String(body.roleCode || "") as typeof ADMIN_ROLE_CODES[number];
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const actor = await requirePermission("roles.manage");
+    await requirePermission("roles.assign");
     const userId = new URL(request.url).searchParams.get("userId") || "";
     if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
     if (userId === actor.user.id) return NextResponse.json({ error: "Нельзя изменять собственный уровень доступа" }, { status: 403 });

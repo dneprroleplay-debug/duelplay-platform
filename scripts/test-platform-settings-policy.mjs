@@ -6,7 +6,7 @@ const admin = readFileSync('app/api/admin/route.ts','utf8');
 for (const key of ['COMMISSION_RATE','REFERRAL_COMMISSION','MIN_STAKE','MAX_STAKE','MIN_DEPOSIT','MIN_WITHDRAWAL','XP_MULTIPLIER','REPUTATION_MULTIPLIER']) assert.match(policy,new RegExp(key));
 assert.match(policy,/MIN_STAKE_GT_MAX_STAKE/);
 assert.match(policy,/VALUE_OUT_OF_RANGE/);
-assert.match(route,/requireAdmin\(5\)/);
+assert.match(route,/requirePermission\("settings\.manage"\)/);
 assert.match(route,/validatePlatformSettingValue/);
 assert.match(route,/validatePlatformSettingRelationships/);
 assert.match(admin,/permissionForAdminAction\(action\)/);

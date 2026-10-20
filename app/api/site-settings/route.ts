@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { themeById, isThemeId, isThemeBackgroundId, isThemeHeroId } from "@/lib/themes";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 
 const allowed = new Set(["standardTheme", "backgroundTheme", "heroBackground"]);
 
@@ -20,7 +21,7 @@ export async function GET(){
 }
 
 export async function PATCH(r:NextRequest){
-  const me=await requireAdmin(5);
+  const me=await requirePermission("settings.content.manage");
   const body=await r.json();
   const key=String(body.key||"");
   const value=String(body.value||"").trim();
@@ -29,7 +30,7 @@ export async function PATCH(r:NextRequest){
   if(key==="backgroundTheme" && !isThemeBackgroundId(value)) return NextResponse.json({error:"Invalid background"},{status:400});
   if(key==="heroBackground" && !isThemeHeroId(value)) return NextResponse.json({error:"Invalid hero"},{status:400});
   const old=await prisma.siteSettings.findUnique({where:{key}});
-  const row=await prisma.siteSettings.upsert({where:{key},update:{value:{id:value},updatedBy:me.id},create:{key,value:{id:value},updatedBy:me.id}});
-  await audit(me.id,"CHANGE_SITE_SETTING","SITE_SETTING",row.id,{key,old:old?.value??null,new:value});
+  const row=await prisma.siteSettings.upsert({where:{key},update:{value:{id:value},updatedBy:me.user.id},create:{key,value:{id:value},updatedBy:me.user.id}});
+  await audit(me.user.id,"CHANGE_SITE_SETTING","SITE_SETTING",row.id,{key,old:old?.value??null,new:value});
   return NextResponse.json({ok:true,key,value});
 }

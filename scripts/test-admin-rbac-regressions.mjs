@@ -102,10 +102,11 @@ assert.ok(legacyPanel.includes('can("creator.payouts.manage")&&x.status==="PENDI
 assert.ok(!legacyPanel.includes('can("finance.view")&&x.status==="APPROVED"'), "Mark paid must not be gated by finance.view");
 
 // 8. RBAC catalog exposes the new permission without weakening manage.
-const accessPage = fs.readFileSync(path.join(root, "app", "admin", "access", "page.tsx"), "utf8");
-assert.match(accessPage, /\["creator\.payouts\.pay",/, "RBAC catalog must document creator.payouts.pay");
-assert.match(accessPage, /\["creator\.payouts\.manage",/, "RBAC catalog must document creator.payouts.manage");
-assert.match(accessPage, /\["settings\.content\.manage",/, "RBAC catalog must document settings.content.manage");
+const commandCatalog = fs.readFileSync(path.join(root, "lib", "admin-commands.ts"), "utf8");
+assert.match(commandCatalog, /\["creator\.payouts\.pay",/, "RBAC catalog must document creator.payouts.pay");
+assert.match(commandCatalog, /\["creator\.payouts\.manage",/, "RBAC catalog must document creator.payouts.manage");
+assert.match(commandCatalog, /\["settings\.content\.manage",/, "RBAC catalog must document settings.content.manage");
+assert.match(fs.readFileSync(path.join(root, "app", "admin", "access", "page.tsx"), "utf8"), /ADMIN_COMMAND_CATALOG/, "access page must render the canonical command catalog");
 
 // 9. creator.payouts.pay cannot be manufactured through assignment overrides.
 const payoutConfirmation = "creator.payouts.pay";

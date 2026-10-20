@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 
 const PLACEMENTS = new Set(["HOME", "HOME_HERO", "HOME_MID", "HOME_BOTTOM"]);
+
+function permissionError(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  if (error.message === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: error.message }, { status: 401 });
+  if (error.message === "FORBIDDEN" || error.message.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: error.message }, { status: 403 });
+  return null;
+}
 
 function parseDate(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -38,7 +46,13 @@ export async function GET(request: NextRequest) {
   const adminView = params.get("admin") === "1";
 
   if (adminView) {
-    await requireAdmin(5);
+    try {
+      await requirePermission("content.manage");
+    } catch (error) {
+      const response = permissionError(error);
+      if (response) return response;
+      throw error;
+    }
     return NextResponse.json(await prisma.banner.findMany({ orderBy: [{ placement: "asc" }, { createdAt: "desc" }] }));
   }
 
@@ -56,7 +70,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const me = await requireAdmin(5);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try { access = await requirePermission("content.manage"); }
+  catch (error) { const response = permissionError(error); if (response) return response; throw error; }
+  const me = access.user;
   const body = await request.json();
   const title = String(body.title ?? "").trim();
   const imageUrl = String(body.imageUrl ?? "").trim();
@@ -79,7 +96,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const me = await requireAdmin(5);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try { access = await requirePermission("content.manage"); }
+  catch (error) { const response = permissionError(error); if (response) return response; throw error; }
+  const me = access.user;
   const body = await request.json();
   const id = String(body.id ?? "").trim();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -124,7 +144,10 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const me = await requireAdmin(5);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try { access = await requirePermission("content.manage"); }
+  catch (error) { const response = permissionError(error); if (response) return response; throw error; }
+  const me = access.user;
   const id = new URL(request.url).searchParams.get("id")?.trim();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 

@@ -10,7 +10,7 @@ const checks = [
   ['target must belong to match', /TARGET_NOT_IN_MATCH/],
   ['duplicate open report protection', /DUPLICATE_REPORT/],
   ['evidence size cap', /MAX_EVIDENCE_BYTES/],
-  ['staff moderation gate', /isModeratorRole\(me\.role\)/],
+  ['staff moderation gate', /requirePermission\("risk\.cases\.review"\)/],
   ['moderation transitions', /INVALID_TRANSITION/],
   ['audit create', /CREATE_REPORT/],
   ['audit update', /UPDATE_REPORT/],
