@@ -1,20 +1,36 @@
 import { getFeatureFlag } from "@/lib/feature-flags";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin, audit } from '@/lib/admin';
+import { audit } from '@/lib/admin';
+import { requirePermission } from '@/lib/admin-rbac';
 
 function date(value: unknown) { const d = new Date(String(value ?? '')); return Number.isFinite(d.getTime()) ? d : null; }
 function number(value: unknown, fallback: number) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
+function permissionError(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  if (error.message === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: error.message }, { status: 401 });
+  if (error.message === "FORBIDDEN" || error.message.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: error.message }, { status: 403 });
+  return null;
+}
 
 export async function GET() {
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
-  await requireAdmin(5);
+  try {
+    await requirePermission("settings.manage");
+  } catch (error) {
+    const response = permissionError(error);
+    if (response) return response;
+    throw error;
+  }
   return NextResponse.json(await prisma.promoCampaign.findMany({ orderBy: { createdAt: 'desc' } }));
 }
 
 export async function POST(r: NextRequest) {
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
-  const me = await requireAdmin(5);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try { access = await requirePermission("settings.manage"); }
+  catch (error) { const response = permissionError(error); if (response) return response; throw error; }
+  const me = access.user;
   const b = await r.json().catch(() => ({}));
   const name = String(b.name || '').trim();
   const startsAt = date(b.startsAt); const endsAt = date(b.endsAt);
@@ -35,7 +51,10 @@ export async function POST(r: NextRequest) {
 
 export async function PATCH(r: NextRequest) {
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
-  const me = await requireAdmin(5);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try { access = await requirePermission("settings.manage"); }
+  catch (error) { const response = permissionError(error); if (response) return response; throw error; }
+  const me = access.user;
   const b = await r.json().catch(() => ({}));
   const id = String(b.id || ''); if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const data: Record<string, unknown> = {};

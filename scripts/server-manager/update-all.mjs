@@ -261,17 +261,78 @@ async function waitForManagers() {
 }
 
 const runStartedAt = new Date();
+let maintenanceTouched = false;
+let previousMaintenance = false;
+let mutationStarted = false;
+let shuttingDown = false;
+
+// Pre-flight failures happen before SteamCMD changes anything, so the previous maintenance
+// state can be restored instead of leaving every visitor on the maintenance screen until a
+// human notices. A failure after server changes began keeps maintenance enabled on purpose.
+async function restoreMaintenanceIfSafe(reason) {
+  if (!maintenanceTouched || mutationStarted) return false;
+  try {
+    await setMaintenance(previousMaintenance);
+    maintenanceTouched = false;
+    log(`Update did not reach server changes (${reason}); maintenance restored to ${previousMaintenance ? 'enabled' : 'disabled'}.`);
+    return true;
+  } catch (error) {
+    log(`Could not restore the previous maintenance state after ${reason}: ${error instanceof Error ? error.message : 'unknown API error'}`);
+    return false;
+  }
+}
+
+async function disableMaintenance() {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await setMaintenance(false);
+      maintenanceTouched = false;
+      return true;
+    } catch (error) {
+      log(`Could not disable maintenance (attempt ${attempt}/3): ${error instanceof Error ? error.message : 'unknown API error'}`);
+      if (attempt < 3) await sleep(5_000);
+    }
+  }
+  return false;
+}
+
+async function finishAndExit(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log(`Received ${signal}; stopping the update safely.`);
+  if (!mutationStarted) await restoreMaintenanceIfSafe(`${signal} before server changes`);
+  else log('The update had already started changing the server; maintenance stays enabled until it finishes.');
+  await new Promise(resolve => logFile.end(resolve));
+  process.exit(signal === 'SIGINT' ? 130 : 143);
+}
+
+process.on('SIGTERM', () => { void finishAndExit('SIGTERM'); });
+process.on('SIGINT', () => { void finishAndExit('SIGINT'); });
 
 async function main() {
   required(API_URL, 'DUELPLAY_API_URL');
   required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
   log(`CS2 shared-install update started; persistent log: ${logPath}`);
   verifyPerServerComponents();
+
+  // A previous run that was killed (timeout, reboot, OOM) leaves the status at RUNNING.
+  // This run owns the flock now, so treat that status as interrupted and keep going.
+  const before = await getMaintenanceSnapshot();
+  previousMaintenance = before.maintenance === true;
+  if (before.updateStatus?.status === 'RUNNING') {
+    log(`Previous update status is still RUNNING (started ${before.updateStatus.startedAt ?? 'unknown'}); treating it as interrupted by a crash or reboot.`);
+  }
+  log(`Previous maintenance state: ${previousMaintenance ? 'enabled' : 'disabled'}.`);
+
   await setMaintenance(true);
+  maintenanceTouched = true;
   await setUpdateStatus('RUNNING');
   log('Website maintenance is enabled.');
   await waitForMatchDrain();
 
+  // From here on the shared server files can change; maintenance must stay enabled even on
+  // failure so players never join a half-updated server.
+  mutationStarted = true;
   await runProcess(STEAMCMD_BIN, [
     '+force_install_dir', COMMON_DIR,
     '+login', 'anonymous',
@@ -283,23 +344,36 @@ async function main() {
   syncPerServerGameInfo();
   for (const server of servers) await smokeCheckServer(server);
   await waitForManagers();
-  await setUpdateStatus('SUCCEEDED');
-  await setMaintenance(false);
+
+  // Status recording must never keep the site closed after a successful update.
+  try {
+    await setUpdateStatus('SUCCEEDED');
+  } catch (statusError) {
+    log(`Could not record success status through the app API: ${statusError instanceof Error ? statusError.message : 'unknown API error'}`);
+  }
+  if (!(await disableMaintenance())) {
+    throw new Error('Update completed but maintenance could not be disabled through the app API; verify the site and lift it manually.');
+  }
   log('All smoke tests passed; maintenance was disabled and the site returned to service.');
 }
 
 try {
   await main();
 } catch (error) {
-  const message = error instanceof Error ? error.message : 'Unknown CS2 update failure';
-  log(`ERROR: ${message}`);
-  try {
-    await setUpdateStatus('FAILED', message);
-    log('Failure status was recorded. Maintenance remains enabled.');
-  } catch (statusError) {
-    log(`Could not record failure status through the app API: ${statusError instanceof Error ? statusError.message : 'unknown API error'}`);
+  if (shuttingDown) {
+    process.exitCode = process.exitCode || 143;
+  } else {
+    const message = error instanceof Error ? error.message : 'Unknown CS2 update failure';
+    log(`ERROR: ${message}`);
+    const restored = await restoreMaintenanceIfSafe('pre-flight failure');
+    try {
+      await setUpdateStatus('FAILED', message);
+      log(restored ? 'Failure status was recorded and the previous maintenance state was restored.' : 'Failure status was recorded. Maintenance remains enabled.');
+    } catch (statusError) {
+      log(`Could not record failure status through the app API: ${statusError instanceof Error ? statusError.message : 'unknown API error'}`);
+    }
+    process.exitCode = 1;
   }
-  process.exitCode = 1;
 } finally {
-  await new Promise(resolve => logFile.end(resolve));
+  if (!shuttingDown) await new Promise(resolve => logFile.end(resolve));
 }

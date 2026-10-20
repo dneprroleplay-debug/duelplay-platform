@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { requireAdmin, audit, auditRequest } from "@/lib/admin";
-import { isModeratorRole } from "@/lib/role-policy";
+import { auditRequest } from "@/lib/admin";
+import { hasPermission, requirePermission, resolveAdminAccess } from "@/lib/admin-rbac";
 import { creditWallet, releaseWalletHold } from "@/lib/wallet";
 import { recordPlatformLedgerEntry } from "@/lib/finance";
 import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progression";
@@ -21,7 +21,9 @@ function isEvidenceType(value: string): boolean { return (EVIDENCE_TYPES as read
 export async function GET() {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const isAdmin = isModeratorRole(me.role);
+  const access = await resolveAdminAccess(me.id);
+  const isAdmin = Boolean(access && access.level > 0 && hasPermission(access.permissions, "disputes.view"));
+  const canViewEvidence = !isAdmin || Boolean(access && hasPermission(access.permissions, "evidence.view"));
   const disputes = await prisma.dispute.findMany({
     where: isAdmin ? undefined : { reporterId: me.id },
     orderBy: { createdAt: "desc" },
@@ -32,7 +34,18 @@ export async function GET() {
       evidences: true,
     },
   });
-  return NextResponse.json(disputes);
+  return NextResponse.json(disputes.map(dispute => ({
+    ...dispute,
+    evidences: dispute.evidences.map(evidence => canViewEvidence ? evidence : {
+      id: evidence.id,
+      disputeId: evidence.disputeId,
+      uploadedById: evidence.uploadedById,
+      type: evidence.type,
+      fileUrl: null,
+      metadata: null,
+      createdAt: evidence.createdAt,
+    }),
+  })));
 }
 
 export async function POST(request: NextRequest) {
@@ -110,9 +123,17 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(row, { status: 201 });
   }
 
-  const me = await requireAdmin(2);
+  let access: Awaited<ReturnType<typeof requirePermission>>;
   try {
-    await prisma.$transaction(tx => enforceRateLimit(tx, me.id, "DISPUTE_ADMIN_RESOLVE", 30, 10 * 60_000));
+    access = await requirePermission("disputes.resolve");
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: code }, { status: 401 });
+    if (code === "FORBIDDEN" || code.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: code }, { status: 403 });
+    throw error;
+  }
+  try {
+    await prisma.$transaction(tx => enforceRateLimit(tx, access.user.id, "DISPUTE_ADMIN_RESOLVE", 30, 10 * 60_000));
   } catch (error) {
     if (error instanceof Error && error.message === "RATE_LIMITED") return NextResponse.json({ error: "Слишком много административных операций со спорами." }, { status: 429 });
     throw error;
@@ -179,7 +200,7 @@ export async function PATCH(request: NextRequest) {
       const updatedDispute = await tx.dispute.update({ where: { id }, data: { adminDecision: decisionValue, status: "RESOLVED_BY_ADMIN", adminNotes: String(body.notes || "").slice(0, 2000), resolvedAt: new Date() } });
       return { dispute: updatedDispute, match: updatedMatch, idempotent: false };
     });
-    if (!result.idempotent) await auditRequest(request, me.id, "RESOLVE_DISPUTE", "DISPUTE", id, { decision: decisionValue });
+    if (!result.idempotent) await auditRequest(request, access.user.id, "RESOLVE_DISPUTE", "DISPUTE", id, { decision: decisionValue });
     return NextResponse.json(result);
   } catch (error) {
     const code = error instanceof Error ? error.message : "";

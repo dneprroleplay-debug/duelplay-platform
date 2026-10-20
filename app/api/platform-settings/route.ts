@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 import { isPlatformSettingKey, PLATFORM_SETTING_RULES, validatePlatformSettingRelationships, validatePlatformSettingValue } from "@/lib/platform-setting-policy";
 
 export async function GET() {
-  await requireAdmin(5);
+  await requirePermission("settings.manage");
   const rows = await prisma.platformSetting.findMany({ orderBy: { key: "asc" } });
   return NextResponse.json(rows.map((row) => ({ ...row, value: Number(row.value), minValue: row.minValue == null ? null : Number(row.minValue), maxValue: row.maxValue == null ? null : Number(row.maxValue), step: row.step == null ? null : Number(row.step) })));
 }
 
 export async function PATCH(request: NextRequest) {
-  const me = await requireAdmin(5);
+  const me = await requirePermission("settings.manage");
   const body = await request.json().catch(() => ({}));
   const key = String(body.key ?? "");
   const validation = validatePlatformSettingValue(key, body.value);
@@ -28,9 +29,9 @@ export async function PATCH(request: NextRequest) {
   const old = await prisma.platformSetting.findUnique({ where: { key } });
   const row = await prisma.platformSetting.upsert({
     where: { key },
-    update: { value: validation.value, minValue: rule.min, maxValue: rule.max, step: rule.step, updatedBy: me.id },
-    create: { key, value: validation.value, minValue: rule.min, maxValue: rule.max, step: rule.step, updatedBy: me.id },
+    update: { value: validation.value, minValue: rule.min, maxValue: rule.max, step: rule.step, updatedBy: me.user.id },
+    create: { key, value: validation.value, minValue: rule.min, maxValue: rule.max, step: rule.step, updatedBy: me.user.id },
   });
-  await audit(me.id, "CHANGE_PLATFORM_SETTING", "PLATFORM_SETTING", row.id, { key, old: old?.value?.toString() ?? null, new: validation.value });
+  await audit(me.user.id, "CHANGE_PLATFORM_SETTING", "PLATFORM_SETTING", row.id, { key, old: old?.value?.toString() ?? null, new: validation.value });
   return NextResponse.json(row);
 }

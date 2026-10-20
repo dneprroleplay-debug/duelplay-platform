@@ -34,6 +34,50 @@ public sealed class GrenadeRoundState(long roundId)
     public int PendingThrows(GrenadeKind kind) => _pendingThrows[kind];
 
     /// <summary>
+    /// Grenade types that still have an unthrown grenade. CS2 keeps one entity per type
+    /// and tracks the stack in the ammo pool, so a type with a remaining grenade is the
+    /// only thing the engine can still deploy and throw.
+    /// </summary>
+    public IReadOnlyList<GrenadeKind> RemainingKinds()
+    {
+        var kinds = new List<GrenadeKind>();
+        foreach (var kind in Enum.GetValues<GrenadeKind>())
+            if (Remaining(kind) > 0) kinds.Add(kind);
+        return kinds;
+    }
+
+    /// <summary>
+    /// The grenade the player should be holding after a verified throw. The just-thrown
+    /// type is preferred so a repeated throw keeps the same stack; otherwise the first
+    /// type with an unthrown grenade is chosen. Returns <c>null</c> only when the whole
+    /// allowance is spent. With a single remaining type the engine's post-throw
+    /// auto-switch deploys nothing, so the caller must re-select this target explicitly.
+    /// </summary>
+    public GrenadeKind? NextDeployTarget(GrenadeKind? preferred = null)
+    {
+        if (preferred is { } preferredKind && Remaining(preferredKind) > 0) return preferredKind;
+        foreach (var kind in Enum.GetValues<GrenadeKind>())
+            if (Remaining(kind) > 0) return kind;
+        return null;
+    }
+
+    /// <summary>
+    /// Decides whether a verified throw must force the client back onto a remaining
+    /// grenade with an explicit re-select. With two or more kinds left the engine
+    /// auto-switches to another grenade and the client stays in sync. With a single kind
+    /// left and ammo still remaining the engine's auto-switch finds no other grenade, the
+    /// client stops accepting throw input, while the server keeps reporting the stale
+    /// just-thrown grenade as the active weapon. Re-selecting by classname resyncs it.
+    /// A throw that is not followed by a usable remaining active grenade also needs it.
+    /// </summary>
+    public bool NeedsRedeployAfterThrow(GrenadeKind? activeKind)
+    {
+        if (RemainingTotal == 0) return false;
+        if (RemainingKinds().Count == 1) return true;
+        return activeKind is null || Remaining(activeKind.Value) <= 0;
+    }
+
+    /// <summary>
     /// Reserves a loadout attempt for a life/team. The reservation is not a success:
     /// only <see cref="CompleteLoadout"/> commits it. An aborted or short grant can be
     /// retried instead of permanently marking the life as served.
@@ -84,6 +128,14 @@ public sealed class GrenadeRoundState(long roundId)
 
     public bool IsLoadoutPending(long eventRoundId, long lifeId) =>
         eventRoundId == RoundId && _pendingLoadouts.Contains(lifeId);
+
+    /// <summary>
+    /// True once a life's complete grenade grant has been verified and committed. Used by
+    /// the respawn retry to stop re-applying a loadout that already succeeded, so a
+    /// mid-round respawn converges on the exact remainder instead of relying on the
+    /// manager's scheduled enforcement command to happen to fire after the respawn.
+    /// </summary>
+    public bool IsLoadoutCommitted(long lifeId) => _committedTeamByLife.ContainsKey(lifeId);
 
     /// <summary>Records one actual throw callback. Bounded by the remaining entitlement.</summary>
     public bool NoteThrow(long eventRoundId, GrenadeKind kind)
@@ -143,6 +195,12 @@ public sealed class GrenadeRoundState(long roundId)
         return eventRoundId == RoundId && RemainingTotal == 0 && _knifeAttempts.Add(lifeId);
     }
 
+    /// <summary>
+    /// True once the knife was requested for this life, whether the grant succeeded or
+    /// failed. Diagnostics use it to distinguish a duplicate request from a fresh one.
+    /// </summary>
+    public bool HasKnifeBeenGranted(long lifeId) => _knifeAttempts.Contains(lifeId);
+
     public bool ResetForNewRound(long newRoundId)
     {
         if (newRoundId == RoundId) return false;
@@ -159,4 +217,22 @@ public sealed class GrenadeRoundState(long roundId)
         _knifeAttempts.Clear();
         return true;
     }
+}
+
+/// <summary>
+/// Maps an entitlement type to the real CS2 weapon classname. A grenade can only be
+/// thrown when the matching classname is actually deployed, so the re-deploy path and
+/// the initial grant must agree on the same names (including the side-specific
+/// incendiary).
+/// </summary>
+public static class GrenadeCatalog
+{
+    public static string Classname(GrenadeKind kind, bool terrorist) => kind switch
+    {
+        GrenadeKind.He => "weapon_hegrenade",
+        GrenadeKind.Flash => "weapon_flashbang",
+        GrenadeKind.Smoke => "weapon_smokegrenade",
+        GrenadeKind.Incendiary => terrorist ? "weapon_molotov" : "weapon_incgrenade",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown grenade kind")
+    };
 }

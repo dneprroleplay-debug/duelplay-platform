@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { assertAbuseGuard } from "@/lib/anti-fraud";
 import { audit } from "@/lib/admin";
-import { isModeratorRole } from "@/lib/role-policy";
+import { hasPermission, requirePermission, resolveAdminAccess } from "@/lib/admin-rbac";
 
 const TYPES = ["CHEATING", "ABUSE", "EXPLOITING", "HARASSMENT", "SUSPICIOUS_BEHAVIOUR"] as const;
 const STATUSES = ["OPEN", "REVIEWED", "RESOLVED", "DISMISSED"] as const;
@@ -104,8 +104,10 @@ export async function GET(r: NextRequest) {
   const requestedStatus = searchParams.get("status");
   const status = requestedStatus && STATUSES.includes(requestedStatus as (typeof STATUSES)[number]) ? requestedStatus : undefined;
 
+  const access = await resolveAdminAccess(me.id);
+  const canReview = Boolean(access && access.level > 0 && (hasPermission(access.permissions, "risk.cases.review") || hasPermission(access.permissions, "reports.view")));
   const where = {
-    ...(isModeratorRole(me.role) ? {} : { reporterId: me.id }),
+    ...(canReview ? {} : { reporterId: me.id }),
     ...(status ? { status: status as never } : {}),
   };
   const rows = await prisma.report.findMany({
@@ -122,25 +124,41 @@ export async function GET(r: NextRequest) {
 }
 
 export async function PATCH(r: NextRequest) {
-  const me = await getCurrentUser();
-  if (!me || !isModeratorRole(me.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  let access: Awaited<ReturnType<typeof requirePermission>>;
+  try {
+    access = await requirePermission("risk.cases.review");
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: code }, { status: 401 });
+    if (code === "FORBIDDEN" || code.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: code }, { status: 403 });
+    throw error;
+  }
   const body = await r.json().catch(() => null);
   const id = String(body?.id || "");
   const status = String(body?.status || "");
   const notes = String(body?.notes || "").trim().slice(0, 2000);
   if (!id || !STATUSES.includes(status as (typeof STATUSES)[number])) return NextResponse.json({ error: "Invalid report update" }, { status: 400 });
 
-  const row = await prisma.$transaction(async tx => {
-    const old = await tx.report.findUnique({ where: { id } });
-    if (!old) throw new Error("REPORT_NOT_FOUND");
-    if (old.status === status) return old;
-    const valid =
-      (old.status === "OPEN" && ["REVIEWED", "RESOLVED", "DISMISSED"].includes(status)) ||
-      (old.status === "REVIEWED" && ["RESOLVED", "DISMISSED"].includes(status));
-    if (!valid) throw new Error("INVALID_TRANSITION");
-    return tx.report.update({ where: { id }, data: { status: status as never, reviewedBy: me.id } });
-  });
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const old = await tx.report.findUnique({ where: { id } });
+      if (!old) throw new Error("REPORT_NOT_FOUND");
+      if (old.status === status) return { row: old, previous: old.status };
+      const valid =
+        (old.status === "OPEN" && ["REVIEWED", "RESOLVED", "DISMISSED"].includes(status)) ||
+        (old.status === "REVIEWED" && ["RESOLVED", "DISMISSED"].includes(status));
+      if (!valid) throw new Error("INVALID_TRANSITION");
+      const row = await tx.report.update({ where: { id }, data: { status: status as never, reviewedBy: access.user.id } });
+      return { row, previous: old.status };
+    });
 
-  await audit(me.id, "UPDATE_REPORT", "REPORT", id, { oldStatus: row.status, newStatus: status, notes });
-  return NextResponse.json(row);
+    await audit(access.user.id, "UPDATE_REPORT", "REPORT", id, { oldStatus: result.previous, newStatus: status, notes });
+    return NextResponse.json(result.row);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "REPORT_NOT_FOUND") return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    if (code === "INVALID_TRANSITION") return NextResponse.json({ error: "Invalid report status transition" }, { status: 409 });
+    console.error(error);
+    return NextResponse.json({ error: "Failed to update report" }, { status: 500 });
+  }
 }

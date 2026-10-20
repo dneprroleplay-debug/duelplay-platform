@@ -1,7 +1,8 @@
 import {NextResponse} from "next/server";
 import { getFeatureFlag } from "@/lib/feature-flags";
 import {prisma} from "@/lib/prisma";
-import {requireAdmin,audit} from "@/lib/admin";
+import {audit} from "@/lib/admin";
+import {requirePermission} from "@/lib/admin-rbac";
 import {creditWallet} from "@/lib/wallet";
 import {REFERRAL_RACE_PRIZES, referralRaceMonthKey, referralRaceWindow, rankReferralRace} from "@/lib/referral-race";
 
@@ -38,7 +39,7 @@ export async function GET(request:Request){
 export async function POST(request:Request){
   if (!(await getFeatureFlag("REFERRALS", false))) return NextResponse.json({ error: "Referral Race is temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
   try{
-    const me=await requireAdmin(5);
+    const access=await requirePermission("settings.manage");const me=access.user;
     const body=await request.json().catch(()=>({}));
     if(String(body.action||"")!=="settle")return NextResponse.json({error:"Invalid action"},{status:400});
     const {month,next,key}=monthWindow(String(body.month||""));
@@ -62,9 +63,11 @@ export async function POST(request:Request){
     await audit(me.id,"SETTLE_REFERRAL_RACE","REFERRAL_RACE",key,{paid});
     return NextResponse.json({ok:true,month:key,paid,alreadySettled:paid.length===0});
   }catch(error){
-    console.error(error);
     const message=error instanceof Error?error.message:"";
-    const status=message==="FORBIDDEN"?403:message==="INVALID_MONTH"?400:500;
-    return NextResponse.json({error:status===403?"Forbidden":status===400?"Invalid month":"Referral Race settlement failed"},{status});
+    if(message==="ADMIN_LOGIN_REQUIRED")return NextResponse.json({error:"Unauthorized",errorCode:message},{status:401});
+    if(message==="FORBIDDEN"||message.startsWith("ADMIN_MFA_"))return NextResponse.json({error:"Forbidden",errorCode:message},{status:403});
+    if(message==="INVALID_MONTH")return NextResponse.json({error:"Invalid month"},{status:400});
+    console.error(error);
+    return NextResponse.json({error:"Referral Race settlement failed"},{status:500});
   }
 }

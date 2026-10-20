@@ -9,7 +9,7 @@ const platform=fs.readFileSync(`${base}/lib/platform-settings.ts`,'utf8');
 for (const key of ['DUELS','MATCHMAKING','CASES','TOURNAMENTS','DUELPASS','PRIME','REFERRALS','PROMOS','STEAM_TRADE','MAINTENANCE_MODE']) assert.match(policy,new RegExp(`"${key}"`));
 assert.match(policy,/typeof b\.enabled !== "boolean"/);
 assert.match(policy,/INVALID_FEATURE_FLAG/);
-assert.match(route,/requireAdmin\(5\)/);
+assert.match(route,/requirePermission\("feature_flags\.manage"\)/);
 assert.match(route,/FEATURE_FLAG_DEFAULTS/);
 assert.match(route,/validateFeatureFlagPayload/);
 assert.match(admin,/validateFeatureFlagPayload\(body\)/);

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { hasAdminLevel } from "@/lib/role-policy";
+import { resolveAdminAccess } from "@/lib/admin-rbac";
 import type { Prisma } from "@prisma/client";
 
 export const MAINTENANCE_MESSAGE = "Идёт обновление серверов CS2. Пожалуйста, подождите";
@@ -24,7 +24,9 @@ export async function getMaintenanceState() {
 
 export async function canBypassMaintenance() {
   const me = await getCurrentUser();
-  return Boolean(me && hasAdminLevel(me.role, 1));
+  if (!me) return false;
+  const access = await resolveAdminAccess(me.id);
+  return Boolean(access && access.level > 0);
 }
 
 export async function assertMaintenanceAccess() {

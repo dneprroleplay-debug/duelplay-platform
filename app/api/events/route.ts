@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 import { effectiveEventStatus, validateEventPayload, validateEventWindow, validateEventConfig, safeJson } from "@/lib/events";
 
 function errorResponse(error: unknown) {
   const code = error instanceof Error ? error.message : "UNKNOWN";
+  if (code === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: code }, { status: 401 });
+  if (code === "FORBIDDEN" || code.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: code }, { status: 403 });
   const map: Record<string, string> = {
     INVALID_NAME: "Event name is required and must be 120 characters or less",
     INVALID_DATES: "Invalid event dates",
@@ -17,9 +20,8 @@ function errorResponse(error: unknown) {
     INVALID_CONFIG: "Invalid event configuration",
     INVALID_MISSIONS: "Missions must be an array",
     INVALID_REWARDS: "Rewards must be an array",
-    FORBIDDEN: "Forbidden",
   };
-  return NextResponse.json({ error: map[code] || "Event operation failed" }, { status: code === "FORBIDDEN" ? 403 : 400 });
+  return NextResponse.json({ error: map[code] || "Event operation failed" }, { status: 400 });
 }
 
 function present(row: any, now = new Date()) {
@@ -29,7 +31,7 @@ function present(row: any, now = new Date()) {
 export async function GET(r: NextRequest) {
   const adminView = new URL(r.url).searchParams.get("admin") === "1";
   try {
-    if (adminView) await requireAdmin(5);
+    if (adminView) await requirePermission("content.manage");
     const now = new Date();
     const rows = await prisma.event.findMany({
       where: adminView ? {} : { status: { in: ["SCHEDULED", "ACTIVE"] }, startsAt: { lte: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 365) }, endsAt: { gte: now } },
@@ -41,7 +43,8 @@ export async function GET(r: NextRequest) {
 
 export async function POST(r: NextRequest) {
   try {
-    const me = await requireAdmin(5);
+    const access = await requirePermission("content.manage");
+    const me = access.user;
     const b = await r.json().catch(() => ({}));
     const v = validateEventPayload(b);
     validateEventConfig(b);
@@ -67,7 +70,8 @@ export async function POST(r: NextRequest) {
 
 export async function PATCH(r: NextRequest) {
   try {
-    const me = await requireAdmin(5);
+    const access = await requirePermission("content.manage");
+    const me = access.user;
     const b = await r.json().catch(() => ({}));
     const id = String(b.id || "");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -104,7 +108,8 @@ export async function PATCH(r: NextRequest) {
 
 export async function DELETE(r: NextRequest) {
   try {
-    const me = await requireAdmin(5);
+    const access = await requirePermission("content.manage");
+    const me = access.user;
     const id = new URL(r.url).searchParams.get("id") || "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const row = await prisma.$transaction(async tx => {

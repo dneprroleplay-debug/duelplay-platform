@@ -2,11 +2,19 @@ import { getFeatureFlag } from "@/lib/feature-flags";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
-import { requireAdmin, audit } from "@/lib/admin";
+import { audit } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin-rbac";
 import { creditWallet } from "@/lib/wallet";
 
 function cleanCode(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
+}
+
+function permissionError(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  if (error.message === "ADMIN_LOGIN_REQUIRED") return NextResponse.json({ error: "Unauthorized", errorCode: error.message }, { status: 401 });
+  if (error.message === "FORBIDDEN" || error.message.startsWith("ADMIN_MFA_")) return NextResponse.json({ error: "Forbidden", errorCode: error.message }, { status: 403 });
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -70,18 +78,22 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
   try {
-    await requireAdmin(5);
+    await requirePermission("settings.manage");
     const rows = await prisma.promoCode.findMany({ orderBy: { createdAt: "desc" } });
     return NextResponse.json(rows.map((row) => ({ ...row, bonusAmount: row.bonusAmount.toString() })));
-  } catch {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  } catch (error) {
+    const response = permissionError(error);
+    if (response) return response;
+    console.error(error);
+    return NextResponse.json({ error: "Failed to load promo codes" }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });
   try {
-    const me = await requireAdmin(5);
+    const access = await requirePermission("settings.manage");
+    const me = access.user;
     const body = await request.json().catch(() => ({}));
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -98,7 +110,8 @@ export async function PUT(request: NextRequest) {
     await audit(me.id, "UPDATE_PROMO_CODE", "PROMO_CODE", id, { changes: data });
     return NextResponse.json(row);
   } catch (error) {
-    if (error instanceof Error && error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const response = permissionError(error);
+    if (response) return response;
     throw error;
   }
 }

@@ -1,7 +1,8 @@
 import { getFeatureFlag } from "@/lib/feature-flags";
 import {NextRequest,NextResponse} from 'next/server';
 import {prisma} from '@/lib/prisma';
-import {requireAdmin,audit} from '@/lib/admin';
+import {audit} from '@/lib/admin';
+import {requirePermission} from '@/lib/admin-rbac';
 
 function validate(b:any){
  const name=String(b.name||'Deposit Bonus').trim().slice(0,120);
@@ -19,4 +20,4 @@ function validate(b:any){
 export async function GET(){
   if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });return NextResponse.json(await prisma.depositPromotion.findMany({orderBy:{createdAt:'desc'}}))}
 export async function POST(r:NextRequest){
-  if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });const me=await requireAdmin(5);try{const data=validate(await r.json());if(!data)return NextResponse.json({error:'Invalid promotion values'},{status:400});const row=await prisma.depositPromotion.create({data});await audit(me.id,'CREATE_DEPOSIT_PROMOTION','DEPOSIT_PROMOTION',row.id,{name:row.name,type:row.type,multiplier:row.multiplier,maxBonus:Number(row.maxBonus),wagering:Number(row.wagering),active:row.active});return NextResponse.json(row,{status:201})}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Invalid promotion'},{status:400})}}
+  if (!(await getFeatureFlag("PROMOS", false))) return NextResponse.json({ error: "Promotions are temporarily disabled", errorCode: "FEATURE_DISABLED" }, { status: 503 });try{const access=await requirePermission("settings.manage");const me=access.user;const data=validate(await r.json());if(!data)return NextResponse.json({error:'Invalid promotion values'},{status:400});const row=await prisma.depositPromotion.create({data});await audit(me.id,'CREATE_DEPOSIT_PROMOTION','DEPOSIT_PROMOTION',row.id,{name:row.name,type:row.type,multiplier:row.multiplier,maxBonus:Number(row.maxBonus),wagering:Number(row.wagering),active:row.active});return NextResponse.json(row,{status:201})}catch(e){const code=e instanceof Error?e.message:'';if(code==='ADMIN_LOGIN_REQUIRED')return NextResponse.json({error:'Unauthorized',errorCode:code},{status:401});if(code==='FORBIDDEN'||code.startsWith('ADMIN_MFA_'))return NextResponse.json({error:'Forbidden',errorCode:code},{status:403});return NextResponse.json({error:e instanceof Error?e.message:'Invalid promotion'},{status:400})}}

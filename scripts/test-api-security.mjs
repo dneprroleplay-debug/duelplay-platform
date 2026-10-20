@@ -50,7 +50,12 @@ assert.match(read("next.config.ts"), /X-Frame-Options/);
 
 assert.match(read("app/api/admin/auth/login/route.ts"), /verifyPassword/);
 
-assert.match(read("app/api/maintenance/route.ts"), /requireAdmin\(5\)/);
+assert.match(read("app/api/maintenance/route.ts"), /requirePermission\("system\.maintenance"\)/);
+assert.match(read("app/api/maintenance/route.ts"), /resolveAdminAccess\(me\.id\)/);
+const disputesRoute = read("app/api/disputes/route.ts");
+assert.match(disputesRoute, /canViewEvidence\s*=\s*!isAdmin\s*\|\|/);
+assert.match(disputesRoute, /fileUrl:\s*null/);
+assert.match(disputesRoute, /metadata:\s*null/);
 assert.match(read("app/api/matches/route.ts"), /match-create:\$\{user\.id\}/);
 assert.match(read("app/api/matches/[id]/join/route.ts"), /match-join:\$\{user\.id\}/);
 assert.match(read("app/api/wallet/transactions/route.ts"), /wallet-withdraw:\$\{user\.id\}/);

@@ -64,6 +64,16 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
     `mp_buy_allow_grenades ${restricted ? '0' : '1'}`,
     `mp_buy_during_immunity ${restricted ? '0' : '1'}`,
     `mp_respawn_immunitytime ${restricted ? '0' : '5'}`,
+    // GRENADE_ONLY respawns on death in the current round (the plugin re-issues only the
+    // unthrown remainder); every other mode must explicitly reset this so a duel still ends
+    // on elimination. Waves are always off so a respawn is immediate.
+    `mp_respawn_on_death_t ${grenadeOnly ? '1' : '0'}`,
+    `mp_respawn_on_death_ct ${grenadeOnly ? '1' : '0'}`,
+    'mp_use_respawn_waves 0',
+    // CS2 kicks a player after five suicides. GRENADE_ONLY intentionally allows repeated
+    // self-damage deaths, so it disables the kick. Every other mode sets the value back to
+    // the normal 1 so a GRENADE_ONLY match cannot leak mp_autokick 0 into the next mode.
+    `mp_autokick ${grenadeOnly ? '0' : '1'}`,
     `mp_weapons_allow_map_placed ${restricted ? '0' : '1'}`,
     `mp_weapons_allow_pistols ${restricted ? '0' : '-1'}`,
     `mp_weapons_allow_smgs ${restricted ? '0' : '-1'}`,
@@ -116,6 +126,7 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
   } else if (effectiveMode === 'GRENADE_ONLY') {
     commands.push(
       'ammo_grenade_limit_total 12', 'ammo_grenade_limit_default 3', 'ammo_grenade_limit_flashbang 3',
+      'mp_respawnwavetime_t 0', 'mp_respawnwavetime_ct 0',
     );
   } else if (effectiveMode === 'SOLO_1V1' || effectiveMode === 'HEADSHOT_ONLY' || firstTo10) {
     for (const category of WEAPON_CATEGORIES) commands.push(`mp_weapons_allow_${category} -1`);

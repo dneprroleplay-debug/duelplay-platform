@@ -6,6 +6,7 @@ import { useTheme } from "@/components/Common/ThemeProvider";
 import { LegacyAdminPanel } from "@/components/Admin";
 import AdminUsersPresence from "@/components/Admin/AdminUsersPresence";
 import { formatMatchAmount } from "@/lib/match-currency";
+import { ADMIN_COMMAND_CATALOG, ADMIN_GROUP_ICONS, type AdminCommand } from "@/lib/admin-commands";
 
 type Role = { code: string; level: number; title: string; description: string; permissions: string[] };
 type AccessData = {
@@ -19,7 +20,8 @@ type LiveData = {
   counters: { users: number | null; online: number | null; matches24h: number | null; liveMatches: number | null; matchCounts?: { real24h: number; demo24h: number; realLive: number; demoLive: number } | null; servers: number | null; openDisputes: number | null; openFraud: number | null; pendingWithdrawals: number | null; pendingDeposits: number | null };
   activeMatches: Array<{ id: string; status: string; economyMode: "REAL" | "DEMO"; mapName: string | null; betAmount: unknown; createdAt: string; playerOne: { nickname: string }; playerTwo: { nickname: string } | null }>;
 };
-type Command = { permission: string; title: string; description: string; group: string; icon: string; tab?: string; danger?: boolean };
+
+type Command = AdminCommand;
 
 const ROLE_COLORS: Record<string, string> = {
   SUPERADMIN: "border-pink-400/45 bg-pink-400/[.08]",
@@ -35,68 +37,9 @@ const ROLE_COLORS: Record<string, string> = {
   FOUNDER: "border-amber-400/60 bg-amber-400/[.07] shadow-[0_0_60px_rgba(245,196,81,.12)]",
 };
 
-const COMMANDS: Command[] = ([
-  ["users.view","Пользователи","Просмотр списка игроков, профилей и административного контекста.","Пользователи","♟","users"],
-  ["users.restrict","Ограничения пользователей","Блокировка, приостановка и снятие ограничений с аккаунтов.","Пользователи","⛔","users",true],
-  ["matches.view","Матчи","Просмотр активных, ожидающих и завершённых матчей.","Матчи","⚔","matches"],
-  ["matches.cancel","Отмена матча","Отмена активного матча с штатным возвратом ставок.","Матчи","×","matches",true],
-  ["matches.investigate","Расследование матча","Проверка хода матча, игроков и доказательств.","Матчи","⌕","matches"],
-  ["disputes.view","Споры","Просмотр открытых и завершённых споров.","Споры","⚖","security"],
-  ["disputes.resolve","Решение спора","Разбор доказательств и фиксация решения спора.","Споры","✓","security",true],
-  ["evidence.view","Доказательства","Просмотр материалов, прикреплённых к спору или расследованию.","Споры","▣","security"],
-  ["evidence.manage","Управление доказательствами","Добавление и изменение материалов расследования.","Споры","✦","security",true],
-  ["incidents.view","Инциденты","Просмотр административных и security-инцидентов.","Безопасность","!","security"],
-  ["incidents.manage","Управление инцидентами","Работа с инцидентами и их статусами.","Безопасность","!","security",true],
-  ["risk.cases.review","Risk cases","Проверка fraud/risk-кейсов и результатов расследования.","Безопасность","◈","security",true],
-  ["security.view","Security Center","Обзор security-событий и состояния защиты.","Безопасность","🛡","security"],
-  ["security.manage","Управление безопасностью","Изменение security-настроек и реакция на угрозы.","Безопасность","⌬","security",true],
-  ["security.sessions.revoke","Отозвать сессию","Завершить выбранную пользовательскую сессию.","Безопасность","↪","security",true],
-  ["security.sessions.revoke_all","Отозвать все сессии","Экстренный logout активных сессий.","Безопасность","⏏","security",true],
-  ["security.mfa.manage","MFA","Управление MFA для администраторов.","Безопасность","#","security",true],
-  ["security.devices.view","Устройства","Просмотр привязанных устройств и контекста безопасности.","Безопасность","⌁","security"],
-  ["security.login_history.view","История входов","Просмотр истории административных входов.","Безопасность","◷","security"],
-  ["finance.view","Финансы","Просмотр финансового центра и денежных операций.","Финансы","$","finance"],
-  ["ledger.view","Ledger","Просмотр неизменяемой финансовой истории.","Финансы","▤","finance"],
-  ["deposits.review","Депозиты","Проверка депозитных операций и их статусов.","Финансы","↓","finance"],
-  ["withdrawals.review","Выводы","Проверка заявок на вывод средств.","Финансы","↑","finance"],
-  ["withdrawals.approve","Одобрение вывода","Подтверждение выплаты после проверки.","Финансы","✓","finance",true],
-  ["withdrawals.reject","Отклонение вывода","Отклонение вывода с возвратом удержания по правилам.","Финансы","×","finance",true],
-  ["finance.wallet.adjust","Изменение баланса","Административная корректировка баланса с аудитом причины.","Финансы","◈","users",true],
-  ["finance.freeze","Заморозка финансов","Приостановка финансовых операций в рамках расследования.","Финансы","❄","finance",true],
-  ["finance.reconciliation.view","Сверка","Просмотр финансовой сверки.","Финансы","≋","finance"],
-  ["creator.payouts.manage","Выплаты авторам","Управление выплатами Creator-программы.","Финансы","◈","creator",true],
-  ["creator.payouts.pay","Подтверждение выплат","Проведение финальной выплаты авторам (Mark paid).","Финансы","✓","creator",true],
-  ["finance.source_of_funds.view","Source of Funds","Просмотр источника средств и контекста проверки.","Финансы","◎","finance"],
-  ["servers.view","Серверы","Просмотр состояния, доступности и текущей загрузки CS2-серверов.","Серверы","◈","serverView"],
-  ["servers.manage","Управление серверами","Технический раздел серверов: состояние процессов, подключения и параметры, доступные текущей системе.","Серверы","⚙","serverManage",true],
-  ["system.logs.view","Технические логи","Просмотр технических логов и диагностической информации.","Серверы","≡","techOps"],
-  ["system.maintenance","Maintenance","Системное обслуживание и режимы восстановления.","Серверы","⌘","settings",true],
-  ["system.incidents.view","Системные инциденты","Просмотр аварийных системных событий.","Серверы","⚠","techOps"],
-  ["system.incidents.manage","Обработка системных инцидентов","Подтверждение и закрытие инцидентов с записью причины в аудит.","Серверы","✓","techOps",true],
-  ["content.manage","Контент","Управление публичным контентом DuelPlay.","Контент","✦","settings"],
-  ["maps.manage","Карты","Управление пулом карт.","Контент","▦","settings"],
-  ["modes.manage","Режимы","Управление игровыми режимами.","Контент","◉","settings"],
-  ["seasons.manage","Сезоны","Запуск сезонных эффектов и календаря.","Контент","❄","seasons"],
-  ["notifications.send","Уведомления","Отправка системных уведомлений игрокам.","Контент","◉","notifications"],
-  ["content.skins.manage","Топ скины","Управление пользовательскими скинами.","Контент","◇","skins"],
-  ["content.avatars.manage","Аватары","Управление общим набором аватаров.","Контент","✦","avatars"],
-  ["settings.content.manage","Стиль DuelPlay","Глобальная визуальная тема, фон и контентные настройки.","Настройки","◌","settings"],
-  ["settings.manage","Платформенные настройки","Изменение системных параметров платформы.","Настройки","⚙","settings",true],
-  ["feature_flags.manage","Feature Flags","Включение и выключение экспериментальных функций.","Настройки","⚡","settings",true],
-  ["support.view","Поддержка","Просмотр обращений игроков и контекста тикетов.","Поддержка","?","support"],
-  ["support.tickets.reply","Ответ игроку","Ответ на обращение игрока.","Поддержка","↩","support"],
-  ["support.tickets.manage","Статусы тикетов","Назначение, перевод и закрытие обращений.","Поддержка","✓","support",true],
-  ["support.tickets.delete","Удаление тикета","Удаление устаревшего тикета.","Поддержка","×","support",true],
-  ["reports.view","Отчёты","Просмотр внутренних отчётов и аудита.","Аналитика","▤","logs"],
-  ["analytics.view","Аналитика","Метрики платформы и операционные показатели.","Аналитика","◔","dashboard"],
-  ["admin.audit.view","Аудит","Просмотр истории действий администраторов.","Аналитика","≡","logs"],
-  ["admin.audit.write","Запись аудита","Фиксация административных действий и результатов.","Аналитика","✎","logs",true],
-  ["roles.manage","Управление ролями","Назначение ролей и контроль административного доступа.","Администрирование","♛","roles",true],
-  ["roles.assign","Назначение ролей","Изменение роли сотрудника через RBAC.","Администрирование","♙","roles",true],
-  ["staff.admin_invite","Приглашения администраторов","Выдача одноразовой ссылки для создания админ-пароля.","Администрирование","✉","roles",true],
-] as Array<[string,string,string,string,string,string,boolean?]>).map((x)=>({permission:x[0],title:x[1],description:x[2],group:x[3],icon:x[4],tab:x[5],danger:Boolean(x[6])}));
+const COMMANDS: Command[] = [...ADMIN_COMMAND_CATALOG];
 
-const GROUP_ICONS: Record<string,string> = { Пользователи:"♟", Матчи:"⚔", Споры:"⚖", Финансы:"$", Серверы:"◈", Контент:"✦", Поддержка:"?", Безопасность:"🛡", Аналитика:"◔", Настройки:"⚙", Администрирование:"♛" };
+const GROUP_ICONS: Record<string,string> = ADMIN_GROUP_ICONS;
 
 function humanRole(code:string){return code.replaceAll("_"," ");}
 
@@ -319,12 +262,10 @@ export default function AdminAccessPage(){
 
       <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">АКТУАЛЬНЫЕ ДАННЫЕ</div><h3 className="mt-1 text-xl font-black">Данные обновляются автоматически</h3><p className="mt-1 text-sm leading-6 text-zinc-500">Матчи, онлайн, серверы и операционные показатели доступны здесь без перехода в другие разделы.</p></div><div className="flex flex-wrap gap-2"><LivePill text="АКТУАЛЬНЫЕ ДАННЫЕ"/><LivePill text="ОБНОВЛЯЕТСЯ"/><LivePill text="КЛАВИАТУРА"/></div></div></section>
 
-      <div className="mt-6"><AdminUsersPresence /></div>
-
       <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-[.22em] text-zinc-600">ДОСТУПНЫЕ ФУНКЦИИ</div><div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{available.slice(0,9).map(c=><div key={c.permission} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]">{c.icon}</span><div><b>{c.title}</b><p className="mt-1 text-xs leading-5 text-zinc-600">{c.description}</p></div></div></div>)}</div>{available.length>9&&<div className="mt-4 text-center text-xs text-zinc-700">+ ещё {available.length-9} команд — все доступны справа.</div>}</section>
     </div>
 
-    {workspace&&<div className="fixed inset-0 z-[100] overflow-hidden bg-[#050507]/[.985] backdrop-blur-2xl"><div className="flex h-full flex-col"><div className="flex min-h-16 shrink-0 items-center justify-between border-b border-white/8 bg-black/70 px-4 sm:px-6"><div className="min-w-0"><div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300"/><span className="text-[10px] font-black uppercase tracking-[.22em] text-zinc-600">АДМИН-РАЗДЕЛ</span></div><div className="mt-1 truncate text-lg font-black">{command?.title||"Центр управления"}</div></div><div className="flex items-center gap-2"><span className="hidden rounded-xl border border-white/8 px-3 py-2 text-xs text-zinc-500 sm:block">ESC</span><button autoFocus type="button" onClick={()=>{setCommand(null);setWorkspace(null);setSelectedRoleCode(null)}} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black hover:border-[var(--theme-accent)]/40 hover:text-[var(--theme-accent)]">Закрыть</button></div></div><div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5 lg:p-6"><div className="mx-auto max-w-[1500px]">{workspace==="role"&&!command&&selectedRole?<RoleWorkspace role={selectedRole} commands={selectedRoleCommands} actualRole={data.me.roleCode||"ADMIN"} founder={data.me.roleCode==="FOUNDER"} onCommand={(c)=>{setCommand(c);setWorkspace(c.tab||"dashboard")}}/>:command?.tab==="roles"?<RolesWorkspace data={data} busy={busy} onAssign={assignRole} onRemove={removeRole}/>:command?.tab==="users"?<AdminUsersPresence isFullPage />:command?.tab==="dashboard"?<RealtimeWorkspace data={live} role={selectedRole?.title||currentRole?.title||data.me.roleCode||"ADMIN"}/>:<LegacyAdminPanel embedded embeddedTab={command?.tab||"dashboard"} refreshKey={tick}/>}</div></div></div></div>}
+    {workspace&&<div className="fixed inset-0 z-[100] overflow-hidden bg-[#050507]/[.985] backdrop-blur-2xl"><div className="flex h-full flex-col"><div className="flex min-h-16 shrink-0 items-center justify-between border-b border-white/8 bg-black/70 px-4 sm:px-6"><div className="min-w-0"><div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300"/><span className="text-[10px] font-black uppercase tracking-[.22em] text-zinc-600">АДМИН-РАЗДЕЛ</span></div><div className="mt-1 truncate text-lg font-black">{command?.title||"Центр управления"}</div></div><div className="flex items-center gap-2"><span className="hidden rounded-xl border border-white/8 px-3 py-2 text-xs text-zinc-500 sm:block">ESC</span><button autoFocus type="button" onClick={()=>{setCommand(null);setWorkspace(null);setSelectedRoleCode(null)}} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-black hover:border-[var(--theme-accent)]/40 hover:text-[var(--theme-accent)]">Закрыть</button></div></div><div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5 lg:p-6"><div className="mx-auto max-w-[1500px]">{workspace==="role"&&!command&&selectedRole?<RoleWorkspace role={selectedRole} commands={selectedRoleCommands} actualRole={data.me.roleCode||"ADMIN"} founder={data.me.roleCode==="FOUNDER"} onCommand={(c)=>{setCommand(c);setWorkspace(c.tab||"dashboard")}}/>:command?.tab==="roles"?<RolesWorkspace data={data} busy={busy} onAssign={assignRole} onRemove={removeRole}/>:command?.tab==="users"&&command?.permission==="users.view"?<AdminUsersPresence isFullPage />:command?.tab==="dashboard"?<RealtimeWorkspace data={live} role={selectedRole?.title||currentRole?.title||data.me.roleCode||"ADMIN"}/>:<LegacyAdminPanel embedded embeddedTab={command?.tab||"dashboard"} refreshKey={tick}/>}</div></div></div></div>}
 
     {adminInviteUrl&&<div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-labelledby="admin-invite-title" className="w-full max-w-xl rounded-3xl border border-white/10 bg-[#09090c] p-6 shadow-2xl sm:p-8"><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">ПЕРВЫЙ ВХОД</div><h2 id="admin-invite-title" className="mt-3 text-2xl font-black">Ссылка для создания пароля</h2><p className="mt-3 text-sm leading-6 text-zinc-400">Роль назначена. Передай эту персональную ссылку самому пользователю: он создаст собственный пароль для существующего аккаунта. Ссылка одноразовая и действует 30 минут. Пароль тебе не показывается.</p><input aria-label="Ссылка для первого входа" readOnly value={adminInviteUrl} onFocus={e=>e.currentTarget.select()} className="input mt-5"/><p className="mt-2 text-xs text-zinc-600">Скопируй ссылку и передай её лично пользователю. Не публикуй её в общих чатах.</p>{inviteCopyStatus&&<p role="status" className="mt-3 text-sm text-emerald-300">{inviteCopyStatus}</p>}<div className="mt-6 flex flex-wrap justify-end gap-3"><button type="button" onClick={()=>{setAdminInviteUrl(null);setInviteCopyStatus("")}} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-300">Закрыть</button><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(adminInviteUrl);setInviteCopyStatus("Ссылка скопирована.")}catch{setInviteCopyStatus("Автокопирование недоступно. Выдели ссылку выше и скопируй её вручную.")}}} className="rounded-xl bg-[var(--theme-accent)] px-5 py-3 text-sm font-black text-black">Копировать ссылку</button></div></section></div>}
 
@@ -352,7 +293,7 @@ function RealtimeWorkspace({data,role}:{data:LiveData|null;role:string}){return 
 
 function RolesWorkspace({data,busy,onAssign,onRemove}:{data:AccessData;busy:boolean;onAssign:(u:string,r:string)=>void;onRemove:(u:string)=>void}){
   const [userId,setUserId]=useState(""); const [role,setRole]=useState("ADMIN");
-  const canManage=data.me.permissions.includes("*")||data.me.permissions.includes("roles.manage");
+  const canManage=data.me.permissions.includes("*")||(data.me.permissions.includes("roles.manage")&&data.me.permissions.includes("roles.assign"));
   return <div className="rounded-[28px] border border-white/8 bg-black/20 p-5 sm:p-8"><div className="text-xs font-black uppercase tracking-[.25em] text-[var(--theme-accent)]">ADMINISTRATION</div><h2 className="mt-2 text-4xl font-black">Управление ролями</h2><p className="mt-2 text-zinc-500">RBAC назначается здесь. Founder не является обычной назначаемой ролью.</p>{canManage&&<div className="mt-7 grid gap-3 lg:grid-cols-[1fr_280px_auto]"><select value={userId} onChange={e=>setUserId(e.target.value)} className="input"><option value="">Выберите пользователя…</option>{data.users.filter(u=>u.id!==data.me.id).map(u=><option key={u.id} value={u.id}>{u.nickname} · {u.role}</option>)}</select><select value={role} onChange={e=>setRole(e.target.value)} className="input">{data.roles.filter(r=>r.code!=="FOUNDER").map(r=><option key={r.code}>{r.code}</option>)}</select><button disabled={!userId||busy} onClick={()=>onAssign(userId,role)} className="rounded-2xl bg-[var(--theme-accent)] px-5 py-3 font-black text-black disabled:opacity-40">Назначить · ENTER</button></div>}
   <div className="mt-8 overflow-x-auto rounded-3xl border border-white/8"><table className="w-full min-w-[760px] text-sm"><thead className="bg-white/[.03] text-left text-zinc-600"><tr><th className="p-4">Пользователь</th><th className="p-4">RBAC</th><th className="p-4">Level</th><th className="p-4">Статус</th><th className="p-4">Действие</th></tr></thead><tbody>{data.assignments.map(a=><tr key={a.id} className="border-t border-white/6"><td className="p-4 font-bold">{a.user.nickname}</td><td className="p-4 text-[var(--theme-accent)]">{a.roleCode}</td><td className="p-4">{a.level}</td><td className="p-4 text-zinc-600">{a.user.status}</td><td className="p-4"><button disabled={busy||a.userId===data.me.id} onClick={()=>onRemove(a.userId)} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-30">Снять RBAC</button></td></tr>)}{!data.assignments.length&&<tr><td className="p-10 text-center text-zinc-600" colSpan={5}>Назначений нет. Для legacy-ролей используется базовая роль пользователя.</td></tr>}</tbody></table></div></div>
 }
