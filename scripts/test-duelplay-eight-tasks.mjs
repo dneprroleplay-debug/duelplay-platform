@@ -254,7 +254,7 @@ const check = (condition, message) => {
   for (const option of heroBackgroundOptions()) {
     check(exists(path.join("public", option.image.replace(/^\//, ""))), `${option.id} resolves to an existing file`);
   }
-  check(heroBackgroundImage("hero-07").endsWith(".webp"), "the hero that ships as WebP resolves to the WebP file");
+  check(heroBackgroundImage("hero-07").endsWith(".png"), "the hero that ships as PNG resolves to the PNG file");
   check(heroBackgroundImage("unknown-hero") === heroBackgroundImage("hero-01"), "an unknown hero id falls back to the default hero");
   check(read("lib/duel-maps.ts").includes("/images/maps/aim_dust2.png"), "the aim dust2 catalogue entry points at the PNG asset");
 }

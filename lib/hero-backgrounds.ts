@@ -24,15 +24,15 @@ export type HeroBackgroundId = (typeof HERO_BACKGROUND_IDS)[number];
 
 const HERO_BACKGROUND_FILES: Record<HeroBackgroundId, string> = {
   "hero-01": "/hero-backgrounds/hero-01.jpg",
-  "hero-02": "/hero-backgrounds/hero-02.jpg",
-  "hero-03": "/hero-backgrounds/hero-03.jpg",
-  "hero-04": "/hero-backgrounds/hero-04.jpg",
-  "hero-05": "/hero-backgrounds/hero-05.jpg",
-  "hero-06": "/hero-backgrounds/hero-06.jpg",
-  "hero-07": "/hero-backgrounds/hero-07.webp",
-  "hero-08": "/hero-backgrounds/hero-08.webp",
-  "hero-09": "/hero-backgrounds/hero-09.jpg",
-  "hero-10": "/hero-backgrounds/hero-10.webp",
+  "hero-02": "/hero-backgrounds/hero-02.png",
+  "hero-03": "/hero-backgrounds/hero-03.png",
+  "hero-04": "/hero-backgrounds/hero-04.png",
+  "hero-05": "/hero-backgrounds/hero-05.png",
+  "hero-06": "/hero-backgrounds/hero-06.png",
+  "hero-07": "/hero-backgrounds/hero-07.png",
+  "hero-08": "/hero-backgrounds/hero-08.png",
+  "hero-09": "/hero-backgrounds/hero-09.png",
+  "hero-10": "/hero-backgrounds/hero-10.png",
 };
 
 export const DEFAULT_HERO_BACKGROUND_ID: HeroBackgroundId = "hero-01";

@@ -5,12 +5,12 @@ const root = process.cwd();
 const requiredMaps = [
   "aim_redline.png",
   "aim_dust2.png",
-  "pool_day_classic.png",
+  "pool_day.png",
   "one_v_one_aim_map.png",
-  "one_v_one_remastered.png",
-  "one_v_one_oasis.png",
-  "one_v_one_v3.png",
-  "one_v_one_arena.png",
+  "minecraft_aim_map.png",
+  "aim_cache.png",
+  "fy_snow.png",
+  "one_vs_one_aim_map_arena.png",
   "one_v_one_anubis_aim.png",
   "aim_halloween_1v1.png",
 ];
