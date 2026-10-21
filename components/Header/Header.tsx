@@ -18,6 +18,7 @@ const FLAGS:{key:keyof typeof languages;name:string;src:string}[]=[
  {key:"PL",name:"Polski",src:"/images/flags/pl.svg"}
 ];
 type Notice={id:string;type:string;title:string;body:string;createdAt:string;status:string;payload?:Record<string,unknown>|null};
+const ADMIN_SENDER:Record<string,string>={RU:"Администрация DuelPlay",UA:"Адміністрація DuelPlay",EN:"DuelPlay Administration",PL:"Administracja DuelPlay"};
 
 export default function Header(){
  const{language,setLanguage,t}=useLanguage(); const{user,loading,logout}=useAuth(); const router=useRouter();
@@ -46,6 +47,7 @@ export default function Header(){
    return "Mecz anulowany";
   }
   if(p.localTest===true){ return Number(p.payout||0)>0 ? t.testDuelWon : t.testMatchCompleted; }
+  if(kind==="ADMIN_BROADCAST")return `${ADMIN_SENDER[language]||ADMIN_SENDER.EN}: ${n.title}`;
   if(kind==="SUPPORT_CLOSED")return t.ticketClosed;
   if(kind==="SUPPORT_REPLY")return t.supportReply;
   const titles:Record<string,Record<string,string>>={
@@ -99,6 +101,7 @@ export default function Header(){
     }
   };
 
+  if(n.type==="SYSTEM"&&n.title)return n.title;
   return titles[language]?.[n.type] || n.title;
   };
  const noticeBody=(n:Notice)=>{
@@ -132,6 +135,7 @@ export default function Header(){
    const detail=cancellationDetail(language,p);
    return detail?`${summary} ${detail}`:summary;
   }
+  if(kind==="ADMIN_BROADCAST"){const by=String(p.sentBy||"").trim();return by?`${ADMIN_SENDER[language]||ADMIN_SENDER.EN} · ${by}: ${n.body}`:`${ADMIN_SENDER[language]||ADMIN_SENDER.EN}: ${n.body}`;}
   const bodies:Record<string,Record<string,string>>={
     RU:{
       SYSTEM:"Системное уведомление DuelPlay.",
@@ -183,6 +187,7 @@ export default function Header(){
     }
   };
 
+  if(n.type==="SYSTEM"&&n.body)return n.body;
   return bodies[language]?.[n.type] || n.body;
    }; const ui={
   RU:{notifications:"Уведомления",readAll:"Прочитать всё",empty:"Пока нет уведомлений",profile:"Профиль",wallet:"Кошелёк",inventory:"Инвентарь",appearance:"Оформление",admin:"Панель администратора",accept:"Принять",decline:"Отклонить",openProfile:"Открыть профиль",reply:"Ответить",openMatch:"Открыть матч",logout:t.logout},

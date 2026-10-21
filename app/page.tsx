@@ -12,6 +12,7 @@ import TopSkins from "../components/TopSkins/TopSkins";
 import Cases from "../components/Cases/Cases";
 import HomeIntro from "../components/Common/HomeIntro";
 import BannerStrip from "../components/Home/BannerStrip";
+import MatchHistory from "@/components/Match/MatchHistory";
 import { deferEffectTask } from "@/lib/effect-defer";
 
 function HomeContent(){
@@ -41,7 +42,10 @@ function HomeContent(){
   },[]);
 
   const warmAllHomeImages=async()=>{
-    const heroes=heroBackgroundOptions().map(option=>option.image);
+    // Only the background that is actually shown is preloaded; preloading all ten
+    // hero images pulled ~20 MB before the first paint and delayed every other
+    // image on the page.
+    const heroes=[heroBackgroundImage(heroBackground)];
 
     const seasons=[
       "winter",
@@ -58,6 +62,28 @@ function HomeContent(){
       ...seasons
     ]);
   };
+
+  useEffect(()=>{
+    let disposed=false;
+    const syncHero=async()=>{
+      if(disposed||document.visibilityState==="hidden")return;
+      try{
+        const r=await fetch("/api/site-settings",{cache:"no-store"});
+        if(!r.ok)return;
+        const d=await r.json();
+        const next=String(d?.heroBackground||"");
+        if(!/^hero-(0[1-9]|10)$/.test(next))return;
+        if(next===heroBackground)return;
+        setHeroBackground(next);
+        try{window.sessionStorage.setItem(HERO_STORAGE_KEY,next);}catch{}
+      }catch{}
+    };
+    const onVisible=()=>{void syncHero()};
+    document.addEventListener("visibilitychange",onVisible);
+    window.addEventListener("focus",onVisible);
+    const poll=window.setInterval(()=>{void syncHero()},60000);
+    return()=>{disposed=true;document.removeEventListener("visibilitychange",onVisible);window.removeEventListener("focus",onVisible);window.clearInterval(poll)};
+  },[heroBackground]);
 
   useEffect(()=>{
     const timer=window.setTimeout(()=>{
@@ -87,10 +113,13 @@ function HomeContent(){
       if(typeof settings.heroBackground==="string"){
         const nextHero=settings.heroBackground;
 
+        // Apply the stored hero immediately and preload it in the background:
+        // the background must not wait for the image to finish downloading.
+        setHeroBackground(nextHero);
+        try{window.sessionStorage.setItem(HERO_STORAGE_KEY,nextHero);}catch{}
         void preloadImage(
           heroBackgroundImage(nextHero)
         ).then(()=>{
-          setHeroBackground(nextHero);
 
           try{
             window.sessionStorage.setItem(
@@ -137,6 +166,7 @@ function HomeContent(){
       </section>
 
       <Live refreshKey={refreshKey} mode="waiting" showFilters/>
+      <MatchHistory variant="recent"/>
       <CreateMatch onCreated={()=>setRefreshKey(v=>v+1)}/>
       <TopSkins/>
       <Cases/>

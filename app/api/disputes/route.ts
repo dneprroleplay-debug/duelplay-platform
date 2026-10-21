@@ -14,7 +14,7 @@ import { DISPUTE_REASON_TO_ERROR, evaluateDisputeEligibility } from "@/lib/dispu
 import { Prisma } from "@prisma/client";
 
 const DECISIONS = ["DRAW", "WINNER_PLAYER_ONE", "WINNER_PLAYER_TWO", "CANCELLED_REFUND"] as const;
-const EVIDENCE_TYPES = ["IMAGE", "VIDEO", "LOG_FILE", "DEMO_REPLAY"] as const;
+import { EVIDENCE_TYPES, isEvidenceType, validateEvidenceFile } from "@/lib/dispute-evidence";
 type Decision = typeof DECISIONS[number];
 
 type DisputeLockRow = {
@@ -37,7 +37,6 @@ type DisputeMatchRow = {
 };
 
 function isDecision(value: string): value is Decision { return (DECISIONS as readonly string[]).includes(value); }
-function isEvidenceType(value: string): boolean { return (EVIDENCE_TYPES as readonly string[]).includes(value); }
 
 async function notifyDisputeUpdate(
   tx: Prisma.TransactionClient,
@@ -156,7 +155,16 @@ export async function PATCH(request: NextRequest) {
     const id = String(body.id || "").trim();
     const fileUrl = String(body.fileUrl || "").trim();
     const type = String(body.type || "IMAGE");
-    if (!id || !fileUrl || fileUrl.length > 2048 || !isEvidenceType(type)) return NextResponse.json({ error: "Invalid evidence" }, { status: 400 });
+    if (!id || !fileUrl || !isEvidenceType(type)) return NextResponse.json({ error: "Invalid evidence" }, { status: 400 });
+    // A data URL carries the uploaded file itself; a normal https link is an
+    // external reference. Both are bounded, and the mime type of a data URL
+    // must match the declared evidence type.
+    const validation = validateEvidenceFile(fileUrl, type);
+    if (!validation.ok) {
+      if (validation.code === "UNSUPPORTED_TYPE") return NextResponse.json({ error: "Unsupported evidence file type" }, { status: 400 });
+      if (validation.code === "TOO_LARGE") return NextResponse.json({ error: "Evidence file is too large" }, { status: 413 });
+      return NextResponse.json({ error: "Invalid evidence" }, { status: 400 });
+    }
     const row = await prisma.$transaction(async tx => {
       const d = await tx.dispute.findUnique({ where: { id }, include: { match: { select: { playerOneId: true, playerTwoId: true } } } });
       if (!d || ![d.reporterId, d.match.playerOneId, d.match.playerTwoId].includes(me.id)) throw new Error("FORBIDDEN");

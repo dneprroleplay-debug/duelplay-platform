@@ -333,7 +333,7 @@ export async function PATCH(request:NextRequest){
       if(target==="ALL") ids=(await prisma.user.findMany({where:{status:"ACTIVE"},select:{id:true}})).map(x=>x.id);
       else ids=[target];
       if(!ids.length)return NextResponse.json({error:"Получатели не найдены"},{status:404});
-      await prisma.notification.createMany({data:ids.map(userId=>({userId,type:"SYSTEM",status:"UNREAD",title,body:message,payload:{sentBy:me.nickname}}))});
+      await prisma.notification.createMany({data:ids.map(userId=>({userId,type:"SYSTEM",status:"UNREAD",title,body:message,payload:{kind:"ADMIN_BROADCAST",sentBy:me.nickname,sentAt:new Date().toISOString()}}))});
       await auditRequest(request, me.id,"SEND_SYSTEM_NOTIFICATION","NOTIFICATION",undefined,{target,count:ids.length,title});
       return NextResponse.json({ok:true,count:ids.length});
     }
