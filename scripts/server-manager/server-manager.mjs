@@ -7,9 +7,11 @@ import { createTechnicalEventOutbox } from './technical-event-outbox.mjs';
 import { managerHealthSnapshot } from './manager-health.mjs';
 import sharp from 'sharp';
 import {
+  FIRST_TO_10_KILLS,
   buildDuelModeCommands,
   chooseRandomWeapon,
-  getFirstToTenWinnerTeam,
+  getFirstToTenKillsLeader,
+  getFirstToTenKillsWinner,
   getRuleReapplyDelays,
   resolveEffectiveMode,
 } from './mode-policy.mjs';
@@ -17,6 +19,7 @@ import {
   buildMapConfigNames,
   buildMapLaunchArgs,
   buildMatchMapConfig,
+  parseWorkshopSourceFolder,
   safeMapConfigName,
 } from './map-launch.mjs';
 
@@ -255,10 +258,6 @@ function updateCs2Server() {
 }
 
 function writeConfigs() {
-  const writeIfMissing = (filePath, contents) => {
-    if (existsSync(filePath)) return;
-    writeFileSync(filePath, contents);
-  };
   // Generated mode cfgs are loaded verbatim by `+exec duelplay_<mode>` at server
   // launch. They must track the current mode policy, otherwise an already
   // provisioned server keeps a stale (and previously invalid) rule set forever.
@@ -268,7 +267,8 @@ function writeConfigs() {
   };
   const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
   mkdirSync(cfgDir, { recursive: true });
-  writeIfMissing(join(cfgDir, 'gamemode_competitive_server.cfg'), [
+  const serverCfgPath = join(cfgDir, 'gamemode_competitive_server.cfg');
+  const serverCfgTemplate = [
     '// DuelPlay managed CS2 1v1 server',
     'bot_quota 0',
     'bot_quota_mode normal',
@@ -280,7 +280,7 @@ function writeConfigs() {
     'mp_roundtime 2',
     'mp_roundtime_defuse 2',
     'mp_roundtime_hostage 2',
-    'mp_buytime 35',
+    'mp_buytime 15',
     'mp_buy_during_immunity 1',
     'mp_respawn_immunitytime 5',
     'mp_buy_anywhere 1',
@@ -297,7 +297,16 @@ function writeConfigs() {
     'sv_logfile 1',
     'mp_logmessages 1',
     ''
-  ].join('\n'));
+  ].join('\n');
+  if (!existsSync(serverCfgPath)) {
+    writeFileSync(serverCfgPath, serverCfgTemplate);
+  } else {
+    const currentServerCfg = readFileSync(serverCfgPath, 'utf8');
+    const nextServerCfg = /^mp_buytime\s+/m.test(currentServerCfg)
+      ? currentServerCfg.replace(/^mp_buytime\s+.*$/m, 'mp_buytime 15')
+      : `${currentServerCfg}${currentServerCfg.endsWith('\n') ? '' : '\n'}mp_buytime 15\n`;
+    writeIfChanged(serverCfgPath, nextServerCfg);
+  }
   for (const [name, mode, modifier] of [
     ['duelplay_awp.cfg', 'AWP_ONLY', 'AWP_ONLY'],
     ['duelplay_grenade.cfg', 'GRENADE_ONLY', 'GRENADE_ONLY'],
@@ -471,6 +480,27 @@ function writeMatchMapConfig(mapNames, mode, weaponModifier, randomWeapon = null
   }
 }
 
+// The Workshop item's publish_data.txt exposes a source_folder, but it can differ
+// from the internal BSP name CS2 actually loads (3383710636 -> testmap vs
+// colosseummaphure). Use it only as an extra cfg-name fallback; the verified real
+// name comes from WORKSHOP_MAP_SOURCE_FOLDERS.
+function resolveWorkshopSourceFolder(workshopId) {
+  const id = String(workshopId || '').trim();
+  if (!id) return null;
+  const candidates = [
+    join(CS2_DIR, 'bin', 'linuxsteamrt64', 'steamapps', 'workshop', 'content', '730', id, 'publish_data.txt'),
+    join(CS2_DIR, 'csgo', 'addons', 'workshop', id, 'publish_data.txt'),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (!existsSync(filePath)) continue;
+      const sourceFolder = parseWorkshopSourceFolder(readFileSync(filePath, 'utf8'));
+      if (sourceFolder) return sourceFolder;
+    } catch { /* ignore unreadable Workshop metadata */ }
+  }
+  return null;
+}
+
 function steam64FromSteam3(value) {
   const match = String(value).match(/\[U:1:(\d+)\]/);
   if (!match) return null;
@@ -576,6 +606,24 @@ function observeServerLine(text) {
   if (/World triggered \"Game_Commencing\"/i.test(text)) {
     if (current && !resultSent) {
       applyDuelRules(current.mode, current.weaponModifier);
+
+      // Some Workshop maps run their own point_servercommand on the first spawn /
+      // Game_Commencing. That can restore map money/buytime after DuelPlay's
+      // initial rules, giving players $60000 and an 82-second buy window. Restart
+      // once after that map logic so the first real round spawns with the mode's
+      // mp_startmoney and mp_buytime values instead of the map's values.
+      if (current.workshopId && !current.workshopRestartScheduled) {
+        current.workshopRestartScheduled = true;
+        scheduleCurrentMatchTask(1500, () => {
+          applyDuelRules(current.mode, current.weaponModifier);
+          command('mp_restartgame 1');
+          for (const delay of [1500, 3000]) {
+            scheduleCurrentMatchTask(delay, () => {
+              applyDuelRules(current.mode, current.weaponModifier);
+            });
+          }
+        });
+      }
     }
     for (const delay of getRuleReapplyDelays('GAME_COMMENCING')) {
       scheduleCurrentMatchTask(delay, () => {
@@ -702,14 +750,16 @@ async function claimAndStart(match) {
   const weaponModifier = claimed.weaponModifier || match.weaponModifier || null;
   const randomWeapon = resolveEffectiveMode(mode, weaponModifier) === 'RANDOM_WEAPON' ? chooseRandomWeapon() : null;
   const workshopId = claimed.workshopId ? String(claimed.workshopId).trim() : '';
-  const mapConfigNames = buildMapConfigNames(match.mapName, workshopId);
+  const workshopSourceFolder = resolveWorkshopSourceFolder(workshopId);
+  const firstToTen = resolveEffectiveMode(mode, weaponModifier) === 'FIRST_TO_10';
+  const mapConfigNames = buildMapConfigNames(match.mapName, workshopId, workshopSourceFolder);
   writeMatchMapConfig(mapConfigNames, mode, weaponModifier, randomWeapon);
   const mapLaunchArgs = buildMapLaunchArgs(match.mapName, workshopId);
   const args = [
     '-dedicated', '-console', '-usercon', '-port', String(runtimePort), '-maxplayers', '2',
     '+game_type', '0', '+game_mode', '1', ...mapLaunchArgs,
     '+sv_lan', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0', '+bot_quota_mode', 'normal',
-    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '2', '+mp_roundtime_defuse', '2', '+mp_roundtime_hostage', '2', '+mp_buytime', '35', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
+    '+mp_autoteambalance', '0', '+mp_limitteams', '0', '+mp_freezetime', '5', '+mp_roundtime', '2', '+mp_roundtime_defuse', '2', '+mp_roundtime_hostage', '2', '+mp_buytime', '15', '+mp_buy_during_immunity', '1', '+mp_respawn_immunitytime', '5', '+mp_buy_anywhere', '1', '+mp_buy_allow_guns', '255', '+mp_buy_allow_grenades', '1', '+mp_weapons_allow_pistols', '-1', '+mp_weapons_allow_smgs', '-1', '+mp_weapons_allow_rifles', '-1', '+mp_weapons_allow_heavy', '-1', '+mp_weapons_allow_zeus', '1', '+mp_weapons_allow_map_placed', '1', '+mp_require_gun_use_to_acquire', '0', '+sv_allow_ground_weapon_pickup', '1', '+mp_death_drop_gun', '1', '+mp_warmup_online_enabled', '0', '+mp_warmuptime', '0', '+mp_warmup_pausetimer', '0', '+mp_warmup_end', '+mp_maxrounds', '19', '+mp_match_can_clinch', firstToTen ? '0' : '1', '+mp_halftime', '0', '+mp_match_end_restart', '0',
     ...(weaponModifier === 'GRENADE_ONLY' || mode === 'GRENADE_ONLY' ? ['+exec', 'duelplay_grenade'] : []),
     ...(weaponModifier === 'AWP_ONLY' || mode === 'AWP_ONLY' ? ['+exec', 'duelplay_awp'] : []),
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
@@ -740,6 +790,8 @@ async function claimAndStart(match) {
     playerOneAvatarUrl: claimed.playerOneAvatarUrl ?? null,
     playerTwoAvatarUrl: claimed.playerTwoAvatarUrl ?? null,
     mapName: match.mapName || 'Dust2',
+    workshopId,
+    workshopRestartScheduled: false,
     mode,
     weaponModifier,
     randomWeapon,
@@ -830,7 +882,7 @@ async function claimAndStart(match) {
           applyDuelRules(current.mode, current.weaponModifier);
         });
       }
-      command('mp_match_can_clinch 1');
+      command(`mp_match_can_clinch ${firstToTen ? '0' : '1'}`);
       command('mp_match_end_restart 0');
       command('sv_visiblemaxplayers 2');
       command('log on');
@@ -1074,6 +1126,18 @@ function observeRefereeState(body) {
   refereeState = { version: 1, mode: current.mode, mapName: current.mapName, round: roundNumber ?? refereeState.round, roundPhase, mapPhase, score: { CT: Number.isFinite(ctScore) ? ctScore : 0, T: Number.isFinite(tScore) ? tScore : 0 }, players: Object.fromEntries(currentPlayers.entries()), observedAt: new Date().toISOString() };
 }
 
+function firstToTenPlayers(body) {
+  const players = {};
+  const allplayers = body?.allplayers;
+  if (!allplayers || typeof allplayers !== 'object' || Array.isArray(allplayers)) return players;
+  for (const [steamId, player] of Object.entries(allplayers)) {
+    const canonical = canonicalPlayerSteamId(steamId)
+      || canonicalPlayerSteamId(player?.steamid ?? player?.steam_id ?? player?.id);
+    if (canonical) players[canonical] = player;
+  }
+  return players;
+}
+
 function detectWinner(body) {
   if (!current) return;
   observeRefereeState(body);
@@ -1147,21 +1211,30 @@ function detectWinner(body) {
   if (resultSent) return;
 
   const map = body?.map;
-  if (current.mode === 'FIRST_TO_10') {
-    const ctScore = Number(map?.team_ct?.score ?? -1);
-    const tScore = Number(map?.team_t?.score ?? -1);
-    const winnerTeam = getFirstToTenWinnerTeam(ctScore, tScore);
-    if (winnerTeam) {
-      const winner = [...observedTeams.entries()].find(([, team]) => team === winnerTeam)?.[0] || null;
-      if (winner) {
-        void reportWinner(winner, `FIRST_TO_10 reached ${winnerTeam} score=${Math.max(ctScore, tScore)}`);
-        return;
-      }
+  const firstToTen = resolveEffectiveMode(current.mode, current.weaponModifier) === 'FIRST_TO_10';
+  const firstToTenSnapshot = firstToTen ? firstToTenPlayers(body) : {};
+
+  if (firstToTen) {
+    const winner = getFirstToTenKillsWinner(firstToTenSnapshot);
+    if (winner) {
+      void reportWinner(winner, `FIRST_TO_10 reached ${FIRST_TO_10_KILLS} kills`);
+      return;
     }
   }
+
   const phase = String(map?.phase || '').toLowerCase();
 
   if (!['gameover', 'over'].includes(phase)) return;
+
+  // If the 19-round safety cap is reached before anyone gets 10 kills, award the
+  // match to the kill leader instead of falling back to the round score.
+  if (firstToTen) {
+    const leader = getFirstToTenKillsLeader(firstToTenSnapshot);
+    if (leader) {
+      void reportWinner(leader, 'FIRST_TO_10 round cap reached; kills leader');
+      return;
+    }
+  }
 
   const ct = Number(map?.team_ct?.score ?? -1);
   const tt = Number(map?.team_t?.score ?? -1);

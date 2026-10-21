@@ -5,7 +5,7 @@ export const DUEL_MODES = [
   { id: "KNIFE_ONLY", label: "Knife Only", description: "Knife only.", weaponModifier: "KNIFE_ONLY" },
   { id: "HEADSHOT_ONLY", label: "Headshot Only", description: "Headshots only.", weaponModifier: "HEADSHOT_ONLY" },
   { id: "RANDOM_WEAPON", label: "Random Weapon", description: "Random weapon modifier.", weaponModifier: "RANDOM_WEAPON" },
-  { id: "FIRST_TO_10", label: "First to 10", description: "First player to 10 rounds.", weaponModifier: null },
+  { id: "FIRST_TO_10", label: "First to 10", description: "First player to 10 kills.", weaponModifier: null },
   { id: "GRENADE_ONLY", label: "Grenade Only", description: "Grenades only.", weaponModifier: "GRENADE_ONLY" },
 ] as const;
 

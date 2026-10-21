@@ -36,6 +36,7 @@ const WEAPONS = [
 
 const WEAPON_CATEGORIES = ['pistols', 'smgs', 'rifles', 'heavy'];
 const CLOSED_MODES = new Set(['AWP_ONLY', 'DEAGLE_ONLY', 'KNIFE_ONLY', 'RANDOM_WEAPON', 'GRENADE_ONLY']);
+export const FIRST_TO_10_KILLS = 10;
 
 export function chooseRandomWeapon(random = Math.random) {
   const index = Math.floor(random() * WEAPONS.length);
@@ -52,13 +53,16 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
   const grenadeOnly = effectiveMode === 'GRENADE_ONLY';
   const firstTo10 = effectiveMode === 'FIRST_TO_10';
   const headshotOnly = effectiveMode === 'HEADSHOT_ONLY';
+  // FIRST_TO_10 is decided by kills, not round wins. Disable round clinching so a
+  // 10-0 round lead cannot end the match before someone reaches 10 kills; the
+  // 19-round limit remains the safety cap.
   const commands = [
     'mp_warmup_online_enabled 0', 'mp_warmuptime 0', 'mp_warmup_pausetimer 0', 'mp_warmup_end',
     'mp_autoteambalance 0', 'mp_limitteams 0', 'mp_freezetime 5',
     'mp_roundtime 2', 'mp_roundtime_defuse 2', 'mp_roundtime_hostage 2',
-    'mp_match_can_clinch 1', 'mp_maxrounds 19', 'mp_halftime 0', 'mp_match_end_restart 0',
+    `mp_match_can_clinch ${firstTo10 ? '0' : '1'}`, 'mp_maxrounds 19', 'mp_halftime 0', 'mp_match_end_restart 0',
     `mp_damage_headshot_only ${headshotOnly ? '1' : '0'}`,
-    `mp_buytime ${restricted ? '0' : '35'}`,
+    `mp_buytime ${restricted ? '0' : '15'}`,
     `mp_buy_anywhere ${restricted ? '0' : '1'}`,
     `mp_buy_allow_guns ${restricted ? '0' : '255'}`,
     `mp_buy_allow_grenades ${restricted ? '0' : '1'}`,
@@ -95,9 +99,16 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
     `duelplay_grenade_only ${effectiveMode === 'GRENADE_ONLY' ? '1' : '0'}`,
   ];
 
-  if (!restricted) commands.push('mp_startmoney 16000', 'mp_maxmoney 16000', 'mp_afterroundmoney 16000');
-
-  if (firstTo10) commands.push('mp_maxrounds 19', 'mp_match_can_clinch 1', 'mp_halftime 0');
+  if (!restricted) {
+    // Start each open-mode match with $10,000 and cap the wallet there. Keep the
+    // engine default after-round award so normal win/loss round income still applies
+    // instead of refilling every player to $10,000 after each round.
+    commands.push('mp_maxmoney 10000', 'mp_startmoney 10000', 'mp_afterroundmoney 0');
+  } else if (!grenadeOnly) {
+    // GRENADE_ONLY keeps its existing economy untouched; every other restricted mode
+    // starts and stays at $0 so the closed shop cannot be bypassed.
+    commands.push('mp_maxmoney 0', 'mp_startmoney 0', 'mp_afterroundmoney 0');
+  }
 
   if (effectiveMode === 'AWP_ONLY') {
     commands.push(
@@ -146,10 +157,25 @@ export function getRuleReapplyDelays(event) {
   }[event] ?? [];
 }
 
-export function getFirstToTenWinnerTeam(ctScore, tScore) {
-  const ct = Number(ctScore);
-  const t = Number(tScore);
-  if (!Number.isFinite(ct) || !Number.isFinite(t) || (ct < 10 && t < 10)) return null;
-  if (ct === t) return null;
-  return ct > t ? 'CT' : 'T';
+function firstToTenKillEntries(players) {
+  return Object.entries(players ?? {})
+    .map(([steamId, player]) => ({
+      steamId,
+      kills: Number(player?.match_stats?.kills ?? player?.kills ?? 0),
+    }))
+    .filter((entry) => Number.isFinite(entry.kills))
+    .sort((a, b) => b.kills - a.kills);
+}
+
+export function getFirstToTenKillsWinner(players) {
+  const [top, second] = firstToTenKillEntries(players);
+  if (!top || top.kills < FIRST_TO_10_KILLS) return null;
+  if (second && second.kills === top.kills) return null;
+  return top.steamId;
+}
+
+export function getFirstToTenKillsLeader(players) {
+  const [top, second] = firstToTenKillEntries(players);
+  if (!top || (second && second.kills === top.kills)) return null;
+  return top.steamId;
 }

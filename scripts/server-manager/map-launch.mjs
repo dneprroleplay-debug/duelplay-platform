@@ -8,12 +8,17 @@ export const CUSTOM_MAP_NAMES = new Set([
 ]);
 
 // Workshop items whose internal BSP name differs from the catalog serverMapName.
-// The per-match cfg is written for both names so rules apply after Workshop load.
+// These are the real map names CS2 logs in "Loading map", not publish_data's
+// source_folder. The per-match cfg is written for every known name so rules
+// apply after Workshop load even when the map is not downloaded yet.
 export const WORKSHOP_MAP_SOURCE_FOLDERS = Object.freeze({
+  '3101654056': 'fistmap',
+  '3512082348': 'untitled_4',
   '3754320383': 'aim_cache',
   '3592238209': 'fy_snow_legacy',
-  '3383710636': 'testmap',
+  '3383710636': 'colosseummaphure',
   '3596198331': 'halloween_map',
+  '3655222443': 'de_minecraft_aim_map',
 });
 
 export function mapCode(name) {
@@ -33,15 +38,25 @@ export function normalizeWorkshopId(workshopId) {
   return workshopId == null ? '' : String(workshopId).trim();
 }
 
+// publish_data.txt exposes the author's source_folder. It is not guaranteed to
+// match the internal BSP name (3383710636 says testmap but loads
+// colosseummaphure), so it is only an extra cfg-name fallback.
+export function parseWorkshopSourceFolder(contents) {
+  const match = String(contents ?? '').match(/"source_folder"\s+"([^"]+)"/i);
+  return match ? match[1].trim() : null;
+}
+
 // Every config name the per-match rules must be written under: the raw catalog
 // name, its mapCode fallback, and the Workshop item's internal BSP folder name.
-export function buildMapConfigNames(mapName, workshopId) {
+export function buildMapConfigNames(mapName, workshopId, publishedSourceFolder = null) {
   const names = new Set();
   if (mapName) names.add(String(mapName));
   const fallback = mapCode(mapName);
   if (fallback) names.add(String(fallback));
-  const sourceFolder = WORKSHOP_MAP_SOURCE_FOLDERS[normalizeWorkshopId(workshopId)];
-  if (sourceFolder) names.add(sourceFolder);
+  const publishedName = publishedSourceFolder ? String(publishedSourceFolder).trim().toLowerCase() : null;
+  const workshopName = WORKSHOP_MAP_SOURCE_FOLDERS[normalizeWorkshopId(workshopId)];
+  if (publishedName) names.add(publishedName);
+  if (workshopName) names.add(String(workshopName).trim().toLowerCase());
   return [...names];
 }
 
