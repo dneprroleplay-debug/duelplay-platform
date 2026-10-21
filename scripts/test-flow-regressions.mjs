@@ -146,7 +146,13 @@ const check = (ok, label) => {
 {
   const match = read("app/matches/[id]/page.tsx");
   check(match.includes("object-contain"), "the match banner shows the whole map image");
-  check(!match.includes('fill className="object-cover"'), "the match banner no longer crops the map");
+  check(match.includes("scale-125 object-cover blur-xl"), "the match banner fills the frame with a zoomed, blurred copy of the same map");
+  check(!/bg-black/.test(match.slice(match.indexOf("relative h-56"), match.indexOf("relative h-56") + 400)), "the match banner has no black side bars");
+  check(match.includes("mapImage||\"/images/maps/mirage.jpg\""), "the banner uses the catalogue image of the selected map");
+  const create = read("components/CreateMatch/CreateMatch.tsx");
+  check(create.includes("scale-125 object-cover blur-xl"), "the match creation preview uses the same blurred backdrop treatment");
+  check(create.includes("object-contain"), "the match creation preview still shows the complete map");
+  check(!create.includes("DUEL_MAPS.map((m)=>m.image)\n    );"), "the creation page no longer preloads all ten map images");
 }
 
 console.log(`\nSummary: ${passed} PASS, ${failed} FAIL`);
