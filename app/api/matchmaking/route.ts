@@ -234,6 +234,16 @@ export async function POST(request: NextRequest) {
             payload: { matchId: candidate.id, kind: "MATCHMAKING_FOUND", ...(economyMode === "DEMO" ? { economyMode: "DEMO" } : {}) },
           },
         });
+        await tx.notification.create({
+          data: {
+            userId: me.id,
+            type: "MATCH_READY",
+            status: "UNREAD",
+            title: "Match ready",
+            body: "An opponent was found for your duel. Open the match to start the server.",
+            payload: { matchId: candidate.id, kind: "MATCHMAKING_READY", ...(economyMode === "DEMO" ? { economyMode: "DEMO" } : {}) },
+          },
+        });
 
         const match = await tx.match.findUniqueOrThrow({ where: { id: candidate.id } });
         return { match, joined: true, rating, requestedStake, ratingWindow };

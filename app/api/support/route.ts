@@ -9,7 +9,7 @@ async function hydrateTicketSenders<T extends {messages?: Array<{senderId:string
  if(!ids.length)return ticket;
  const users=await prisma.user.findMany({where:{id:{in:ids}},select:{id:true,nickname:true,role:true}});
  const byId=new Map(users.map(u=>[u.id,u]));
- return {...ticket,messages:(ticket.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))} as T & {messages:Array<any>};
+ return {...ticket,messages:(ticket.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))} as T & {messages:Array<{senderId:string;sender:{id:string;nickname:string;role:string}|null}>};
 }
 
 async function hydrateTickets<T extends {messages?: Array<{senderId:string}>}>(tickets:T[]){
@@ -17,7 +17,7 @@ async function hydrateTickets<T extends {messages?: Array<{senderId:string}>}>(t
  if(!ids.length)return tickets;
  const users=await prisma.user.findMany({where:{id:{in:ids}},select:{id:true,nickname:true,role:true}});
  const byId=new Map(users.map(u=>[u.id,u]));
- return tickets.map(t=>({...t,messages:(t.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))})) as any;
+ return tickets.map(t=>({...t,messages:(t.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))})) as Array<T & {messages:Array<{senderId:string;sender:{id:string;nickname:string;role:string}|null}>}>;
 }
 
 export async function GET(){

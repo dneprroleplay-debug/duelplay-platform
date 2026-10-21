@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 export default function ClanWarsPage() {
   const [wars, setWars] = useState<any[]>([]);
@@ -17,7 +18,7 @@ export default function ClanWarsPage() {
     ]);
     setWars(w.ok ? await w.json() : []); setClans(c.ok ? await c.json() : []); setMine(m.ok ? await m.json() : null);
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { deferEffectTask(() => { void load(); }); }, []);
   async function create() {
     setBusy(true); setMsg("");
     try { const r = await fetch("/api/clan-wars", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", clanOneId: one, clanTwoId: two }) }); const d = await r.json(); setMsg(r.ok ? "War created" : d.error || "Failed"); if (r.ok) { setOne(""); setTwo(""); await load(); } } finally { setBusy(false); }

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useDuelDialog } from "@/components/Common/DuelDialogProvider";
 
 const STATUSES = ["OPEN", "REVIEWED", "RESOLVED", "DISMISSED"] as const;
 type ReportRow = {
@@ -15,6 +16,7 @@ type ReportRow = {
 };
 
 export default function AdminReportsWorkspace({ canReview }: { canReview: boolean }) {
+  const dialog = useDuelDialog();
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -31,7 +33,7 @@ export default function AdminReportsWorkspace({ canReview }: { canReview: boolea
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
   async function update(id: string, next: typeof STATUSES[number]) {
-    const notes = window.prompt(`Комментарий к статусу ${next} (необязательно)`);
+    const notes = await dialog.prompt({ title: `Статус жалобы: ${next}`, message: "Комментарий к статусу (необязательно)", placeholder: "Комментарий", confirmText: "Сохранить", cancelText: "Отмена", multiline: true });
     if (notes === null) return;
     setBusy(true); setError(""); setNotice("");
     try {

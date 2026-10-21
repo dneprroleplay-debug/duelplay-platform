@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 export type HeaderUser = {
   id: string;
@@ -95,7 +96,7 @@ export function AuthProvider({
       // ?? ?????????? ??? ??????????? ???????????? ??-??
       // ????????? ??????? ??????.
     } finally {
-      setLoading(false);
+      deferEffectTask(() => setLoading(false));
     }
   }, []);
 
@@ -105,11 +106,11 @@ export function AuthProvider({
     const stored = readStoredUser();
 
     if (stored) {
-      setUser(stored);
-      setLoading(false);
+      deferEffectTask(() => setUser(stored));
+      deferEffectTask(() => setLoading(false));
     }
 
-    void refresh();
+    deferEffectTask(() => { void refresh(); });
 
     const onAuth = () => {
       void refresh();

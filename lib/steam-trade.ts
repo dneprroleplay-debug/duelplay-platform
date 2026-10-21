@@ -42,7 +42,7 @@ async function providerRequest(path: string, body?: unknown) {
     signal: AbortSignal.timeout(15_000),
   });
   const text = await response.text();
-  let data: any = {};
+  let data: Record<string, unknown> = {};
   try { data = text ? JSON.parse(text) : {}; } catch { throw new Error("STEAM_TRADE_PROVIDER_INVALID_JSON"); }
   if (!response.ok) throw new Error(`STEAM_TRADE_PROVIDER_${response.status}`);
   return data;
@@ -53,14 +53,14 @@ class HttpSteamTradeProvider implements SteamTradeProvider {
     const data = await providerRequest("/trades", input);
     const externalTradeId = String(data.externalTradeId || data.id || "").trim();
     if (!externalTradeId) throw new Error("STEAM_TRADE_PROVIDER_MISSING_ID");
-    return { externalTradeId, status: normalizeStatus(data.status) };
+    return { externalTradeId, status: normalizeStatus(String(data.status || "")) };
   }
   async cancelTrade(externalTradeId: string) {
     await providerRequest(`/trades/${encodeURIComponent(externalTradeId)}/cancel`, {});
   }
   async getTradeStatus(externalTradeId: string) {
     const data = await providerRequest(`/trades/${encodeURIComponent(externalTradeId)}/status`, {});
-    return normalizeStatus(data.status);
+    return normalizeStatus(String(data.status || ""));
   }
 }
 

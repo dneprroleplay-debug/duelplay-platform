@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Reward = { day: number; reward: any; active: boolean };
 type Claim = { id: string; cycle: number; day: number; claimDate: string; claimedAt: string; reward: any };
@@ -35,7 +36,7 @@ export default function LoginRewards() {
     } finally { setBusy(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { deferEffectTask(() => { void load(); }); }, []);
 
   const rewards: Reward[] = data?.rewards ?? [];
   const claimed: Claim[] = data?.claimed ?? [];

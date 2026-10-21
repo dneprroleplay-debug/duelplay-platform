@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -21,11 +22,11 @@ export async function POST(r: NextRequest) {
   const body = await r.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const type = String((body as any).type || "");
-  const reason = String((body as any).reason || "").trim();
-  const targetId = (body as any).targetId ? String((body as any).targetId) : null;
-  const matchId = (body as any).matchId ? String((body as any).matchId) : null;
-  const evidence = (body as any).evidence ?? null;
+  const type = String((body as Record<string, unknown>).type || "");
+  const reason = String((body as Record<string, unknown>).reason || "").trim();
+  const targetId = (body as Record<string, unknown>).targetId ? String((body as Record<string, unknown>).targetId) : null;
+  const matchId = (body as Record<string, unknown>).matchId ? String((body as Record<string, unknown>).matchId) : null;
+  const evidence = ((body as Record<string, unknown>).evidence ?? null) as Prisma.InputJsonValue;
 
   if (!TYPES.includes(type as (typeof TYPES)[number]) || !reason || reason.length > MAX_REASON) {
     return NextResponse.json({ error: "Invalid report type or reason" }, { status: 400 });

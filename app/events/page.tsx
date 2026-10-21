@@ -1,9 +1,10 @@
 "use client";
 import {useEffect,useState} from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 export default function EventsPage(){
  const [events,setEvents]=useState<any[]>([]); const [selected,setSelected]=useState<any|null>(null); const [pass,setPass]=useState<any>(null); const [msg,setMsg]=useState(""); const [busy,setBusy]=useState(false);
  async function load(){const r=await fetch("/api/events",{cache:"no-store"});const x=await r.json();setEvents(Array.isArray(x)?x:[])}
- useEffect(()=>{void load()},[]);
+ useEffect(()=>{deferEffectTask(()=>{void load();});},[]);
  async function openEvent(e:any){setSelected(e);setMsg("");const r=await fetch("/api/events/pass?eventId="+encodeURIComponent(e.id),{cache:"no-store"});const x=await r.json();if(r.ok)setPass(x);else setPass(null)}
  async function join(premium=false){if(!selected)return;setBusy(true);setMsg("");const r=await fetch("/api/events/pass",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({eventId:selected.id,action:"join",premium})});const x=await r.json();setMsg(r.ok?"Pass activated.":x.error||"Could not activate pass.");if(r.ok)await openEvent(selected);setBusy(false)}
  async function claim(level:number){if(!selected)return;setBusy(true);const r=await fetch("/api/events/pass",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({eventId:selected.id,action:"claim",level})});const x=await r.json();setMsg(r.ok?"Reward claimed.":x.error||"Could not claim reward.");if(r.ok)await openEvent(selected);setBusy(false)}

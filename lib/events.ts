@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 export const EVENT_STATUSES = ["DRAFT", "SCHEDULED", "ACTIVE", "ENDED", "CANCELLED"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 
@@ -26,12 +27,12 @@ export function validateEventPayload(input: Record<string, unknown>) {
   return { name, startsAt, endsAt, premiumPrice, promoMultiplier };
 }
 
-export function safeJson(value: unknown, maxBytes = 200_000) {
+export function safeJson(value: unknown, maxBytes = 200_000): Prisma.InputJsonValue | null {
   if (value === undefined || value === null) return null;
   let encoded = "";
   try { encoded = JSON.stringify(value); } catch { throw new Error("INVALID_JSON"); }
   if (!encoded || Buffer.byteLength(encoded, "utf8") > maxBytes) throw new Error("JSON_TOO_LARGE");
-  return value as any;
+  return value as Prisma.InputJsonValue;
 }
 
 export function validateEventConfig(input: Record<string, unknown>) {

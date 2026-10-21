@@ -18,8 +18,10 @@ assert.ok(matchPage.includes("{(mapConfig||modeConfig)&&"), "map/mode descriptio
 assert.ok(matchPage.indexOf('m.status==="WAITING_FOR_PLAYERS"') < matchPage.indexOf("{(mapConfig||modeConfig)&&"), "descriptions render inside the waiting state branch");
 assert.ok(matchPage.includes('data-no-i18n className="mt-2 text-lg font-black text-white">{mapConfig.displayName}</div>'), "map name comes from the catalog and is protected from translation");
 assert.ok(matchPage.includes('data-no-i18n className="mt-2 text-lg font-black text-white">{modeConfig.label}</div>'), "mode label comes from the catalog and is protected from translation");
-assert.ok(matchPage.includes('mapDescription&&<p className="mt-2 text-sm leading-6 text-zinc-400">{mapDescription}</p>'), "map description renders only when the catalog provides it");
-assert.ok(matchPage.includes('modeConfig.description&&<p className="mt-2 text-sm leading-6 text-zinc-400">{modeConfig.description}</p>'), "mode description renders only when the catalog provides it");
+assert.ok(matchPage.includes('mapDescriptionText(language,mapConfig?.id,mapConfig?.description||"")'), "map description comes from the localized catalogue helper");
+assert.ok(matchPage.includes('{mapDescription&&<p className="mt-2 text-sm leading-6 text-zinc-400">{mapDescription}</p>}'), "map description renders only when the catalog provides it");
+assert.ok(matchPage.includes('modeDescriptionText(language,m.mode,modeConfig.description||"")'), "mode description comes from the localized catalogue helper");
+assert.ok(matchPage.includes('{modeDescriptionText(language,m.mode,modeConfig.description||"")&&<p className="mt-2 text-sm leading-6 text-zinc-400">'), "mode description renders only when the catalog provides it");
 
 assert.ok(DUEL_MODES.length >= 8, "duel-mode catalog is populated");
 for (const mode of DUEL_MODES) {

@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/admin-rbac";
+type CaseItemInput={name?:unknown;imageUrl?:unknown;rarity?:unknown;value?:unknown;weight?:unknown;id?:unknown};
 ﻿import { normalizeCaseRarity } from "@/lib/case-rarity";
 import {NextRequest,NextResponse} from "next/server";
 import {prisma} from "@/lib/prisma";
@@ -8,7 +9,7 @@ import {assertCaseEconomy} from "@/lib/case-economy";
 export async function GET(){
   await requirePermission("content.manage");
   const cases=await prisma.duelCase.findMany({include:{items:true,_count:{select:{openings:true}}},orderBy:{price:"asc"}});
-  return NextResponse.json(cases.map(c=>{const price=Number(c.price);const items=c.items.map(i=>({...i,value:Number(i.value)}));let economy:any=null;try{economy=assertCaseEconomy(price,items)}catch(e){economy={error:e instanceof Error?e.message:"INVALID_CASE"}}return {...c,price,items,economy}}));
+  return NextResponse.json(cases.map(c=>{const price=Number(c.price);const items=c.items.map(i=>({...i,value:Number(i.value)}));let economy:Record<string,unknown>|null=null;try{economy=assertCaseEconomy(price,items)}catch(e){economy={error:e instanceof Error?e.message:"INVALID_CASE"}}return {...c,price,items,economy}}));
 }
 export async function POST(r:NextRequest){
   const access=await requirePermission("content.manage"); const me=access.user; const b=await r.json();
@@ -16,7 +17,7 @@ export async function POST(r:NextRequest){
   if(!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return NextResponse.json({error:"INVALID_CASE_SLUG"},{status:400});
   if(!name || name.length>80) return NextResponse.json({error:"INVALID_CASE_NAME"},{status:400});
   try {
-    const rawItems=Array.isArray(b.items)?b.items.map((i:any)=>({name:String(i.name||"").trim(),imageUrl:String(i.imageUrl||"/case-items/common.svg"),rarity:normalizeCaseRarity(i.rarity||"Common"),value:Number(i.value),weight:Math.round(Number(i.weight))})):[];
+    const rawItems=Array.isArray(b.items)?b.items.map((i:CaseItemInput)=>({name:String(i.name||"").trim(),imageUrl:String(i.imageUrl||"/case-items/common.svg"),rarity:normalizeCaseRarity(i.rarity||"Common"),value:Number(i.value),weight:Math.round(Number(i.weight))})):[];
     assertCaseEconomy(price,rawItems);
     const existing=await prisma.duelCase.findUnique({where:{slug},select:{id:true}});
     if(existing) return NextResponse.json({error:"CASE_SLUG_EXISTS"},{status:409});
@@ -31,7 +32,7 @@ export async function PATCH(r:NextRequest){
   const access=await requirePermission("content.manage"); const me=access.user; const b=await r.json(); const id=String(b.id||""); if(!id)return NextResponse.json({error:"id required"},{status:400});
   const old=await prisma.duelCase.findUnique({where:{id},include:{items:true}}); if(!old)return NextResponse.json({error:"Case not found"},{status:404});
   try {
-    const data:any={};
+    const data:Record<string,unknown>={};
     for(const k of ["name","description","imageUrl","active"]){if(b[k]!==undefined)data[k]=k==="active"?Boolean(b[k]):String(b[k]);}
     if(b.price!==undefined){const p=Number(b.price);if(!Number.isFinite(p)||p<=0)return NextResponse.json({error:"INVALID_CASE_PRICE"},{status:400});data.price=p;}
     const nextPrice=b.price!==undefined?Number(b.price):Number(old.price);

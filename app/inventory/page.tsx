@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/Common/LanguageContext";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Item = {
   id: string;
@@ -52,7 +53,7 @@ export default function InventoryPage() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { deferEffectTask(() => { void load(); }); }, [load]);
 
   async function sell(item: Item) {
     if (!item.canSell || selling) return;

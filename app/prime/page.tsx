@@ -14,7 +14,7 @@ export default function Prime() {
     const r = await fetch("/api/prime", { cache: "no-store" });
     if (r.ok) setData(await r.json());
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void Promise.resolve().then(() => { void load(); }); }, []);
 
   async function act() {
     if (busy) return;

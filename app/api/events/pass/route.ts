@@ -7,8 +7,9 @@ import { eventPassProgress, refreshEventMissionsForUser } from "@/lib/event-pass
 
 function jsonError(message: string, status = 400) { return NextResponse.json({ error: message }, { status }); }
 
-function rewardsList(event: any) { return Array.isArray(event.rewards) ? event.rewards.filter((x: any) => x && typeof x === "object") : []; }
-function maxRewardLevel(event: any) { return Math.max(1, ...rewardsList(event).map((x: any) => Math.floor(Number(x.level) || 0))); }
+type EventPassReward={level?:unknown;reward?:unknown;free?:unknown;premium?:unknown};
+function rewardsList(event: {rewards?:unknown}): EventPassReward[] { return Array.isArray(event.rewards) ? event.rewards.filter((x: unknown) => x && typeof x === "object") as EventPassReward[] : []; }
+function maxRewardLevel(event: {rewards?:unknown}) { return Math.max(1, ...rewardsList(event).map((x: EventPassReward) => Math.floor(Number(x.level) || 0))); }
 
 export async function GET(req: NextRequest) {
   const me = await getCurrentUser();
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:event-pass-claim'))`;
       const current = await tx.eventPass.findUnique({ where: { eventId_userId: { eventId, userId: me.id } } });
       if (!current) throw new Error("JOIN_REQUIRED");
-      const entry = rewardsList(event).find((x: any) => Number(x.level) === level);
+      const entry = rewardsList(event).find((x: EventPassReward) => Number(x.level) === level);
       if (!entry) throw new Error("NO_REWARD");
       if (current.level < level) throw new Error("LEVEL_NOT_REACHED");
       const claimed = await tx.eventPassClaim.findUnique({ where: { eventId_userId_level: { eventId, userId: me.id, level } } });
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
         await grantReward(tx, me.id, premium, `event-claim:${eventId}:${me.id}:${level}:premium`, `Event Pass premium reward #${level}`, eventId);
       }
       return { claimed: row, already: false, reward: { free, premium: current.premium ? premium : null } };
-    }).catch((e: any) => { throw e; });
+    }).catch((e: unknown) => { throw e; });
     return NextResponse.json(result);
   }
   return jsonError("Unknown action");

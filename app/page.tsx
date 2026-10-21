@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { preloadImage, preloadImages } from "../lib/image-preload";
+import { heroBackgroundImage, heroBackgroundOptions } from "@/lib/hero-backgrounds";
 import { useSearchParams } from "next/navigation";
 import Live from "../components/Live/Live";
 import CreateMatch from "../components/CreateMatch/CreateMatch";
@@ -11,6 +12,7 @@ import TopSkins from "../components/TopSkins/TopSkins";
 import Cases from "../components/Cases/Cases";
 import HomeIntro from "../components/Common/HomeIntro";
 import BannerStrip from "../components/Home/BannerStrip";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 function HomeContent(){
   const {t}=useLanguage();
@@ -20,7 +22,7 @@ function HomeContent(){
   const [loading,setLoading]=useState(false);
   const [refreshKey,setRefreshKey]=useState(0);
   const [count,setCount]=useState(0);
-  const [openMatches,setOpenMatches]=useState<any[]>([]);
+  const [openMatches,setOpenMatches]=useState<Array<{id:string;status:string}>>([]);
   const HERO_STORAGE_KEY="duelplay-hero-background-v1";
 
   // The server always renders the default hero. Reading sessionStorage during
@@ -33,17 +35,13 @@ function HomeContent(){
     try{
       const saved=window.sessionStorage.getItem(HERO_STORAGE_KEY);
       if(saved&&/^hero-(0[1-9]|10)$/.test(saved)){
-        setHeroBackground(saved);
+        deferEffectTask(() => setHeroBackground(saved));
       }
     }catch{}
   },[]);
 
   const warmAllHomeImages=async()=>{
-    const heroes=Array.from(
-      {length:10},
-      (_,i)=>
-        `/hero-backgrounds/hero-${String(i+1).padStart(2,"0")}.jpg`
-    );
+    const heroes=heroBackgroundOptions().map(option=>option.image);
 
     const seasons=[
       "winter",
@@ -85,12 +83,12 @@ function HomeContent(){
     ]).then(([matches,settings])=>{
       const list=Array.isArray(matches)?matches:[];
       setCount(list.length);
-      setOpenMatches(list.filter((m:any)=>m.status==="WAITING_FOR_PLAYERS").slice(0,4));
+      setOpenMatches(list.filter((m:{id:string;status:string})=>m.status==="WAITING_FOR_PLAYERS").slice(0,4));
       if(typeof settings.heroBackground==="string"){
         const nextHero=settings.heroBackground;
 
         void preloadImage(
-          `/hero-backgrounds/${nextHero}.jpg`
+          heroBackgroundImage(nextHero)
         ).then(()=>{
           setHeroBackground(nextHero);
 
@@ -115,7 +113,7 @@ function HomeContent(){
         <div
           className="hero-base-art absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage:`url("/hero-backgrounds/${heroBackground}.jpg")`
+            backgroundImage:`url("${heroBackgroundImage(heroBackground)}")`
           }}
         />
         <div className="hero-base-overlay absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,47,145,.14),transparent_34%),linear-gradient(180deg,rgba(5,5,7,.18),rgba(5,5,7,.10)_48%,rgba(5,5,7,.72)_100%)]"/>

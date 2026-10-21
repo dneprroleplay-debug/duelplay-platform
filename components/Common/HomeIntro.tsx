@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect,useState} from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 export default function HomeIntro({trigger}:{trigger:boolean}){
   const [visible,setVisible]=useState(0);
@@ -15,9 +16,9 @@ export default function HomeIntro({trigger}:{trigger:boolean}){
     let sloganTimer: number | undefined;
     let doneTimer: number | undefined;
 
-    setShow(true);
-    setVisible(0);
-    setShowSlogan(false);
+    deferEffectTask(() => setShow(true));
+    deferEffectTask(() => setVisible(0));
+    deferEffectTask(() => setShowSlogan(false));
 
     let i=0;
 

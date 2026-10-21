@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+type RawPassReward={case?:unknown;caseId?:unknown;caseSlug?:unknown;cosmetic?:unknown;cosmeticItemId?:unknown};
 import { getFeatureFlag } from "@/lib/feature-flags";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
@@ -7,7 +8,7 @@ import { grantReward } from "@/lib/rewards";
 
 function rewardAt(rewards: unknown, level: number, premium: boolean) {
   if (!Array.isArray(rewards)) return null;
-  const row = rewards.find((x: any) => Number(x?.level) === level);
+  const row = rewards.find((x: { level?: unknown }) => Number(x?.level) === level);
   if (!row) return null;
   return premium ? (row.premium ?? row.free ?? row.reward ?? null) : (row.free ?? row.reward ?? null);
 }
@@ -58,7 +59,7 @@ export async function POST(r: NextRequest) {
         if (current.level < level) throw new Error("LEVEL_LOCKED");
         const rawReward = rewardAt(pass.rewards, level, current.premium);
         const reward = rewardValue(rawReward);
-        const hasItemReward = !!(rawReward && typeof rawReward === "object" && (((rawReward as any).case) || (rawReward as any).caseId || (rawReward as any).caseSlug || (rawReward as any).cosmetic || (rawReward as any).cosmeticItemId));
+        const hasItemReward = !!(rawReward && typeof rawReward === "object" && (((rawReward as RawPassReward).case) || (rawReward as RawPassReward).caseId || (rawReward as RawPassReward).caseSlug || (rawReward as RawPassReward).cosmetic || (rawReward as RawPassReward).cosmeticItemId));
         if (!reward.xp && !reward.balance && !hasItemReward) throw new Error("NO_REWARD");
         const marker = `duelpass-claim:${idem}`;
         const existing = await tx.duelPassClaim.findUnique({ where: { passId_userId_level: { passId: pass.id, userId: me.id, level } } });

@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party QR encoder (CommonJS port, not app source).
+    // It is excluded from the project lint scope instead of being rewritten,
+    // because a rewrite would modify a verified third-party artifact.
+    "lib/qr/**",
   ]),
 ]);
 

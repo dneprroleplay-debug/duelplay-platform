@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { buildLiveMatchState } from "@/lib/live-match";
 import { cancelMatchWithRefund, resolveConnectionTimeout } from "@/lib/match-lifecycle";
+import { getCurrentUser } from "@/lib/current-user";
+import { evaluateDisputeEligibility } from "@/lib/dispute-eligibility";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -83,8 +85,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         )
       : rawConfig;
 
+  const viewer = await getCurrentUser();
+  const disputeEligibility = viewer
+    ? await evaluateDisputeEligibility(prisma, id, viewer.id).catch(() => ({ canOpen: false, reason: "MATCH_NOT_FINISHED" as const }))
+    : { canOpen: false, reason: "NOT_PARTICIPANT" as const };
+
   return NextResponse.json(
-    { match: { ...match, serverConfig: safeConfig, liveState } },
+    { match: { ...match, serverConfig: safeConfig, liveState, disputeEligibility } },
     {
       headers: {
         "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",

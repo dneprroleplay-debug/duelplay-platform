@@ -1,4 +1,5 @@
 import {NextResponse} from "next/server";
+import { Prisma } from "@prisma/client";
 import { getFeatureFlag } from "@/lib/feature-flags";
 import {prisma} from "@/lib/prisma";
 import {audit} from "@/lib/admin";
@@ -50,8 +51,8 @@ export async function POST(request:Request){
       const existing=await tx.referralRaceSettlement.findUnique({where:{month:key}});
       if(existing)return [];
       const winners=rows.filter(row=>row.prize>0);
-      await tx.referralRaceSettlement.create({data:{month:key,settledById:me.id,snapshot:winners as any}});
-      const results:any[]=[];
+      await tx.referralRaceSettlement.create({data:{month:key,settledById:me.id,snapshot:winners as Prisma.InputJsonValue}});
+      const results:Array<Record<string,unknown>>=[];
       for(const row of winners){
         const idem=`referral-race:${key}:${row.position}:${row.id}`;
         const reward=await creditWallet(tx,row.id,row.prize,idem,"REFERRAL_RACE_PRIZE",`Referral Race prize #${row.position}`,`referral-race:${key}`);

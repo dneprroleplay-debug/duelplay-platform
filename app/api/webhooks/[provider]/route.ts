@@ -1,3 +1,6 @@
+import { Prisma } from "@prisma/client";
+
+type WebhookPayload = Record<string, unknown>;
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -18,7 +21,7 @@ function safeEqualHex(signature: string, expected: string) {
   return timingSafeEqual(Buffer.from(normalized, "hex"), Buffer.from(expected, "hex"));
 }
 
-function getExternalId(request: NextRequest, payload: any) {
+function getExternalId(request: NextRequest, payload: WebhookPayload) {
   const headerId = request.headers.get("x-event-id") || request.headers.get("x-idempotency-key");
   const payloadId = payload?.id ?? payload?.event_id ?? payload?.eventId ?? null;
   const value = headerId || payloadId;
@@ -46,7 +49,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let payload: any;
+  let payload: WebhookPayload;
   try {
     payload = JSON.parse(raw);
   } catch {
@@ -70,13 +73,13 @@ export async function POST(
         provider,
         eventType,
         externalId,
-        payload,
+        payload: payload as Prisma.InputJsonValue,
         status: "RECEIVED",
       },
     });
 
     if (existing) {
-      await prisma.webhookEvent.update({ where: { id: existing.id }, data: { status: "RECEIVED", attempts: { increment: 1 }, errorMessage: null, payload, eventType } });
+      await prisma.webhookEvent.update({ where: { id: existing.id }, data: { status: "RECEIVED", attempts: { increment: 1 }, errorMessage: null, payload: payload as Prisma.InputJsonValue, eventType } });
     }
 
     // Steam Trade provider callbacks are applied atomically to both the trade
@@ -113,10 +116,11 @@ export async function POST(
       idempotent: false,
       receivedAt: row.createdAt.toISOString(),
     }, { status: 202 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const code = error instanceof Error ? error.message : "UNKNOWN";
     // A concurrent delivery can win the unique externalId race. Treat it as the
     // same webhook instead of surfacing a 500 to the provider.
-    if (externalId && error?.code === "P2002") {
+    if (externalId && (error as { code?: string } | null)?.code === "P2002") {
       const existing = await prisma.webhookEvent.findUnique({ where: { provider_externalId: { provider, externalId } } });
       if (existing) return NextResponse.json({ ok: true, idempotent: true, id: existing.id });
     }

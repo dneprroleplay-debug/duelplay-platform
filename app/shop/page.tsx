@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/Common/LanguageContext";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Item = { id:string; name:string; type:string; price:number; imageUrl:string|null; metadata:Record<string,unknown>|null; owned:boolean; ownedAt:string|null };
 type ShopResponse = { items:Item[]; page:number; pageSize:number; total:number; totalPages:number };
@@ -11,7 +12,7 @@ export default function Shop(){
   const [search,setSearch]=useState(""); const [type,setType]=useState("ALL"); const [owned,setOwned]=useState("all"); const [sort,setSort]=useState("price_asc");
   const [msg,setMsg]=useState(""); const [busy,setBusy]=useState<string|null>(null);
   async function load(page=1){const q=new URLSearchParams({page:String(page),pageSize:"24",search,type,owned,sort}); const r=await fetch(`/api/shop?${q}`,{cache:"no-store"}); if(r.ok)setData(await r.json());}
-  useEffect(()=>{load(1)},[search,type,owned,sort]);
+  useEffect(()=>{deferEffectTask(()=>{load(1);});},[search,type,owned,sort]);
   async function buy(id:string){if(busy)return; setBusy(id); setMsg(""); const key=crypto.randomUUID(); try{const r=await fetch("/api/shop",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":key},body:JSON.stringify({itemId:id})}); const x=await r.json(); setMsg(r.ok?(x.idempotent?"Purchase recovered":"Purchased successfully"):(x.error||"Purchase failed")); if(r.ok)await load(data.page);}finally{setBusy(null)}}
   return <main className="mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-28"><section className="panel rounded-3xl p-7 sm:p-10"><span className="pill">COSMETIC SHOP</span><h1 className="mt-4 text-4xl font-black">Cosmetics</h1><p className="mt-2 text-sm text-zinc-500">Cosmetics are visual only and never change gameplay stats.</p>
     <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.searchCosmetics} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 outline-none"/><select value={type} onChange={e=>setType(e.target.value)} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{TYPES.map(x=><option key={x} value={x}>{t.cosmeticTypes[x as keyof typeof t.cosmeticTypes]}</option>)}</select><select value={owned} onChange={e=>setOwned(e.target.value)} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3"><option value="all">{t.cosmeticAllItems}</option><option value="false">{t.cosmeticNotOwned}</option><option value="true">{t.cosmeticOwned}</option></select><select value={sort} onChange={e=>setSort(e.target.value)} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3"><option value="price_asc">{t.cosmeticSortLow}</option><option value="price_desc">{t.cosmeticSortHigh}</option><option value="newest">{t.cosmeticNewest}</option></select></div>

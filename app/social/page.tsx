@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useLanguage } from "../../components/Common/LanguageContext";
 import { useAuth } from "@/components/Common/AuthContext";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Person={id:string;nickname:string;avatarUrl?:string|null;status?:string;online?:boolean};
 type SocialData={friends:any[];rivals:any[];pendingIncoming:any[];pendingOutgoing:any[];blocked:any[];mutes:any[];unreadMessages:number};
@@ -15,7 +16,7 @@ export default function SocialPage(){
  const chatEndRef=useRef<HTMLDivElement>(null);
  async function load(){try{const r=await fetch("/api/social",{cache:"no-store"});const f=await r.json().catch(()=>({}));if(!r.ok)throw new Error("social failed");setD({friends:Array.isArray(f?.friends)?f.friends:[],rivals:Array.isArray(f?.rivals)?f.rivals:[],pendingIncoming:Array.isArray(f?.pendingIncoming)?f.pendingIncoming:[],pendingOutgoing:Array.isArray(f?.pendingOutgoing)?f.pendingOutgoing:[],blocked:Array.isArray(f?.blocked)?f.blocked:[],mutes:Array.isArray(f?.mutes)?f.mutes:[],unreadMessages:Number(f?.unreadMessages||0)});setLoadErr(false)}catch{setLoadErr(true)}finally{setLoading(false)}}
  useEffect(()=>{
-  void load();
+  deferEffectTask(() => { void load(); });
   const chat=new URLSearchParams(window.location.search).get("chat");
   if(chat) void loadMessages(chat);
   const tick=()=>{ if(document.visibilityState==="visible") void load(); };

@@ -18,8 +18,10 @@ export function eventPassProgress(xp: number, maxLevel = 20) {
   return { level, xp: safe, currentXp, nextLevelXp: EVENT_PASS_XP_PER_LEVEL, percent: currentXp };
 }
 
-function missionList(event: { missions?: unknown }) {
-  return Array.isArray(event.missions) ? event.missions.filter((m: any) => m && typeof m === "object") as any[] : [];
+type EventMissionRecord = { id?: unknown; type?: unknown; target?: unknown; reward?: unknown; name?: unknown };
+
+function missionList(event: { missions?: unknown }): EventMissionRecord[] {
+  return Array.isArray(event.missions) ? event.missions.filter((m: unknown) => m && typeof m === "object") as EventMissionRecord[] : [];
 }
 
 export async function awardEventPassXp(tx: Tx, userId: string, eventId: string, amount: number) {
@@ -41,7 +43,7 @@ export async function updateEventMissionProgress(tx: Tx, userId: string, eventId
   const now = new Date();
   if (event.startsAt > now || event.endsAt <= now) return [];
   const missions = missionList(event);
-  const completed: any[] = [];
+  const completed: EventMissionRecord[] = [];
   for (const mission of missions) {
     const target = Math.max(1, Math.floor(Number(mission.target) || 0));
     if (!target || typeof mission.id !== "string") continue;
@@ -59,10 +61,10 @@ export async function updateEventMissionProgress(tx: Tx, userId: string, eventId
     if (row.completed && value >= target) completed.push(mission);
   }
   for (const mission of completed) {
-    const reward = mission.reward && typeof mission.reward === "object" ? mission.reward : {};
+    const reward = (mission.reward && typeof mission.reward === "object" ? mission.reward : {}) as { xp?: unknown };
     const key = `event-mission:${eventId}:${userId}:${mission.id}`;
     const grant = await grantReward(tx, userId, reward, key, `Event mission · ${String(mission.name || mission.id)}`, eventId);
-    const rewardXp = Math.max(0, Math.floor(Number((reward as any).xp) || 0));
+    const rewardXp = Math.max(0, Math.floor(Number((reward as { xp?: unknown }).xp) || 0));
     if (!grant.idempotent && rewardXp > 0) await awardEventPassXp(tx, userId, eventId, rewardXp);
   }
   return completed;

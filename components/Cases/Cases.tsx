@@ -17,6 +17,14 @@ const CASE_COPY:any={
 };
 const RARITY:any={RU:{Common:"Обычный",Uncommon:"Необычный",Rare:"Редкий",Epic:"Эпический",Legendary:"Легендарный",Mythic:"Мифический"},UA:{Common:"Звичайний",Uncommon:"Незвичайний",Rare:"Рідкісний",Epic:"Епічний",Legendary:"Легендарний",Mythic:"Міфічний"},EN:{Common:"Common",Uncommon:"Uncommon",Rare:"Rare",Epic:"Epic",Legendary:"Legendary",Mythic:"Mythic"},PL:{Common:"Zwykły",Uncommon:"Niezwykły",Rare:"Rzadki",Epic:"Epicki",Legendary:"Legendarny",Mythic:"Mityczny"}};
 
+function createOpeningKey(){return typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`;}
+function chooseTarget(){return 75+Math.floor(Math.random()*55)}
+function chooseStopRatio(){return .04+Math.random()*.92}
+function makeSequence(box:DuelCase,winner:CaseItem,targetIndex:number){
+  const source=box.items; const now=Date.now();
+  return Array.from({length:170},(_,i)=>{const item=i===targetIndex?winner:source[(i*17+i%source.length)%source.length];return {...item,key:`${now}-${i}-${item.id}-${i===targetIndex?"winner":"filler"}`}});
+}
+
 export default function Cases(){
  const{language,t}=useLanguage();
  const[cases,setCases]=useState<DuelCase[]>([]),[selected,setSelected]=useState<DuelCase|null>(null),[opening,setOpening]=useState(false),[spinning,setSpinning]=useState(false),[won,setWon]=useState<CaseItem|null>(null),[roll,setRoll]=useState<RollItem[]>([]),[error,setError]=useState(""),[rollTarget,setRollTarget]=useState<number|null>(null),[stopRatio,setStopRatio]=useState(.5),[recovering,setRecovering]=useState(false);
@@ -59,12 +67,6 @@ export default function Cases(){
      });
    }
  },[roll,rollTarget,stopRatio,spinning]);
- function makeSequence(box:DuelCase,winner:CaseItem,targetIndex:number){
-   const source=box.items; const now=Date.now();
-   return Array.from({length:170},(_,i)=>{const item=i===targetIndex?winner:source[(i*17+i%source.length)%source.length];return {...item,key:`${now}-${i}-${item.id}-${i===targetIndex?"winner":"filler"}`}});
- }
- function chooseTarget(){return 75+Math.floor(Math.random()*55)}
- function chooseStopRatio(){return .04+Math.random()*.92}
  function selectCase(box:DuelCase){
    const target=chooseTarget(); const ratio=chooseStopRatio();
    setSelected(box);setWon(null);setError("");setOpening(false);setSpinning(false);setRollTarget(target);setStopRatio(ratio);setRoll(makeSequence(box,box.items[0],target));
@@ -75,7 +77,7 @@ export default function Cases(){
    try{
      const raw=sessionStorage.getItem(pendingStorageKey); if(raw){const pending=JSON.parse(raw) as {slug?:string;key?:string}; if(pending.slug===box.slug&&pending.key){openingKeyRef.current=pending.key;return pending.key}}
    }catch{}
-   const key=typeof crypto!=="undefined"&&"randomUUID" in crypto?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+   const key=createOpeningKey();
    openingKeyRef.current=key;
    try{sessionStorage.setItem(pendingStorageKey,JSON.stringify({slug:box.slug,key}))}catch{}
    return key;

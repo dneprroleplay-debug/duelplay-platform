@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "../Common/LanguageContext";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 export default function AuthPanel() {
   const { t } = useLanguage();
@@ -8,6 +9,7 @@ export default function AuthPanel() {
   const [referralCode, setReferralCode] = useState("");
 
   useEffect(() => {
+    deferEffectTask(() => {
     const params = new URLSearchParams(window.location.search);
     const steamError = params.get("error");
     if (steamError) {
@@ -20,6 +22,7 @@ export default function AuthPanel() {
     }
     const ref = params.get("ref");
     if (ref) setReferralCode(ref.toUpperCase());
+    });
   }, [t.steamVerifyError, t.steamStateError, t.accountDisabled, t.steamError]);
 
   const steamHref = useMemo(

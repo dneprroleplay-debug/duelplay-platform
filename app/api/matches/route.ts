@@ -14,10 +14,19 @@ import { Prisma } from "@prisma/client";
 
 const COMMISSION_RATE = .10, MIN_BET = 3, MAX_BET = 10000;
 
+const HISTORY_STATUS_FILTERS: Record<string, Prisma.MatchWhereInput["status"]> = {
+  all: { in: ["FINISHED", "CANCELLED", "DISPUTED"] },
+  finished: "FINISHED",
+  cancelled: "CANCELLED",
+  disputed: "DISPUTED",
+};
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const mine = request.nextUrl.searchParams.get("mine") === "active";
+    const mineParam = request.nextUrl.searchParams.get("mine");
+    const mine = mineParam === "active";
+    const history = mineParam === "history";
     const status = request.nextUrl.searchParams.get("status");
     const economyParam = request.nextUrl.searchParams.get("economyMode");
     const requestedEconomyMode = economyParam ?? "REAL";
@@ -33,6 +42,33 @@ export async function GET(request: NextRequest) {
       if (!user) return NextResponse.json({ active: false, match: null });
       const match = await prisma.match.findFirst({ where: { ...mineEconomyFilter, status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE"] }, OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, select: { id: true, status: true, economyMode: true, mapName: true, mode: true, weaponModifier: true, betAmount: true, playerOneId: true, playerTwoId: true, startedAt: true, startDeadlineAt: true, liveDeadlineAt: true, connectionPhaseCompleted: true }, orderBy: { createdAt: "desc" } });
       return NextResponse.json({ active: Boolean(match), match });
+    }
+    if (history) {
+      if (!user) return NextResponse.json({ matches: [], nextCursor: null, hasMore: false });
+      const historyFilter = HISTORY_STATUS_FILTERS[(request.nextUrl.searchParams.get("status") || "all").toLowerCase()] || HISTORY_STATUS_FILTERS.all;
+      const limitParam = Number(request.nextUrl.searchParams.get("limit"));
+      const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, 50) : 20;
+      const cursorId = request.nextUrl.searchParams.get("cursor");
+      let cursorCreatedAt: Date | undefined;
+      if (cursorId) {
+        const cursor = await prisma.match.findFirst({ where: { id: cursorId, OR: [{ playerOneId: user.id }, { playerTwoId: user.id }] }, select: { createdAt: true } });
+        if (!cursor) return NextResponse.json({ error: "Invalid history cursor", errorCode: "INVALID_CURSOR" }, { status: 400 });
+        cursorCreatedAt = cursor.createdAt;
+      }
+      const rows = await prisma.match.findMany({
+        where: {
+          ...economyFilter,
+          OR: [{ playerOneId: user.id }, { playerTwoId: user.id }],
+          status: historyFilter,
+          ...(cursorCreatedAt ? { createdAt: { lt: cursorCreatedAt } } : {}),
+        },
+        include: { playerOne: { select: { id: true, nickname: true, avatarUrl: true } }, playerTwo: { select: { id: true, nickname: true, avatarUrl: true } }, game: { select: { title: true, slug: true } }, winner: { select: { id: true, nickname: true } } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+      });
+      const hasMore = rows.length > limit;
+      const matches = hasMore ? rows.slice(0, limit) : rows;
+      return NextResponse.json({ matches, nextCursor: hasMore ? matches[matches.length - 1]?.id ?? null : null, hasMore });
     }
     const statusFilter: Prisma.MatchWhereInput = status === "waiting"
       ? (user
@@ -137,6 +173,16 @@ export async function POST(request: NextRequest) {
       const hold = await tx.walletHold.findUnique({ where: { idempotencyKey: `match-stake:${idempotencyKey}` } });
       if (hold) await tx.walletHold.update({ where: { id: hold.id }, data: { referenceId: match.id } });
       await tx.transaction.updateMany({ where: { idempotencyKey: `match-stake:${idempotencyKey}` }, data: { referenceId: match.id } });
+      await tx.notification.create({
+        data: {
+          userId: user.id,
+          type: "SYSTEM",
+          status: "UNREAD",
+          title: "Match created",
+          body: "Your duel was created and is waiting for an opponent. The stake is reserved until the match starts.",
+          payload: { economyMode: "REAL", matchId: match.id, kind: "MATCH_CREATED" },
+        },
+      });
       return match;
     };
 

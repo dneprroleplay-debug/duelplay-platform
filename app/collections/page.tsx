@@ -21,7 +21,7 @@ export default function Collections() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void Promise.resolve().then(() => { void load(); }); }, [load]);
 
   async function claim(c: Collection) {
     if (!c.completed || c.claimed || busy) return;

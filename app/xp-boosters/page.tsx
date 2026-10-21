@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/components/Common/LanguageContext";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Plan = { multiplier: number; hours: number; price: number };
 type Booster = { id: string; multiplier: number | string; startsAt: string; endsAt: string; active: boolean };
@@ -21,9 +22,10 @@ export default function Boosters() {
     setBoosters(data.boosters || []);
   }
 
-  useEffect(() => { void load(); }, []);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { deferEffectTask(() => { void load(); }); }, []);
 
-  const active = useMemo(() => boosters.find((x) => x.active && new Date(x.endsAt).getTime() > Date.now()), [boosters]);
+  const active = useMemo(() => boosters.find((x) => x.active && new Date(x.endsAt).getTime() > now), [boosters, now]);
 
   async function activate() {
     if (busy || active) return;
@@ -73,7 +75,7 @@ export default function Boosters() {
       {msg && <p className="mt-3 text-pink-300">{msg}</p>}
       <div className="mt-8 space-y-2">
         {boosters.map((x) => <div key={x.id} className="rounded-xl border border-white/5 p-4">
-          <div data-no-i18n className="font-bold">{Number(x.multiplier)}× XP {x.active && new Date(x.endsAt).getTime() > Date.now() ? "· ACTIVE" : "· EXPIRED"}</div>
+          <div data-no-i18n className="font-bold">{Number(x.multiplier)}× XP {x.active && new Date(x.endsAt).getTime() > now ? "· ACTIVE" : "· EXPIRED"}</div>
           <div className="text-sm text-white/50">{new Date(x.startsAt).toLocaleString()} → {new Date(x.endsAt).toLocaleString()}</div>
         </div>)}
       </div>

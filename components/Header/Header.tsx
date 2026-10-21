@@ -8,6 +8,8 @@ import {useAuth} from "../Common/AuthContext";
 import SeasonIntensityControl from "../Common/SeasonIntensityControl";
 import PerformanceModeControl from "../Common/PerformanceModeControl";
 import { getDemoNotificationBody, getDemoNotificationTitle } from "../../lib/demo-notifications";
+import { cancellationDetail, notificationMatchId } from "../../lib/notification-details";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 const FLAGS:{key:keyof typeof languages;name:string;src:string}[]=[
  {key:"RU",name:"Русский",src:"/images/flags/ru.svg"},
@@ -15,7 +17,7 @@ const FLAGS:{key:keyof typeof languages;name:string;src:string}[]=[
  {key:"EN",name:"English",src:"/images/flags/en.svg"},
  {key:"PL",name:"Polski",src:"/images/flags/pl.svg"}
 ];
-type Notice={id:string;type:string;title:string;body:string;createdAt:string;status:string;payload?:Record<string,any>|null};
+type Notice={id:string;type:string;title:string;body:string;createdAt:string;status:string;payload?:Record<string,unknown>|null};
 
 export default function Header(){
  const{language,setLanguage,t}=useLanguage(); const{user,loading,logout}=useAuth(); const router=useRouter();
@@ -24,12 +26,12 @@ export default function Header(){
  const langRef=useRef<HTMLDivElement>(null),noticeRef=useRef<HTMLDivElement>(null),profileRef=useRef<HTMLDivElement>(null);
  const noticesLoading=useRef(false);
  async function loadNotices(){if(!user){setNotices([]);setUnread(0);return}if(noticesLoading.current)return;noticesLoading.current=true;try{const r=await fetch("/api/notifications",{cache:"no-store"});if(!r.ok)return;const d=await r.json();setNotices(d.notifications??[]);setUnread(Number(d.unread||0))}catch{}finally{noticesLoading.current=false}}
- useEffect(()=>{void loadNotices();const tick=()=>{if(document.visibilityState!=="hidden")void loadNotices()};const timer=window.setInterval(tick,10000);const onVisibility=()=>{if(document.visibilityState==="visible")void loadNotices()};const onNotificationsUpdated=()=>{void loadNotices()};document.addEventListener("visibilitychange",onVisibility);window.addEventListener("duelplay:notifications-updated",onNotificationsUpdated);return()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility);window.removeEventListener("duelplay:notifications-updated",onNotificationsUpdated)}},[user?.id]);
+ useEffect(()=>{deferEffectTask(() => { deferEffectTask(() => { void loadNotices(); }); });const tick=()=>{if(document.visibilityState!=="hidden")void loadNotices()};const timer=window.setInterval(tick,10000);const onVisibility=()=>{if(document.visibilityState==="visible")void loadNotices()};const onNotificationsUpdated=()=>{void loadNotices()};document.addEventListener("visibilitychange",onVisibility);window.addEventListener("duelplay:notifications-updated",onNotificationsUpdated);return()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisibility);window.removeEventListener("duelplay:notifications-updated",onNotificationsUpdated)}},[user?.id]);
  useEffect(()=>{const close=(e:MouseEvent)=>{const target=e.target as Node;if(langRef.current?.contains(target)||noticeRef.current?.contains(target)||profileRef.current?.contains(target))return;setLangOpen(false);setNoticeOpen(false);setProfileOpen(false)};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)}};document.addEventListener("click",close);window.addEventListener("keydown",key);return()=>{document.removeEventListener("click",close);window.removeEventListener("keydown",key)}},[]);
  async function markNotice(id:string){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});setNotices(v=>v.map(n=>n.id===id?{...n,status:"READ"}:n));setUnread(v=>Math.max(0,v-1));setNoticeOpen(false)}
  async function markAll(){await fetch("/api/notifications",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({all:true})});setNotices(v=>v.map(n=>({...n,status:"READ"})));setUnread(0);setNoticeOpen(false)}
  async function respondFriend(userId:string,action:"accept"|"decline"){if(!userId)return;try{await fetch("/api/friends",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId,action})})}catch{}setNotices(v=>v.map(n=>n.payload?.kind==="FRIEND_REQUEST"&&String(n.payload?.senderId||"")===userId?{...n,status:"READ"}:n));setUnread(v=>Math.max(0,v-1));await loadNotices();window.dispatchEvent(new Event("duelplay:profile-updated"));window.dispatchEvent(new Event("duelplay:notifications-updated"));}
-  const noticePayload=(n:Notice)=>((n as any).payload||{}) as Record<string,any>;
+  const noticePayload=(n:Notice)=>(n.payload||{}) as Record<string,unknown>;
  const noticeTitle=(n:Notice)=>{
   const p=noticePayload(n);
   const kind=p.kind;
@@ -46,7 +48,7 @@ export default function Header(){
   if(p.localTest===true){ return Number(p.payout||0)>0 ? t.testDuelWon : t.testMatchCompleted; }
   if(kind==="SUPPORT_CLOSED")return t.ticketClosed;
   if(kind==="SUPPORT_REPLY")return t.supportReply;
-  const titles:any={
+  const titles:Record<string,Record<string,string>>={
     RU:{
       SYSTEM:"Системное уведомление",
       MATCH_FOUND:"Найден матч",
@@ -114,19 +116,23 @@ export default function Header(){
    return t.localTestWinner;
   }
   if(kind==="SUPPORT_CLOSED"){
-   const subject=p.subject||"";
+   const subject=String(p.subject||"");
    return t.supportTicketClosed.replace("{subject}", subject);
   }
   if(n.type==="CANCELLATION"){
    const reason=String(p.reason||"").toLowerCase();
    const noConnect=reason.includes("no player connected") || reason.includes("никто не подключ") || reason.includes("no player");
    const serverTimeout=reason.includes("server start timeout") || reason.includes("heartbeat timeout") || (reason.includes("сервер") && reason.includes("таймаут"));
-   if(language==="RU") return noConnect ? "Никто не подключился к серверу CS2 за 5 минут. Ставка возвращена." : serverTimeout ? "Сервер CS2 не запустился вовремя. Ставка возвращена." : "Матч автоматически отменён. Ставка возвращена.";
-   if(language==="UA") return noConnect ? "Ніхто не підключився до сервера CS2 за 5 хвилин. Ставку повернено." : serverTimeout ? "Сервер CS2 не запустився вчасно. Ставку повернено." : "Матч автоматично скасовано. Ставку повернено.";
-   if(language==="EN") return noConnect ? "Nobody connected to the CS2 server within 5 minutes. Your stake was refunded." : serverTimeout ? "The CS2 server did not start in time. Your stake was refunded." : "The match was automatically cancelled. Your stake was refunded.";
-   return noConnect ? "Nikt nie połączył się z serwerem CS2 w ciągu 5 minut. Stawka została zwrócona." : serverTimeout ? "Serwer CS2 nie uruchomił się na czas. Stawka została zwrócona." : "Mecz został automatycznie anulowany. Stawka została zwrócona.";
+   const summary=language==="RU" ? (noConnect ? "Никто не подключился к серверу CS2 за 5 минут. Ставка возвращена." : serverTimeout ? "Сервер CS2 не запустился вовремя. Ставка возвращена." : "Матч автоматически отменён. Ставка возвращена.")
+    : language==="UA" ? (noConnect ? "Ніхто не підключився до сервера CS2 за 5 хвилин. Ставку повернено." : serverTimeout ? "Сервер CS2 не запустився вчасно. Ставку повернено." : "Матч автоматично скасовано. Ставку повернено.")
+    : language==="EN" ? (noConnect ? "Nobody connected to the CS2 server within 5 minutes. Your stake was refunded." : serverTimeout ? "The CS2 server did not start in time. Your stake was refunded." : "The match was automatically cancelled. Your stake was refunded.")
+    : (noConnect ? "Nikt nie połączył się z serwerem CS2 w ciągu 5 minut. Stawka została zwrócona." : serverTimeout ? "Serwer CS2 nie uruchomił się na czas. Stawka została zwrócona." : "Mecz został automatycznie anulowany. Stawka została zwrócona.");
+   // The factual part (actual reason, who cancelled it, exact time) is
+   // appended so the player sees the real cancellation text.
+   const detail=cancellationDetail(language,p);
+   return detail?`${summary} ${detail}`:summary;
   }
-  const bodies:any={
+  const bodies:Record<string,Record<string,string>>={
     RU:{
       SYSTEM:"Системное уведомление DuelPlay.",
       MATCH_FOUND:"Для тебя найден подходящий матч.",
@@ -179,12 +185,12 @@ export default function Header(){
 
   return bodies[language]?.[n.type] || n.body;
    }; const ui={
-  RU:{notifications:"Уведомления",readAll:"Прочитать всё",empty:"Пока нет уведомлений",profile:"Профиль",wallet:"Кошелёк",inventory:"Инвентарь",appearance:"Оформление",admin:"Панель администратора",accept:"Принять",decline:"Отклонить",openProfile:"Открыть профиль",reply:"Ответить",logout:t.logout},
-  UA:{notifications:"Сповіщення",readAll:"Прочитати все",empty:"Поки немає сповіщень",profile:"Профіль",wallet:"Гаманець",inventory:"Інвентар",appearance:"Оформлення",admin:"Панель адміністратора",accept:"Прийняти",decline:"Відхилити",openProfile:"Відкрити профіль",reply:"Відповісти",logout:t.logout},
-  EN:{notifications:"Notifications",readAll:"Mark all as read",empty:"No notifications yet",profile:"Profile",wallet:"Wallet",inventory:"Inventory",appearance:"Appearance",admin:"Admin panel",accept:"Accept",decline:"Decline",openProfile:"Open profile",reply:"Reply",logout:t.logout},
-  PL:{notifications:"Powiadomienia",readAll:"Oznacz wszystko jako przeczytane",empty:"Brak powiadomień",profile:"Profil",wallet:"Portfel",inventory:"Ekwipunek",appearance:"Wygląd",admin:"Panel administratora",accept:"Przyjmij",decline:"Odrzuć",openProfile:"Otwórz profil",reply:"Odpowiedz",logout:t.logout}
+  RU:{notifications:"Уведомления",readAll:"Прочитать всё",empty:"Пока нет уведомлений",profile:"Профиль",wallet:"Кошелёк",inventory:"Инвентарь",appearance:"Оформление",admin:"Панель администратора",accept:"Принять",decline:"Отклонить",openProfile:"Открыть профиль",reply:"Ответить",openMatch:"Открыть матч",logout:t.logout},
+  UA:{notifications:"Сповіщення",readAll:"Прочитати все",empty:"Поки немає сповіщень",profile:"Профіль",wallet:"Гаманець",inventory:"Інвентар",appearance:"Оформлення",admin:"Панель адміністратора",accept:"Прийняти",decline:"Відхилити",openProfile:"Відкрити профіль",reply:"Відповісти",openMatch:"Відкрити матч",logout:t.logout},
+  EN:{notifications:"Notifications",readAll:"Mark all as read",empty:"No notifications yet",profile:"Profile",wallet:"Wallet",inventory:"Inventory",appearance:"Appearance",admin:"Admin panel",accept:"Accept",decline:"Decline",openProfile:"Open profile",reply:"Reply",openMatch:"Open match",logout:t.logout},
+  PL:{notifications:"Powiadomienia",readAll:"Oznacz wszystko jako przeczytane",empty:"Brak powiadomień",profile:"Profil",wallet:"Portfel",inventory:"Ekwipunek",appearance:"Wygląd",admin:"Panel administratora",accept:"Przyjmij",decline:"Odrzuć",openProfile:"Otwórz profil",reply:"Odpowiedz",openMatch:"Otwórz mecz",logout:t.logout}
  }[language];
- const friendActions=(n:Notice)=>{if(n.status==="READ"||n.status==="ARCHIVED")return null;const p=n.payload||{};if(p.kind==="SOCIAL_MESSAGE"){const mid=String(p.senderId||"");const mnick=String(p.senderNickname||"");if(!mid)return null;return <span className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/social?chat=${encodeURIComponent(mid)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.reply}</Link>{mnick&&<Link href={`/profile/${encodeURIComponent(mnick)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.openProfile}</Link>}</span>}if(p.kind!=="FRIEND_REQUEST")return null;const id=String(p.senderId||p.friendId||"");const nick=String(p.senderNickname||"");return <span className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/profile/${encodeURIComponent(nick)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.openProfile}</Link><button onClick={e=>{e.stopPropagation();void respondFriend(id,"accept")}} className="rounded-lg bg-emerald-400/15 px-2 py-1 text-[10px] text-emerald-300">{ui.accept}</button><button onClick={e=>{e.stopPropagation();void respondFriend(id,"decline")}} className="rounded-lg border border-white/10 px-2 py-1 text-[10px]">{ui.decline}</button></span>};
+ const friendActions=(n:Notice)=>{if(n.status==="READ"||n.status==="ARCHIVED")return null;const p=n.payload||{};const matchId=notificationMatchId(p);if(matchId)return <span className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/matches/${matchId}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.openMatch}</Link></span>;if(p.kind==="SOCIAL_MESSAGE"){const mid=String(p.senderId||"");const mnick=String(p.senderNickname||"");if(!mid)return null;return <span className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/social?chat=${encodeURIComponent(mid)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.reply}</Link>{mnick&&<Link href={`/profile/${encodeURIComponent(mnick)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.openProfile}</Link>}</span>}if(p.kind!=="FRIEND_REQUEST")return null;const id=String(p.senderId||p.friendId||"");const nick=String(p.senderNickname||"");return <span className="mt-2 flex flex-wrap items-center gap-2"><Link href={`/profile/${encodeURIComponent(nick)}`} onClick={e=>e.stopPropagation()} className="text-xs text-[var(--theme-accent)]">{ui.openProfile}</Link><button onClick={e=>{e.stopPropagation();void respondFriend(id,"accept")}} className="rounded-lg bg-emerald-400/15 px-2 py-1 text-[10px] text-emerald-300">{ui.accept}</button><button onClick={e=>{e.stopPropagation();void respondFriend(id,"decline")}} className="rounded-lg border border-white/10 px-2 py-1 text-[10px]">{ui.decline}</button></span>};
  const current=FLAGS.find(x=>x.key===language)||FLAGS[0];
  const navClass="cursor-pointer whitespace-nowrap rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition hover:bg-[var(--theme-accent-bg)] hover:text-[var(--theme-accent)]";
  const closeMenus=()=>{setLangOpen(false);setNoticeOpen(false);setProfileOpen(false);setMenuOpen(false)};

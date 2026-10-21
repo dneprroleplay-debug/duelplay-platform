@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useDuelDialog } from "@/components/Common/DuelDialogProvider";
 
 type ContentRow = { id: string; name: string; description?: string | null; slug?: string | null; active?: boolean; price?: number; target?: number; type?: string; xpReward?: number };
 type ContentData = { items: ContentRow[]; collections: ContentRow[]; missions: ContentRow[]; achievements: ContentRow[] };
@@ -10,6 +11,7 @@ const ITEM_TYPES = ["COSMETIC", "AVATAR", "FRAME", "BADGE", "BANNER", "TITLE", "
 type Draft = { type: typeof TYPES[number]; slug: string; name: string; description: string; price: string; itemType: string; missionType: string; target: string; xpReward: string };
 
 export default function AdminContentWorkspace() {
+  const dialog = useDuelDialog();
   const [data, setData] = useState<ContentData>(EMPTY);
   const [draft, setDraft] = useState<Draft>({ type: "ITEM", slug: "", name: "", description: "", price: "1", itemType: "COSMETIC", missionType: "DAILY", target: "1", xpReward: "0" });
   const [error, setError] = useState("");
@@ -65,7 +67,8 @@ export default function AdminContentWorkspace() {
   }
 
   async function remove(row: ContentRow) {
-    if (!window.confirm(`Удалить предмет «${row.name}»?`)) return;
+    const confirmed = await dialog.confirm({ title: "Удаление предмета", message: `Удалить предмет «${row.name}»?`, confirmText: "Удалить", cancelText: "Отмена", tone: "danger" });
+    if (!confirmed) return;
     await request("DELETE", { type: "ITEM", id: row.id });
   }
 

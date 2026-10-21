@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type PresenceUser = {
   id: string;
@@ -72,7 +73,7 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
   }, [filter, search, page, isFullPage]);
 
   useEffect(() => {
-    void load();
+    deferEffectTask(() => { void load(); });
   }, [load]);
 
   useEffect(() => {

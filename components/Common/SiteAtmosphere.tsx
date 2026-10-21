@@ -3,14 +3,17 @@ import {useEffect,useState} from "react";
 import SeasonGlassWater from "./SeasonGlassWater";
 import {getSeasonContent} from "@/lib/season-content";
 import {preloadImage,preloadImages} from "@/lib/image-preload";
+import {heroBackgroundImage} from "@/lib/hero-backgrounds";
+import { deferEffectTask } from "@/lib/effect-defer";
 
-type Season={id:string;name:string;theme:string;mode:string;effects:any;active:boolean};
+type Season={id:string;name:string;theme:string;mode:string;effects:Record<string,unknown>;active:boolean};
+type SeasonDriftStyle=React.CSSProperties&Record<"--season-drift",string>;
 
 function snowDot(i:number){
  const left=(i*61)%100;
  const size=2+(i%7)*0.65;
  const drift=((i*17)%70)-35;
- return <span key={`snow-dot-${i}`} className="season-snow-dot" style={{left:`${left}%`,width:`${size}px`,height:`${size}px`,animationDelay:`-${(i*0.19)%10}s`,animationDuration:`${6+(i%11)*.65}s`,["--season-drift" as any]:`${drift}px`}}/>;
+ return <span key={`snow-dot-${i}`} className="season-snow-dot" style={{left:`${left}%`,width:`${size}px`,height:`${size}px`,animationDelay:`-${(i*0.19)%10}s`,animationDuration:`${6+(i%11)*.65}s`,"--season-drift":`${drift}px`} as SeasonDriftStyle}/>;
 }
 
 function particle(kind:string,i:number){
@@ -26,14 +29,14 @@ function particle(kind:string,i:number){
  const size=k==="halloween"?11+(i%5)*2:10+(i%7)*2;
  const opacity=.55+((i*13)%35)/100;
  const drift=((i*29)%90)-45;
- return <span key={i} className={`season-particle season-${k}`} style={{left:`${seed}%`,fontSize:`${size}px`,opacity,animationDelay:`-${(i*0.37)%12}s`,animationDuration:`${7+(i%9)}s`,["--season-drift" as any]:`${drift}px`}}>{glyph}</span>;
+ return <span key={i} className={`season-particle season-${k}`} style={{left:`${seed}%`,fontSize:`${size}px`,opacity,animationDelay:`-${(i*0.37)%12}s`,animationDuration:`${7+(i%9)}s`,"--season-drift":`${drift}px`} as SeasonDriftStyle}>{glyph}</span>;
 }
 
 export default function SiteAtmosphere(){
  const [season,setSeason]=useState<Season|null>(null);
  const [userIntensity,setUserIntensity]=useState(100);
  const [performanceMode,setPerformanceMode]=useState("balanced");
- useEffect(()=>{let disposed=false;let loading=false;void fetch("/api/site-settings",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(d=>{if(!disposed&&typeof d?.heroBackground==="string")document.documentElement.style.setProperty("--global-hero-image",`url(/hero-backgrounds/${d.heroBackground}.jpg)`)}).catch(()=>{});const load=async()=>{if(disposed||document.visibilityState==="hidden"||loading)return;loading=true;try{const r=await fetch(`/api/seasons?ts=${Date.now()}`,{cache:"no-store"});const d=r.ok?await r.json():null;const active=d?.active??null;
+ useEffect(()=>{let disposed=false;let loading=false;void fetch("/api/site-settings",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(d=>{if(!disposed&&typeof d?.heroBackground==="string")document.documentElement.style.setProperty("--global-hero-image",`url(${heroBackgroundImage(d.heroBackground)})`)}).catch(()=>{});const load=async()=>{if(disposed||document.visibilityState==="hidden"||loading)return;loading=true;try{const r=await fetch(`/api/seasons?ts=${Date.now()}`,{cache:"no-store"});const d=r.ok?await r.json():null;const active=d?.active??null;
 
       if(active){
         const effects=active.effects||{};
@@ -69,7 +72,7 @@ export default function SiteAtmosphere(){
       if(!disposed)setSeason(active)}catch{}finally{loading=false}};void load();const timer=window.setInterval(()=>void load(),60000);const onSeasonChanged=()=>{
   void load();
 };window.addEventListener("duelplay:season-changed",onSeasonChanged);const onVisibility=()=>{if(document.visibilityState==="visible")void load()};document.addEventListener("visibilitychange",onVisibility);return()=>{disposed=true;window.clearInterval(timer);window.removeEventListener("duelplay:season-changed",onSeasonChanged);document.removeEventListener("visibilitychange",onVisibility)}},[]);
- useEffect(()=>{try{const saved=Number(window.localStorage.getItem("duelplay-season-intensity"));if(Number.isFinite(saved))setUserIntensity(Math.max(10,Math.min(200,saved)));}catch{} const onChange=(e:Event)=>{const v=Number((e as CustomEvent<number>).detail);if(Number.isFinite(v))setUserIntensity(Math.max(10,Math.min(200,v)))};window.addEventListener("duelplay:season-intensity-changed",onChange);return()=>window.removeEventListener("duelplay:season-intensity-changed",onChange)},[]);
+ useEffect(()=>{deferEffectTask(()=>{try{const saved=Number(window.localStorage.getItem("duelplay-season-intensity"));if(Number.isFinite(saved))setUserIntensity(Math.max(10,Math.min(200,saved)));}catch{}}); const onChange=(e:Event)=>{const v=Number((e as CustomEvent<number>).detail);if(Number.isFinite(v))setUserIntensity(Math.max(10,Math.min(200,v)))};window.addEventListener("duelplay:season-intensity-changed",onChange);return()=>window.removeEventListener("duelplay:season-intensity-changed",onChange)},[]);
  const effects=season?.effects||{};
  const seasonId=String(effects.seasonId||season?.id||"none").toLowerCase();
  const content=getSeasonContent(seasonId,effects.preset);

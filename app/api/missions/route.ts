@@ -1,4 +1,5 @@
 import {NextRequest,NextResponse} from "next/server";
+import { Prisma } from "@prisma/client";
 import {prisma} from "@/lib/prisma";
 import {getCurrentUser} from "@/lib/current-user";
 import {grantReward} from "@/lib/rewards";
@@ -11,5 +12,5 @@ export async function GET(){
 }
 export async function POST(r:NextRequest){
  const me=await getCurrentUser();if(!me)return NextResponse.json({error:"Unauthorized"},{status:401});const{missionId}=await r.json();
- try{return NextResponse.json(await prisma.$transaction(async tx=>{const row=await tx.userMission.findUnique({where:{userId_missionId:{userId:me.id,missionId:String(missionId)}},include:{mission:true}});if(!row||row.status!=="COMPLETED")throw new Error("NOT_READY");const claimed=await tx.userMission.updateMany({where:{id:row.id,status:"COMPLETED",claimedAt:null},data:{status:"CLAIMED",claimedAt:new Date()}});if(claimed.count!==1)throw new Error("CLAIMED");const reward=(row.mission.reward||{}) as any;await grantReward(tx,me.id,reward,`mission-reward:${row.id}`,`Mission reward · ${row.mission.name}`,row.missionId);return tx.userMission.findUnique({where:{id:row.id}});}),{status:200});}catch(e){const c=e instanceof Error?e.message:"";return NextResponse.json({error:c==="CLAIMED"?"Mission reward already claimed":c==="NOT_READY"?"Mission not completed":"Could not claim mission"},{status:409});}
+ try{return NextResponse.json(await prisma.$transaction(async tx=>{const row=await tx.userMission.findUnique({where:{userId_missionId:{userId:me.id,missionId:String(missionId)}},include:{mission:true}});if(!row||row.status!=="COMPLETED")throw new Error("NOT_READY");const claimed=await tx.userMission.updateMany({where:{id:row.id,status:"COMPLETED",claimedAt:null},data:{status:"CLAIMED",claimedAt:new Date()}});if(claimed.count!==1)throw new Error("CLAIMED");const reward=(row.mission.reward||{}) as Prisma.InputJsonValue;await grantReward(tx,me.id,reward,`mission-reward:${row.id}`,`Mission reward · ${row.mission.name}`,row.missionId);return tx.userMission.findUnique({where:{id:row.id}});}),{status:200});}catch(e){const c=e instanceof Error?e.message:"";return NextResponse.json({error:c==="CLAIMED"?"Mission reward already claimed":c==="NOT_READY"?"Mission not completed":"Could not claim mission"},{status:409});}
 }

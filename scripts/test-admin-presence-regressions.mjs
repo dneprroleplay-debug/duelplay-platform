@@ -110,7 +110,7 @@ assert.match(
 // ---------------------------------------------------------------------------
 assert.match(
   adminAccessPage,
-  /<AdminUsersPresence \/>/,
+  /<AdminUsersPresence\b/,
   "Admin access page embeds the AdminUsersPresence component",
 );
 assert.match(

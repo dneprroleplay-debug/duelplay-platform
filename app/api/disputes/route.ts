@@ -9,14 +9,56 @@ import { awardXp, updateMatchProgress, updateRatingAfterDuel } from "@/lib/progr
 import { evaluateAndUnlockAchievements } from "@/lib/achievements";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { withDemoPolicyTransaction } from "@/lib/demo-policy";
+import { notify } from "@/lib/notifications";
+import { DISPUTE_REASON_TO_ERROR, evaluateDisputeEligibility } from "@/lib/dispute-eligibility";
 import { Prisma } from "@prisma/client";
 
 const DECISIONS = ["DRAW", "WINNER_PLAYER_ONE", "WINNER_PLAYER_TWO", "CANCELLED_REFUND"] as const;
 const EVIDENCE_TYPES = ["IMAGE", "VIDEO", "LOG_FILE", "DEMO_REPLAY"] as const;
 type Decision = typeof DECISIONS[number];
 
+type DisputeLockRow = {
+  id: string;
+  matchId: string;
+  reporterId: string;
+  status: string;
+  adminDecision: string | null;
+};
+
+type DisputeMatchRow = {
+  id: string;
+  status: string;
+  economyMode: "REAL" | "DEMO";
+  playerOneId: string;
+  playerTwoId: string | null;
+  betAmount: Prisma.Decimal;
+  commission: Prisma.Decimal;
+  weaponModifier: string | null;
+};
+
 function isDecision(value: string): value is Decision { return (DECISIONS as readonly string[]).includes(value); }
 function isEvidenceType(value: string): boolean { return (EVIDENCE_TYPES as readonly string[]).includes(value); }
+
+async function notifyDisputeUpdate(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  input: { matchId: string; economyMode: string; kind: "DISPUTE_OPENED" | "DISPUTE_RESOLVED"; role?: "REPORTER" | "OPPONENT"; decision?: string },
+) {
+  const opened = input.kind === "DISPUTE_OPENED";
+  const title = opened ? "Dispute opened" : "Dispute resolved";
+  const body = opened
+    ? input.role === "OPPONENT"
+      ? "Your opponent opened a dispute for this match. The result is under review."
+      : "Your dispute has been submitted and is under review."
+    : `The dispute has been resolved with decision ${input.decision}.`;
+  await notify(tx, userId, "DISPUTE_UPDATE", title, body, {
+    kind: input.kind,
+    matchId: input.matchId,
+    economyMode: input.economyMode,
+    role: input.role,
+    decision: input.decision,
+  });
+}
 
 export async function GET() {
   const me = await getCurrentUser();
@@ -25,7 +67,7 @@ export async function GET() {
   const isAdmin = Boolean(access && access.level > 0 && hasPermission(access.permissions, "disputes.view"));
   const canViewEvidence = !isAdmin || Boolean(access && hasPermission(access.permissions, "evidence.view"));
   const disputes = await prisma.dispute.findMany({
-    where: isAdmin ? undefined : { reporterId: me.id },
+    where: isAdmin ? undefined : { OR: [{ reporterId: me.id }, { match: { OR: [{ playerOneId: me.id }, { playerTwoId: me.id }] } }] },
     orderBy: { createdAt: "desc" },
     take: isAdmin ? 100 : 50,
     include: {
@@ -65,19 +107,21 @@ export async function POST(request: NextRequest) {
 
   try {
     const dispute = await prisma.$transaction(async tx => {
-      const matches = await tx.$queryRaw<Array<{ id: string; playerOneId: string; playerTwoId: string | null; status: string }>>`
-        SELECT id, "playerOneId", "playerTwoId", status FROM "Match" WHERE id = ${matchId}::uuid FOR UPDATE
+      const matches = await tx.$queryRaw<Array<{ id: string; playerOneId: string; playerTwoId: string | null; status: string; economyMode: "REAL" | "DEMO" }>>`
+        SELECT id, "playerOneId", "playerTwoId", status, "economyMode" FROM "Match" WHERE id = ${matchId}::uuid FOR UPDATE
       `;
       const match = matches[0];
-      if (!match || ![match.playerOneId, match.playerTwoId].includes(me.id)) throw new Error("NOT_PARTICIPANT");
-      if (!["FINISHED", "DISPUTED"].includes(match.status)) throw new Error("MATCH_NOT_DISPUTABLE");
-      if (match.status === "DISPUTED") throw new Error("ALREADY_DISPUTED");
-
-      const recent = await tx.dispute.findFirst({ where: { matchId, reporterId: me.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, status: { in: ["OPEN", "UNDER_REVIEW", "AI_PROCESSED"] } } });
-      if (recent) throw new Error("DUPLICATE_DISPUTE");
+      if (!match) throw new Error("NOT_FOUND");
+      // The eligibility rules live in one shared helper so the match page
+      // (GET /api/matches/:id) and this creation path can never disagree.
+      const eligibility = await evaluateDisputeEligibility(tx, matchId, me.id);
+      if (!eligibility.canOpen) throw new Error(DISPUTE_REASON_TO_ERROR[eligibility.reason]);
 
       const created = await tx.dispute.create({ data: { matchId, reporterId: me.id, reason, status: "OPEN" } });
       await tx.match.update({ where: { id: matchId }, data: { status: "DISPUTED" } });
+      await notifyDisputeUpdate(tx, me.id, { matchId, economyMode: match.economyMode, kind: "DISPUTE_OPENED", role: "REPORTER" });
+      const opponentId = match.playerOneId === me.id ? match.playerTwoId : match.playerOneId;
+      if (opponentId) await notifyDisputeUpdate(tx, opponentId, { matchId, economyMode: match.economyMode, kind: "DISPUTE_OPENED", role: "OPPONENT" });
       return created;
     });
     await auditRequest(request, me.id, "CREATE_DISPUTE", "DISPUTE", dispute.id, { matchId });
@@ -85,6 +129,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     const map: Record<string, [string, number]> = {
+      NOT_FOUND: ["Match not found", 404],
       NOT_PARTICIPANT: ["You are not a participant", 403],
       MATCH_NOT_DISPUTABLE: ["Only finished matches can be disputed", 409],
       ALREADY_DISPUTED: ["Match already has an active dispute", 409],
@@ -144,7 +189,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const result = await withDemoPolicyTransaction(async ({ db: tx, demo }) => {
-      const disputes = await tx.$queryRaw<Array<any>>`
+      const disputes = await tx.$queryRaw<DisputeLockRow[]>`
         SELECT id, "matchId", "reporterId", status, "adminDecision" FROM "Dispute" WHERE id = ${id}::uuid FOR UPDATE
       `;
       const d = disputes[0];
@@ -154,7 +199,7 @@ export async function PATCH(request: NextRequest) {
         return { id: d.id, idempotent: true };
       }
 
-      const matches = await tx.$queryRaw<Array<any>>`SELECT * FROM "Match" WHERE id = ${d.matchId}::uuid FOR UPDATE`;
+      const matches = await tx.$queryRaw<DisputeMatchRow[]>`SELECT * FROM "Match" WHERE id = ${d.matchId}::uuid FOR UPDATE`;
       const match = matches[0];
       if (!match || match.status !== "DISPUTED") throw new Error("MATCH_STATE");
       const stake = Number(match.betAmount);
@@ -170,6 +215,7 @@ export async function PATCH(request: NextRequest) {
         await demo.resolveDemoDispute(match.id, id, decisionValue, winnerId, demoStake, demoFee);
         const updatedMatch = await tx.match.update({ where: { id: match.id }, data: { status: winnerId ? "FINISHED" : "CANCELLED", winnerId, loserId, endedAt: new Date(), connectionPhaseCompleted: true } });
         const updatedDispute = await tx.dispute.update({ where: { id }, data: { adminDecision: decisionValue, status: "RESOLVED_BY_ADMIN", adminNotes: String(body.notes || "").slice(0, 2000), resolvedAt: new Date() } });
+        for (const userId of [p1, p2]) await notifyDisputeUpdate(tx, userId, { matchId: match.id, economyMode: match.economyMode, kind: "DISPUTE_RESOLVED", decision: decisionValue });
         return { dispute: updatedDispute, match: updatedMatch, idempotent: false };
       }
 
@@ -198,6 +244,7 @@ export async function PATCH(request: NextRequest) {
 
       const updatedMatch = await tx.match.update({ where: { id: match.id }, data: { status: winnerId ? "FINISHED" : "CANCELLED", winnerId, loserId, endedAt: new Date(), connectionPhaseCompleted: true } });
       const updatedDispute = await tx.dispute.update({ where: { id }, data: { adminDecision: decisionValue, status: "RESOLVED_BY_ADMIN", adminNotes: String(body.notes || "").slice(0, 2000), resolvedAt: new Date() } });
+      for (const userId of [p1, p2]) await notifyDisputeUpdate(tx, userId, { matchId: match.id, economyMode: match.economyMode, kind: "DISPUTE_RESOLVED", decision: decisionValue });
       return { dispute: updatedDispute, match: updatedMatch, idempotent: false };
     });
     if (!result.idempotent) await auditRequest(request, access.user.id, "RESOLVE_DISPUTE", "DISPUTE", id, { decision: decisionValue });

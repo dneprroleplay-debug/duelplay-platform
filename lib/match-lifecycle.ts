@@ -36,7 +36,7 @@ export async function lockMatchForUpdate(tx: Prisma.TransactionClient, matchId: 
   return rows.length === 1;
 }
 
-export async function cancelMatchWithRefund(matchId: string, reason: string) {
+export async function cancelMatchWithRefund(matchId: string, reason: string, cancelledBy = "system") {
   return withDemoPolicyTransaction(async ({ db: tx, demo, policy }) => {
     const locked = await lockMatchForUpdate(tx, matchId);
     if (!locked) return null;
@@ -44,13 +44,14 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
     if (!match || ["FINISHED", "CANCELLED", "DISPUTED"].includes(match.status)) return null;
     const amount = Number(match.betAmount);
     const ids = [match.playerOneId, match.playerTwoId].filter(Boolean) as string[];
+    const cancelledAt = new Date();
     if (match.economyMode === "DEMO") {
       if (match.status !== "LIVE" && match.playerTwoId) await policy.releaseDemoMatchReservation(match.id);
       for (const userId of [...ids].sort()) {
         await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:cancel-refund:${match.id}:${userId}`, "RELEASED");
-        await tx.notification.create({ data: { userId, type: "CANCELLATION", title: "DEMO match cancelled", body: "The DEMO match ended and your virtual stake was refunded.", payload: { matchId: match.id, reason, economyMode: "DEMO" } } });
+        await tx.notification.create({ data: { userId, type: "CANCELLATION", title: "DEMO match cancelled", body: "The DEMO match ended and your virtual stake was refunded.", payload: { matchId: match.id, reason, cancelledBy, cancelledAt: cancelledAt.toISOString(), economyMode: "DEMO" } } });
       }
-      return tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), startDeadlineAt: null, connectionDeadlineAt: null, liveDeadlineAt: null } });
+      return tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: cancelledAt, startDeadlineAt: null, connectionDeadlineAt: null, liveDeadlineAt: null } });
     }
     for (const userId of ids) {
       const wallet = await tx.wallet.findUnique({ where: { userId }, select: { id: true } });
@@ -70,7 +71,7 @@ export async function cancelMatchWithRefund(matchId: string, reason: string) {
           body: reason.includes("No player connected")
             ? "The match was cancelled because nobody connected to the CS2 server. Your stake was refunded."
             : "The match was cancelled and your stake was refunded.",
-          payload: { matchId: match.id, reason },
+          payload: { matchId: match.id, reason, cancelledBy, cancelledAt: cancelledAt.toISOString() },
         },
       });
     }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -6,15 +7,15 @@ import { CLAN_WAR_RATING_LOSS, CLAN_WAR_RATING_WIN, nextClanWarStatus } from "@/
 
 function jsonError(error: string, status = 400) { return NextResponse.json({ error }, { status }); }
 
-async function lockClanPair(tx: any, ids: string[]) {
+async function lockClanPair(tx: Prisma.TransactionClient, ids: string[]) {
   const ordered = [...new Set(ids)].sort();
   for (const id of ordered) await tx.$queryRaw`SELECT id FROM "Clan" WHERE id = ${id} FOR UPDATE`;
 }
 
-async function audit(tx: any, userId: string, action: string, targetId: string, payload: unknown, ipAddress: string, userAgent: string) {
+async function audit(tx: Prisma.TransactionClient, userId: string, action: string, targetId: string, payload: unknown, ipAddress: string, userAgent: string) {
   await tx.auditLog.create({ data: {
     userId, action, targetType: "CLAN_WAR", targetId,
-    ipAddress, userAgent, payload: payload as any,
+    ipAddress, userAgent, payload: payload as Prisma.InputJsonValue,
   }});
 }
 
@@ -29,7 +30,7 @@ export async function GET() {
 export async function POST(r: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return jsonError("Unauthorized", 401);
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await r.json(); } catch { return jsonError("Invalid JSON"); }
   const action = String(body.action || "create");
   const clanOneId = String(body.clanOneId || "");
@@ -64,7 +65,7 @@ export async function POST(r: NextRequest) {
 export async function PATCH(r: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return jsonError("Unauthorized", 401);
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await r.json(); } catch { return jsonError("Invalid JSON"); }
   const action = String(body.action || "");
   const id = String(body.id || "");

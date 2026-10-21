@@ -6,8 +6,8 @@ import { pathToFileURL } from "node:url";
 const root = process.cwd();
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "@/lib/match-currency") {
-      return nextResolve(pathToFileURL(`${root}/lib/match-currency.ts`).href, context);
+    if (specifier.startsWith("@/lib/")) {
+      return nextResolve(pathToFileURL(`${root}/lib/${specifier.slice("@/lib/".length)}.ts`).href, context);
     }
     return nextResolve(specifier, context);
   },
@@ -145,7 +145,7 @@ assert.ok(createHandler.indexOf("reserveDemoStake") < createHandler.indexOf("not
 const joinApi = source("app/api/matches/[id]/join/route.ts");
 assert.match(joinApi, /payload:\s*\{\s*matchId:\s*id,\s*economyMode:\s*"DEMO"\s*\}/);
 assert.match(joinApi, /payload:\s*\{\s*matchId:\s*id\s*\}\s*\}\]\s*\}\);/, "REAL MATCH_READY payload shape remains unchanged");
-assert.match(source("app/api/matches/[id]/cancel/route.ts"), /payload:\s*\{\s*matchId:\s*id,\s*economyMode:\s*"DEMO"\s*\}/, "manual cancellation notification carries match ID and DEMO marker");
+assert.match(source("app/api/matches/[id]/cancel/route.ts"), /payload:\s*\{\s*matchId:\s*id,\s*economyMode:\s*"DEMO"/, "manual cancellation notification carries match ID and DEMO marker (plus the factual reason, actor and cancellation time)");
 const matchmakingApi = source("app/api/matchmaking/route.ts");
 assert.match(matchmakingApi, /economyMode\s*===\s*"DEMO"\s*\?\s*\{\s*economyMode:\s*"DEMO"\s*\}/);
 for (const file of ["app/api/matches/[id]/cancel/route.ts", "app/api/matches/[id]/server/route.ts", "app/api/matches/[id]/result/route.ts", "app/api/matches/[id]/local-test/route.ts", "lib/match-lifecycle.ts"]) {

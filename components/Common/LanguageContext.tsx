@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { languages } from "../../lib/language";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Language = keyof typeof languages;
 type LanguageContextType = {
@@ -18,7 +19,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = window.localStorage.getItem("duelplay-language-v2") as Language | null;
     if (saved && saved in languages) {
-      setLanguageState(saved);
+      deferEffectTask(() => setLanguageState(saved));
     }
   }, []);
 

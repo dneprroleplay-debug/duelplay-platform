@@ -25,7 +25,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
         for (const userId of [...new Set(wallets)].sort()) {
           await demo.closeDemoWalletHold(userId, match.id, match.betAmount.toString(), `demo:cancel-refund:${match.id}:${userId}`, "RELEASED");
         }
-        await tx.notification.createMany({data:[...new Set(wallets)].map(userId=>({userId,type:"CANCELLATION",title:"DEMO match cancelled",body:"Your virtual stake was refunded.",payload:{matchId:id,economyMode:"DEMO"}}))});
+          await tx.notification.createMany({data:[...new Set(wallets)].map(userId=>({userId,type:"CANCELLATION",title:"DEMO match cancelled",body:"Your virtual stake was refunded.",payload:{matchId:id,economyMode:"DEMO",reason:"Cancelled by the duel creator",cancelledBy:user.nickname,cancelledAt:new Date().toISOString()}}))});
         return tx.match.findUniqueOrThrow({where:{id}});
       }
       for (const userId of [...new Set(wallets)]) {
@@ -38,7 +38,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
           await releaseWalletHold(tx,userId,amount,releaseKey,"MATCH_STAKE",match.id,"RELEASED","Возврат ставки при отмене матча");
         }
       }
-      await tx.notification.createMany({data:[...new Set([match.playerOneId,match.playerTwoId].filter(Boolean) as string[])].map(userId=>({userId,type:"CANCELLATION",title:"Match cancelled",body:"Your stake was refunded.",payload:{matchId:id}}))});
+      await tx.notification.createMany({data:[...new Set([match.playerOneId,match.playerTwoId].filter(Boolean) as string[])].map(userId=>({userId,type:"CANCELLATION",title:"Match cancelled",body:"Your stake was refunded.",payload:{matchId:id,reason:"Cancelled by the duel creator",cancelledBy:user.nickname,cancelledAt:new Date().toISOString()}}))});
       return tx.match.findUniqueOrThrow({where:{id}});
     });
     return NextResponse.json(result);

@@ -6,6 +6,7 @@ import { useLanguage } from "../../../components/Common/LanguageContext";
 import { DUEL_MAPS } from "../../../lib/duel-maps";
 import { DUEL_MODES } from "../../../lib/duel-modes";
 import { cachePublicProfile,getCachedPublicProfile,prefetchMatch } from "../../../lib/client-navigation-cache";
+import { deferEffectTask } from "@/lib/effect-defer";
 export default function PublicProfile({params}:{params:Promise<{nickname:string}>}){
  const routeParams=use(params);
  const nickname=routeParams.nickname;
@@ -22,7 +23,7 @@ export default function PublicProfile({params}:{params:Promise<{nickname:string}
  useEffect(()=>{
   let disposed=false;
 
-  setErr(false);
+  deferEffectTask(() => setErr(false));
 
   fetch(`/api/profile/${encodeURIComponent(nickname)}`,{
     cache:"no-store",

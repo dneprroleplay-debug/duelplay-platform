@@ -26,15 +26,16 @@ async function markGameProcessStopped(tx: Prisma.TransactionClient, serverId: st
 async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.MatchGetPayload<{ include: { gameServer: true } }>, reason = "Match server failed/stopped before completion", demoContext?: Pick<DemoPolicyTransactionContext, "demo" | "policy">) {
   const amount = Number(match.betAmount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("INVALID_AMOUNT");
+  const cancelledAt = new Date();
 
   if (match.economyMode === "DEMO") {
     if (!demoContext) throw new Error("DEMO_TRANSACTION_REQUIRED");
     if (match.status !== "LIVE" && match.playerTwoId) await demoContext.policy.releaseDemoMatchReservation(match.id);
     for (const uid of [match.playerOneId, match.playerTwoId].filter(Boolean).sort() as string[]) {
       await demoContext.demo.closeDemoWalletHold(uid, match.id, match.betAmount.toString(), `demo:server-refund:${match.id}:${uid}`, "RELEASED");
-      await tx.notification.create({ data: { userId: uid, type: "CANCELLATION", title: "DEMO match cancelled", body: "The virtual match was cancelled and your Demo Credits were refunded.", payload: { matchId: match.id, reason, economyMode: "DEMO" } } });
+      await tx.notification.create({ data: { userId: uid, type: "CANCELLATION", title: "DEMO match cancelled", body: "The virtual match was cancelled and your Demo Credits were refunded.", payload: { matchId: match.id, reason, cancelledBy: "server-manager", cancelledAt: cancelledAt.toISOString(), economyMode: "DEMO" } } });
     }
-    await tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: new Date(), serverConfig: { ...asRecord(match.serverConfig), state: "FAILED", connectUrl: "" } } });
+    await tx.match.update({ where: { id: match.id }, data: { status: "CANCELLED", endedAt: cancelledAt, serverConfig: { ...asRecord(match.serverConfig), state: "FAILED", connectUrl: "" } } });
     return;
   }
 
@@ -58,7 +59,7 @@ async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.Match
         body: reason.toLowerCase().includes("nobody connected") || reason.toLowerCase().includes("no player connected")
           ? "The match was automatically cancelled because nobody connected to the CS2 server in time. Your stake was refunded."
           : "The match was automatically cancelled because the CS2 server could not continue. Your stake was refunded.",
-        payload: { matchId: match.id, reason },
+        payload: { matchId: match.id, reason, cancelledBy: "server-manager", cancelledAt: cancelledAt.toISOString() },
       },
     });
   }
@@ -67,7 +68,7 @@ async function refundAndCancel(tx: Prisma.TransactionClient, match: Prisma.Match
     where: { id: match.id },
     data: {
       status: "CANCELLED",
-      endedAt: new Date(),
+      endedAt: cancelledAt,
       serverConfig: { ...asRecord(match.serverConfig), state: "FAILED", connectUrl: "" },
     },
   });
@@ -106,10 +107,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         await tx.gameServer.update({ where: { id: serverId }, data: { status: "BUSY", host, port, processId, startedAt, lastHeartbeat: startedAt } });
         await setGameProcessMetadata(tx, serverId, "READY", processId);
         const cfg = asRecord(match.serverConfig);
-        return tx.match.update({ where: { id }, data: { status: "LIVE", startedAt, startDeadlineAt: null, connectionDeadlineAt: null,
+        const live = await tx.match.update({ where: { id }, data: { status: "LIVE", startedAt, startDeadlineAt: null, connectionDeadlineAt: null,
         liveDeadlineAt: deadlineFromNow(MATCH_LIVE_TIMEOUT_MS, startedAt.getTime()),
         connectionPhaseCompleted: false,
         serverConfig: { ...cfg, state: "READY", serverId, connectUrl: `steam://connect/${host}:${port}` } } });
+        // Both players must learn that the server is live. The transition into
+        // LIVE happens exactly once (the early return above short-circuits any
+        // repeated "ready" call), so the notification cannot be duplicated.
+        const demoEconomy = match.economyMode === "DEMO";
+        for (const userId of [match.playerOneId, match.playerTwoId].filter(Boolean) as string[]) {
+          await tx.notification.create({
+            data: {
+              userId,
+              type: "MATCH_STARTED",
+              status: "UNREAD",
+              title: demoEconomy ? "DEMO match started" : "Match started",
+              body: demoEconomy
+                ? "The CS2 server is live. Connect to start the virtual duel; your real balance was not changed."
+                : "The CS2 server is live. Connect to start the duel.",
+              payload: { matchId: id, ...(demoEconomy ? { economyMode: "DEMO" } : {}) },
+            },
+          });
+        }
+        return live;
       });
       return NextResponse.json({ ok: true, match });
     }

@@ -1,15 +1,15 @@
 const matchCache = new Map<string, {
-  value: any;
+  value: unknown;
   storedAt: number;
 }>();
 
 const profileCache = new Map<string, {
-  value: any;
+  value: unknown;
   storedAt: number;
 }>();
 
-const pendingMatches = new Map<string, Promise<any | null>>();
-const pendingProfiles = new Map<string, Promise<any | null>>();
+const pendingMatches = new Map<string, Promise<unknown | null>>();
+const pendingProfiles = new Map<string, Promise<unknown | null>>();
 
 const MATCH_TTL = 15_000;
 const PROFILE_TTL = 30_000;
@@ -31,7 +31,7 @@ export function getCachedMatch(id: string) {
   return fresh(matchCache.get(String(id)), MATCH_TTL);
 }
 
-export function cacheMatch(id: string, value: any) {
+export function cacheMatch(id: string, value: unknown) {
   if (!id || !value) return;
 
   matchCache.set(String(id), {
@@ -97,7 +97,7 @@ export function getCachedPublicProfile(nickname: string) {
 
 export function cachePublicProfile(
   nickname: string,
-  value: any
+  value: unknown
 ) {
   if (!nickname || !value) return;
 

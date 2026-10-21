@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdminSession } from "@/lib/admin-auth";
 import type { NextRequest } from "next/server";
@@ -25,7 +26,7 @@ export async function requireAdmin(minLevel = 1) {
 }
 
 export async function audit(userId: string, action: string, targetType: string, targetId?: string, payload?: unknown, context?: { ipAddress?: string; userAgent?: string; requestId?: string; result?: string; reason?: string | null }) {
-  return prisma.auditLog.create({ data: { userId, action, targetType, targetId: targetId || null, ipAddress: context?.ipAddress || "application", userAgent: context?.userAgent || "DuelPlay admin", requestId: context?.requestId || null, result: context?.result || "SUCCESS", reason: context?.reason || null, payload: payload as any } });
+  return prisma.auditLog.create({ data: { userId, action, targetType, targetId: targetId || null, ipAddress: context?.ipAddress || "application", userAgent: context?.userAgent || "DuelPlay admin", requestId: context?.requestId || null, result: context?.result || "SUCCESS", reason: context?.reason || null, payload: (payload ?? {}) as Prisma.InputJsonValue } });
 }
 
 export async function auditRequest(request: NextRequest, userId: string, action: string, targetType: string, targetId?: string, payload?: unknown, result = "SUCCESS", reason?: string | null) {

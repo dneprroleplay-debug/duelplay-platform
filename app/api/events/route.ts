@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/admin";
@@ -57,8 +58,8 @@ export async function POST(r: NextRequest) {
       }
       return tx.event.create({ data: {
       name: v.name, icon: b.icon ? String(b.icon).slice(0, 16) : null, startsAt: v.startsAt, endsAt: v.endsAt,
-      theme: b.theme ? String(b.theme).slice(0, 80) : null, effects: safeJson(b.effects), missions: safeJson(b.missions), rewards: safeJson(b.rewards),
-      caseId, leaderboard: safeJson(b.leaderboard), eventPass: b.eventPass === true,
+      theme: b.theme ? String(b.theme).slice(0, 80) : null, effects: safeJson(b.effects) as Prisma.InputJsonValue, missions: safeJson(b.missions) as Prisma.InputJsonValue, rewards: safeJson(b.rewards) as Prisma.InputJsonValue,
+      caseId, leaderboard: safeJson(b.leaderboard) as Prisma.InputJsonValue, eventPass: b.eventPass === true,
       premiumPass: b.premiumPass === true, premiumPrice: v.premiumPrice, promoMultiplier: v.promoMultiplier,
       status: v.startsAt <= now && v.endsAt > now ? "ACTIVE" : "SCHEDULED",
       }});

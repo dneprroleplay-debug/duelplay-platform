@@ -30,7 +30,7 @@ async function hydrateTicketSenders<T extends {messages?: Array<{senderId:string
  if(!ids.length)return ticket;
  const users=await prisma.user.findMany({where:{id:{in:ids}},select:{id:true,nickname:true,role:true}});
  const byId=new Map(users.map(u=>[u.id,u]));
- return {...ticket,messages:(ticket.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))} as T & {messages:Array<any>};
+ return {...ticket,messages:(ticket.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))} as T & {messages:Array<{senderId:string;sender:{id:string;nickname:string;role:string}|null}>};
 }
 
 async function hydrateTickets<T extends {messages?: Array<{senderId:string}>}>(tickets:T[]){
@@ -38,7 +38,7 @@ async function hydrateTickets<T extends {messages?: Array<{senderId:string}>}>(t
  if(!ids.length)return tickets;
  const users=await prisma.user.findMany({where:{id:{in:ids}},select:{id:true,nickname:true,role:true}});
  const byId=new Map(users.map(u=>[u.id,u]));
- return tickets.map(t=>({...t,messages:(t.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))})) as any;
+  return tickets.map(t=>({...t,messages:(t.messages||[]).map(m=>({...m,sender:byId.get(m.senderId)||null}))})) as Array<T & {messages:Array<{senderId:string;sender:{id:string;nickname:string;role:string}|null}>}>;
 }
 
 export async function GET(request:NextRequest){
@@ -180,7 +180,7 @@ export async function PATCH(request:NextRequest){
           if(dispute.adminDecision!==decision)throw new Error("DISPUTE_DECISION_CONFLICT");
           return {id:dispute.id,idempotent:true};
         }
-        const matchRows=await tx.$queryRaw<Array<any>>`SELECT * FROM "Match" WHERE id=${dispute.matchId}::uuid FOR UPDATE`;
+        const matchRows=await tx.$queryRaw<Array<{id:string;status:string;economyMode:string;playerOneId:string;playerTwoId:string|null;betAmount:Prisma.Decimal;commission:Prisma.Decimal;weaponModifier:string|null}>>`SELECT * FROM "Match" WHERE id=${dispute.matchId}::uuid FOR UPDATE`;
         const match=matchRows[0];
         if(!match||match.status!=="DISPUTED")throw new Error("MATCH_STATE");
         if(!match.playerOneId||!match.playerTwoId)throw new Error("INVALID_MATCH_PLAYERS");
@@ -203,7 +203,7 @@ export async function PATCH(request:NextRequest){
 
         if(!winnerId){
           for(const userId of refundIds){
-            const walletRows=await tx.$queryRaw<Array<{id:string,userId:string,balance:any,lockedBalance:any}>>`SELECT id, "userId", balance, "lockedBalance" FROM "Wallet" WHERE "userId" = ${userId}::uuid FOR UPDATE`;
+            const walletRows=await tx.$queryRaw<Array<{id:string;userId:string;balance:Prisma.Decimal;lockedBalance:Prisma.Decimal}>>`SELECT id, "userId", balance, "lockedBalance" FROM "Wallet" WHERE "userId" = ${userId}::uuid FOR UPDATE`;
             const wallet=walletRows[0];
             if(!wallet)throw new Error("WALLET");
             if(Number(wallet.lockedBalance)<stake)throw new Error("LOCKED_STAKE");
@@ -214,7 +214,7 @@ export async function PATCH(request:NextRequest){
             }
           }
         }else{
-          const walletRows=await tx.$queryRaw<Array<{id:string,userId:string,balance:any,lockedBalance:any}>>`SELECT id, "userId", balance, "lockedBalance" FROM "Wallet" WHERE "userId" IN (${winnerId}::uuid, ${loserId!}::uuid) FOR UPDATE`;
+          const walletRows=await tx.$queryRaw<Array<{id:string;userId:string;balance:Prisma.Decimal;lockedBalance:Prisma.Decimal}>>`SELECT id, "userId", balance, "lockedBalance" FROM "Wallet" WHERE "userId" IN (${winnerId}::uuid, ${loserId!}::uuid) FOR UPDATE`;
           const winnerWallet=walletRows.find(w=>w.userId===winnerId);
           const loserWallet=walletRows.find(w=>w.userId===loserId!);
           if(!winnerWallet||!loserWallet)throw new Error("WALLET");
@@ -452,7 +452,7 @@ export async function PATCH(request:NextRequest){
       const result=await prisma.$transaction(async tx=>{
         const target=await tx.user.findUnique({where:{id},select:{id:true,nickname:true,steamId:true,wallet:{select:{id:true,balance:true,lockedBalance:true}}}});
         if(!target?.wallet)throw new Error("WALLET");
-        const targetLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${target.wallet.id}::uuid FOR UPDATE`)[0];
+        const targetLock=(await tx.$queryRaw<Array<{id:string;balance:Prisma.Decimal;lockedBalance:Prisma.Decimal}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${target.wallet.id}::uuid FOR UPDATE`)[0];
         if(!targetLock)throw new Error("WALLET");
         if(target.nickname==="DuelPlayOwner" || (OWNER_STEAM_ID && target.steamId===OWNER_STEAM_ID))throw new Error("OWNER_TARGET");
         const before=Number(targetLock.balance);
@@ -464,7 +464,7 @@ export async function PATCH(request:NextRequest){
             owner=await tx.user.findFirst({where:{role:"SUPERADMIN",status:"ACTIVE",wallet:{isNot:null}},orderBy:{createdAt:"asc"},select:{id:true,nickname:true,wallet:{select:{id:true,balance:true}}}});
           }
           if(!owner?.wallet)throw new Error("OWNER_WALLET");
-          const ownerLock=(await tx.$queryRaw<Array<{id:string;balance:any;lockedBalance:any}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${owner.wallet.id}::uuid FOR UPDATE`)[0];
+          const ownerLock=(await tx.$queryRaw<Array<{id:string;balance:Prisma.Decimal;lockedBalance:Prisma.Decimal}>>`SELECT id,balance,"lockedBalance" FROM "Wallet" WHERE id=${owner.wallet.id}::uuid FOR UPDATE`)[0];
           if(!ownerLock)throw new Error("OWNER_WALLET");
           const adjustmentKey=`admin-adjust:${id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
           const targetDebit=await debitWallet(tx,target.id,debit,adjustmentKey,"WITHDRAW",`Админ ${me.nickname} списал $${debit.toFixed(2)} у игрока ${target.nickname}${reason?` · ${reason}`:""}`,id);
@@ -545,7 +545,7 @@ export async function PATCH(request:NextRequest){
       }
 
       if(matchBefore.status!=="CANCELLED"){
-        await cancelMatchWithRefund(id, `Match cancelled by admin ${me.nickname}`);
+        await cancelMatchWithRefund(id, `Match cancelled by admin ${me.nickname}`, me.nickname);
       }
 
       // Release the DB server allocation as part of admin recovery. If CS2 is

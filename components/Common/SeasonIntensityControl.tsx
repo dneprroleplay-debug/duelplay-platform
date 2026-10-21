@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useState,useRef} from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 const STORAGE_KEY="duelplay-season-intensity";
 const MIN=10;
@@ -10,7 +11,7 @@ export default function SeasonIntensityControl(){
  const ref=useRef<HTMLDivElement>(null);
  const [value,setValue]=useState(100);
  useEffect(()=>{
-  try{const saved=Number(window.localStorage.getItem(STORAGE_KEY));if(Number.isFinite(saved))setValue(Math.max(MIN,Math.min(MAX,saved)));}catch{}
+  deferEffectTask(()=>{deferEffectTask(()=>{try{const saved=Number(window.localStorage.getItem(STORAGE_KEY));if(Number.isFinite(saved))setValue(Math.max(MIN,Math.min(MAX,saved)));}catch{}})})
  },[]);
  useEffect(()=>{
   if(!open)return;

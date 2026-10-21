@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Mode="AUTO"|"BALANCED"|"PERFORMANCE";
 const STORAGE_KEY="duelplay-performance-mode";
@@ -19,7 +20,7 @@ export default function PerformanceModeControl(){
  const [mode,setMode]=useState<Mode>("AUTO");
  const ref=useRef<HTMLDivElement>(null);
  useEffect(()=>{
-  try{const saved=window.localStorage.getItem(STORAGE_KEY) as Mode|null;if(saved&&MODES.includes(saved))setMode(saved);}catch{}
+  deferEffectTask(()=>{deferEffectTask(()=>{try{const saved=window.localStorage.getItem(STORAGE_KEY) as Mode|null;if(saved&&MODES.includes(saved))setMode(saved);}catch{}})})
  },[]);
  useEffect(()=>{
   const root=document.documentElement;

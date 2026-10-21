@@ -2,9 +2,10 @@
 import Image from "next/image";
 import { useLanguage } from "../Common/LanguageContext";
 import { DUEL_MAPS } from "@/lib/duel-maps";
+import { mapDescription } from "@/lib/duel-descriptions";
 
 export default function Games({onSelectMap}:{onSelectMap?:(name:string)=>void}) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const select = (name: string) => {
     onSelectMap?.(name);
     window.dispatchEvent(new CustomEvent("duelplay:select-map", { detail: name }));
@@ -32,6 +33,7 @@ export default function Games({onSelectMap}:{onSelectMap?:(name:string)=>void}) 
             <div className="absolute inset-x-0 bottom-0 p-5">
               <div className="text-[10px] uppercase tracking-[.18em] text-pink-300">Counter-Strike 2</div>
               <div data-no-i18n className="mt-1 text-2xl font-black">{map.displayName}</div>
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-300/80">{mapDescription(language, map.id, map.description)}</p>
             </div>
           </button>
         ))}

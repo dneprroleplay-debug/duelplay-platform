@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DuelPlay avatar placeholder">
+  <defs>
+    <linearGradient id="dp-avatar-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1024"/>
+      <stop offset="1" stop-color="#0a0b10"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#dp-avatar-bg)"/>
+  <circle cx="32" cy="25" r="10" fill="#2a2a35"/>
+  <path d="M12 58c2-11 9-17 20-17s18 6 20 17z" fill="#2a2a35"/>
+  <circle cx="32" cy="25" r="10" fill="none" stroke="#ff2f91" stroke-width="1.5" opacity=".55"/>
+  <path d="M12 58c2-11 9-17 20-17s18 6 20 17" fill="none" stroke="#ff2f91" stroke-width="1.5" opacity=".55"/>
+</svg>

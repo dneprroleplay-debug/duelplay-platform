@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type Reward = { xp?: number; balance?: number; coins?: number; case?: string; caseId?: string; caseSlug?: string; cosmetic?: string; cosmeticItemId?: string } | null;
 type Data = { pass: any; progress: any; rewards: any[]; claimedLevels?: number[]; currentReward?: Reward };
@@ -20,7 +21,7 @@ export default function DuelPass() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const load = async () => { setLoading(true); const r = await fetch('/api/duelpass',{cache:'no-store'}); const j=await r.json(); setD(j); setLoading(false); };
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{deferEffectTask(()=>{void load();});},[]);
   const claimed = useMemo(()=>new Set(d?.claimedLevels ?? []),[d]);
   const progressXp = Number(d?.progress?.xp ?? 0);
   const maxLevel = Number(d?.pass?.maxLevel ?? 50);

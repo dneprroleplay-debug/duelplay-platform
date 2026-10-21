@@ -11,7 +11,7 @@ const MAX_ITEM_SLUG = 80;
 const MAX_IMAGE_URL = 2000;
 const MAX_METADATA_BYTES = 16_384;
 
-function cleanItem(body: any) {
+function cleanItem(body: Record<string, unknown>) {
   const slug = String(body.slug ?? "").trim().toLowerCase();
   const name = String(body.name ?? "").trim();
   if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > MAX_ITEM_SLUG) throw new Error("INVALID");
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   const type = String(body.type || "");
   if (!["ITEM", "COLLECTION", "MISSION", "ACHIEVEMENT"].includes(type)) return NextResponse.json({ error: "Invalid content type" }, { status: 400 });
   try {
-    let row: any;
+    let row: {id:string;name?:string;slug?:string;title?:string}|null=null;
     if (type === "ITEM") {
       const item = cleanItem({ ...body, itemType: body.itemType ?? "COSMETIC" });
       const existing = await prisma.cosmeticItem.findUnique({ where: { slug: item.slug }, select: { id: true } });
@@ -86,7 +86,7 @@ export async function PATCH(request: NextRequest) {
   const id = String(body.id || "");
   if (!id || !["ITEM", "COLLECTION", "MISSION", "ACHIEVEMENT"].includes(type)) return NextResponse.json({ error: "Invalid content update" }, { status: 400 });
   try {
-    let row: any;
+    let row: {id:string}|null=null;
     if (type === "ITEM") {
       const current = await prisma.cosmeticItem.findUnique({ where: { id } });
       if (!current) throw new Error("NOT_FOUND");
@@ -106,7 +106,7 @@ export async function PATCH(request: NextRequest) {
     } else if (type === "COLLECTION") {
       const current = await prisma.collection.findUnique({ where: { id } });
       if (!current) throw new Error("NOT_FOUND");
-      const data: any = {};
+      const data: Record<string, unknown> = {};
       if (body.name !== undefined) { const name = String(body.name).trim(); if (!name || name.length > 120) throw new Error("INVALID"); data.name = name; }
       if (body.description !== undefined) data.description = body.description ? String(body.description).slice(0, 500) : null;
       if (body.requirements !== undefined) data.requirements = validateCollectionRequirements(body.requirements);
@@ -114,7 +114,7 @@ export async function PATCH(request: NextRequest) {
       if (body.active !== undefined) data.active = Boolean(body.active);
       row = await prisma.collection.update({ where: { id }, data });
     } else if (type === "MISSION") {
-      const data: any = {};
+      const data: Record<string, unknown> = {};
       for (const k of ["name", "description", "reward"]) if (body[k] !== undefined) data[k] = k === "reward" ? body[k] : String(body[k]);
       if (body.missionType !== undefined) data.type = String(body.missionType);
       if (body.target !== undefined) { const n = Number(body.target); if (!Number.isInteger(n) || n < 1) throw new Error("INVALID"); data.target = n; }
@@ -123,7 +123,7 @@ export async function PATCH(request: NextRequest) {
       if (body.active !== undefined) data.active = Boolean(body.active);
       row = await prisma.mission.update({ where: { id }, data });
     } else {
-      const data: any = {};
+      const data: Record<string, unknown> = {};
       for (const k of ["name", "description", "iconUrl", "conditions"]) if (body[k] !== undefined) data[k] = ["conditions"].includes(k) ? body[k] : String(body[k]);
       if (body.xpReward !== undefined) { const n = Number(body.xpReward); if (!Number.isInteger(n) || n < 0) throw new Error("INVALID"); data.xpReward = n; }
       row = await prisma.achievement.update({ where: { id }, data });

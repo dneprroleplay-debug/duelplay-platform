@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useDuelDialog } from "@/components/Common/DuelDialogProvider";
 
 type Row = Record<string, unknown>;
 
 export default function ServerTechnicalConsole({ canLogs, canIncidents, canManageIncidents }: { canLogs: boolean; canIncidents: boolean; canManageIncidents: boolean }) {
+  const dialog = useDuelDialog();
   const [tab, setTab] = useState<"events" | "incidents">(canLogs ? "events" : "incidents");
   const [items, setItems] = useState<Row[]>([]);
   const [page, setPage] = useState(1);
@@ -48,8 +50,9 @@ export default function ServerTechnicalConsole({ canLogs, canIncidents, canManag
   useEffect(() => { const timer = window.setTimeout(() => { void load(page); }, 0); const poll = window.setInterval(() => { void load(page); }, 15_000); return () => { window.clearTimeout(timer); window.clearInterval(poll); }; }, [load, page]);
   const timestamp = (value: unknown) => value ? new Date(String(value)).toLocaleString() : "—";
   const updateIncident = async (item: Row, action: "acknowledge" | "resolve") => {
-    if (!window.confirm(action === "acknowledge" ? "Подтвердить, что инцидент принят в работу?" : "Закрыть инцидент с указанием результата?")) return;
-    const reason = action === "resolve" ? window.prompt("Укажите результат устранения:")?.trim() : undefined;
+    const confirmed = await dialog.confirm({ title: action === "acknowledge" ? "Принять инцидент" : "Закрыть инцидент", message: action === "acknowledge" ? "Подтвердить, что инцидент принят в работу?" : "Закрыть инцидент с указанием результата?", confirmText: action === "acknowledge" ? "Принять" : "Закрыть", cancelText: "Отмена" });
+    if (!confirmed) return;
+    const reason = action === "resolve" ? (await dialog.prompt({ title: "Результат устранения", message: "Укажите результат устранения:", placeholder: "Что было сделано", confirmText: "Закрыть инцидент", cancelText: "Отмена", multiline: true }))?.trim() : undefined;
     if (action === "resolve" && !reason) return;
     try {
       const response = await fetch("/api/admin/server-incidents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action, reason }) });
