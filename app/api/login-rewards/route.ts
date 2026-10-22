@@ -56,7 +56,7 @@ export async function POST(_r: NextRequest) {
     const result = await prisma.$transaction(async (tx) => {
       // Serialize claims per user. This closes the race where two browser tabs
       // could both observe "not claimed today" and create two rewards.
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${me.id} FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "User" WHERE id = ${me.id}::uuid FOR UPDATE`);
 
       const now = new Date();
       const claimDate = utcDateKey(now);
