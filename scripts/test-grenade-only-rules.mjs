@@ -9,7 +9,9 @@ const policy = new Map(buildDuelModeCommands('GRENADE_ONLY').map((command) => {
 }));
 for (const [name, value] of [
   ['mp_startmoney', '0'], ['mp_maxmoney', '0'], ['mp_afterroundmoney', '0'],
-  ['mp_free_armor', '0'],
+  // The shop is closed in GRENADE_ONLY, so vest and helmet are granted for free
+  // at spawn instead of being bought.
+  ['mp_free_armor', '2'],
   ['mp_buy_allow_guns', '0'], ['mp_buy_allow_grenades', '0'],
   ['mp_t_default_primary', '0'], ['mp_ct_default_primary', '0'],
   ['mp_t_default_secondary', '0'], ['mp_ct_default_secondary', '0'],

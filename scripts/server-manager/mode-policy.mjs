@@ -35,8 +35,45 @@ const WEAPONS = [
 ];
 
 const WEAPON_CATEGORIES = ['pistols', 'smgs', 'rifles', 'heavy'];
-const CLOSED_MODES = new Set(['AWP_ONLY', 'DEAGLE_ONLY', 'KNIFE_ONLY', 'RANDOM_WEAPON', 'GRENADE_ONLY']);
+// Modes without an economy: the players get no money and no buy menu at all.
+// A workshop map restores its own money/buy values on every spawn, so these
+// modes are re-closed by the server manager after the map logic runs.
+export const MONEY_LESS_MODES = new Set(['AWP_ONLY', 'DEAGLE_ONLY', 'KNIFE_ONLY', 'RANDOM_WEAPON', 'GRENADE_ONLY']);
 export const FIRST_TO_10_KILLS = 10;
+
+export function isMoneylessMode(mode, weaponModifier = null) {
+  return MONEY_LESS_MODES.has(resolveEffectiveMode(mode, weaponModifier));
+}
+
+// Economy and shop closure for the money-less modes. mp_maxmoney 0 also clamps
+// an already granted balance back to $0, so the money the workshop map hands
+// out disappears on the next enforcement tick instead of staying spendable.
+export function getMoneylessEconomyCommands() {
+  return [
+    'mp_maxmoney 0',
+    'mp_startmoney 0',
+    'mp_afterroundmoney 0',
+    'mp_buytime 0',
+    'mp_buy_anywhere 0',
+    'mp_buy_during_immunity 0',
+    'mp_buy_allow_guns 0',
+    'mp_buy_allow_grenades 0',
+    // Armor and helmet are granted for free at spawn because the shop cannot be
+    // used in a money-less mode. Re-asserted on every tick so a map that resets
+    // the cvar cannot strip it from the next spawn.
+    'mp_free_armor 2',
+  ];
+}
+
+// Removing the buy zone makes the stock CS2 answer "You left the buy zone"
+// when B is pressed instead of opening the shop, exactly like a knife-only
+// map without a buy zone.
+export function getBuyZoneRemovalCommands() {
+  return [
+    'ent_fire func_buyzone kill',
+    'ent_remove func_buyzone',
+  ];
+}
 
 export function chooseRandomWeapon(random = Math.random) {
   const index = Math.floor(random() * WEAPONS.length);
@@ -58,7 +95,7 @@ export function shouldRestartAfterFirstConnect(mode, weaponModifier = null) {
 
 export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon = null) {
   const effectiveMode = resolveEffectiveMode(mode, weaponModifier);
-  const restricted = CLOSED_MODES.has(effectiveMode);
+  const restricted = MONEY_LESS_MODES.has(effectiveMode);
   const grenadeOnly = effectiveMode === 'GRENADE_ONLY';
   const firstTo10 = effectiveMode === 'FIRST_TO_10';
   const headshotOnly = effectiveMode === 'HEADSHOT_ONLY';
@@ -148,6 +185,10 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
     commands.push(
       'ammo_grenade_limit_total 12', 'ammo_grenade_limit_default 3', 'ammo_grenade_limit_flashbang 3',
       'mp_respawnwavetime_t 0', 'mp_respawnwavetime_ct 0',
+      // The grenade mode has no economy, so armor and helmet cannot be bought.
+      // mp_free_armor 2 grants vest and helmet to every player on both CT and T
+      // at spawn, without touching the shop.
+      'mp_free_armor 2',
     );
   } else if (effectiveMode === 'SOLO_1V1' || effectiveMode === 'HEADSHOT_ONLY' || firstTo10) {
     for (const category of WEAPON_CATEGORIES) commands.push(`mp_weapons_allow_${category} -1`);

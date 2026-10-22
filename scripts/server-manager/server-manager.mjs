@@ -10,9 +10,12 @@ import {
   FIRST_TO_10_KILLS,
   buildDuelModeCommands,
   chooseRandomWeapon,
+  getBuyZoneRemovalCommands,
   getFirstToTenKillsLeader,
   getFirstToTenKillsWinner,
+  getMoneylessEconomyCommands,
   getRuleReapplyDelays,
+  isMoneylessMode,
   resolveEffectiveMode,
   shouldRestartAfterFirstConnect,
 } from './mode-policy.mjs';
@@ -81,6 +84,7 @@ let lastManagerHeartbeatAt = 0;
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
+let moneylessGuardTimer = null;
 const duelRuleTimers = new Set();
 let lastRoundRuleApplyAt = 0;
 let shuttingDown = false;
@@ -383,9 +387,11 @@ function clearCurrentTimers() {
   if (readyTimer) clearTimeout(readyTimer);
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
   if (warmupGuardTimer) clearInterval(warmupGuardTimer);
+  if (moneylessGuardTimer) clearInterval(moneylessGuardTimer);
   readyTimer = null;
   startupDeadlineTimer = null;
   warmupGuardTimer = null;
+  moneylessGuardTimer = null;
   for (const timer of duelRuleTimers) clearTimeout(timer);
   duelRuleTimers.clear();
 }
@@ -468,6 +474,25 @@ function applyDuelRules(mode, weaponModifier) {
     current.randomWeapon = chooseRandomWeapon();
   }
   for (const rule of buildDuelModeCommands(mode, weaponModifier, current?.randomWeapon)) command(rule);
+  enforceMoneylessEconomy();
+}
+
+// A workshop map restores its own money and buy values on every spawn (it hands
+// out $60000 and reopens the shop), so a money-less mode has to be closed again
+// after the map logic ran. mp_maxmoney 0 clamps the granted balance back to $0.
+function enforceMoneylessEconomy() {
+  if (!current || resultSent) return;
+  if (!isMoneylessMode(current.mode, current.weaponModifier)) return;
+  for (const rule of getMoneylessEconomyCommands()) command(rule);
+}
+
+// Removing the buy zone makes CS2 answer with the stock "You left the buy zone"
+// message instead of opening the shop, like a knife-only map without a buy zone.
+function closeMoneylessShop() {
+  if (!current || resultSent) return;
+  if (!isMoneylessMode(current.mode, current.weaponModifier)) return;
+  enforceMoneylessEconomy();
+  for (const rule of getBuyZoneRemovalCommands()) command(rule);
 }
 
 function writeMatchMapConfig(mapNames, mode, weaponModifier, randomWeapon = null) {
@@ -607,6 +632,7 @@ function observeServerLine(text) {
   if (/World triggered \"Game_Commencing\"/i.test(text)) {
     if (current && !resultSent) {
       applyDuelRules(current.mode, current.weaponModifier);
+      closeMoneylessShop();
 
       // Some Workshop maps run their own point_servercommand on the first spawn /
       // Game_Commencing. That can restore map money/buytime after DuelPlay's
@@ -643,6 +669,10 @@ function observeServerLine(text) {
 
   if (/World triggered \"Round_Start\"/i.test(text)) {
     const now = Date.now();
+    // The map restores money and the buy zone while the round starts, so the
+    // money-less closure has to run again immediately, not only on the delayed
+    // rule re-apply.
+    closeMoneylessShop();
     if (now - lastRoundRuleApplyAt > 1500) {
       lastRoundRuleApplyAt = now;
       for (const delay of getRuleReapplyDelays('ROUND_START')) {
@@ -651,6 +681,13 @@ function observeServerLine(text) {
         });
       }
     }
+  }
+
+  // A workshop map runs its own spawn command on every round restart: it hands
+  // out $60000 and reopens the buy zone. Closing the economy right after that
+  // restart keeps the money-less modes at $0 without a shop.
+  if (/World triggered \"Restart_Round/i.test(text)) {
+    closeMoneylessShop();
   }
 
   const steamNetLine = text.match(
@@ -684,6 +721,7 @@ function observeServerLine(text) {
       }
       if (current) {
         finalizePlayerLoadoutAfterConnect();
+        closeMoneylessShop();
       }
     }
   }
@@ -712,7 +750,10 @@ function observeServerLine(text) {
         `[DuelPlay] server log player ${playerSteamId} connected (${connectedSteamIds.length}/2)`
       );
       void syncPlayerAvatar(playerSteamId);
-      if (current) finalizePlayerLoadoutAfterConnect();
+      if (current) {
+        finalizePlayerLoadoutAfterConnect();
+        closeMoneylessShop();
+      }
     }
   }
 
@@ -817,6 +858,14 @@ async function claimAndStart(match) {
   syncedAvatarKeys.clear();
   resetRefereeState();
 
+  // A workshop map keeps restoring its money and buy zone while the match runs,
+  // so a money-less mode is closed continuously. mp_maxmoney 0 clamps the money
+  // the map hands out back to $0, and the shop stays closed for the whole match.
+  if (isMoneylessMode(mode, weaponModifier)) {
+    if (moneylessGuardTimer) clearInterval(moneylessGuardTimer);
+    moneylessGuardTimer = setInterval(() => enforceMoneylessEconomy(), 500);
+  }
+
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
     process.stdout.write(`[CS2] ${text}`);
@@ -874,6 +923,7 @@ async function claimAndStart(match) {
       command('mp_autoteambalance 0');
       command('mp_limitteams 0');
       applyDuelRules(current.mode, current.weaponModifier);
+      closeMoneylessShop();
           command('mp_warmup_online_enabled 0');
       command('mp_warmuptime 0');
       command('mp_warmup_end');

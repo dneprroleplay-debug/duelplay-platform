@@ -191,7 +191,7 @@ for (const map of mapDetails) {
       assert.equal(rules.get('mp_maxmoney'), '0', `${at} caps the closed-mode wallet at $0`);
       assert.equal(rules.get('mp_startmoney'), '0', `${at} starts closed modes at $0`);
       assert.equal(rules.get('mp_afterroundmoney'), '0', `${at} awards no round income in closed modes`);
-      assert.equal(rules.get('mp_free_armor'), mode === 'GRENADE_ONLY' ? '0' : '2', `${at} sets the closed-mode armor policy`);
+      assert.equal(rules.get('mp_free_armor'), '2', `${at} issues kevlar and helmet because the shop is closed`);
     } else {
       assert.equal(rules.get('mp_maxmoney'), '10000', `${at} caps the open-mode wallet at $10000`);
       assert.equal(rules.get('mp_startmoney'), '10000', `${at} starts open modes at $10000`);
@@ -322,7 +322,7 @@ assert.equal(grenade.get('mp_autokick'), '0', 'GRENADE_ONLY disables CS2 five-su
 assert.equal(grenade.get('mp_startmoney'), '0', 'GRENADE_ONLY starts at $0');
 assert.equal(grenade.get('mp_maxmoney'), '0', 'GRENADE_ONLY caps the wallet at $0');
 assert.equal(grenade.get('mp_afterroundmoney'), '0', 'GRENADE_ONLY awards no round income');
-assert.equal(grenade.get('mp_free_armor'), '0', 'GRENADE_ONLY grants no free armor');
+assert.equal(grenade.get('mp_free_armor'), '2', 'GRENADE_ONLY issues kevlar and helmet at spawn');
 assert.equal(solo.get('mp_respawn_on_death_t'), '0', 'the respawn-on-death rule is reset outside grenade mode');
 assert.equal(solo.get('mp_respawn_on_death_ct'), '0', 'the respawn-on-death rule is reset outside grenade mode');
 assert.equal(solo.get('mp_autokick'), '1', 'leaving GRENADE_ONLY restores the normal five-suicide kick');
@@ -399,6 +399,36 @@ assert.match(manager, /replace\(\/\^mp_buytime\\s\+\.\*\$\/m/, 'existing gamemod
 const grenadePlugin = readFileSync('scripts/cs2-plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.cs', 'utf8');
 assert.match(grenadePlugin, /GiveNamedItem/);
 assert.match(grenadePlugin, /PreventWeaponPickup = true/);
+
+// --- money-less modes --------------------------------------------------------
+// The workshop map hands out $60000 and reopens the shop on every spawn, so a
+// money-less mode has to keep a zero wallet and a closed shop on every rule set
+// and on every server configuration.
+const MONEY_LESS_MODES = ['AWP_ONLY', 'DEAGLE_ONLY', 'KNIFE_ONLY', 'RANDOM_WEAPON', 'GRENADE_ONLY'];
+const lastValue = (commands, key) => {
+  const matches = commands.filter((command) => command.startsWith(`${key} `));
+  return matches.length ? matches[matches.length - 1].slice(key.length + 1) : null;
+};
+for (const mode of MONEY_LESS_MODES) {
+  const commands = buildDuelModeCommands(mode, mode, { weapon: 'weapon_awp', slot: 'primary', category: 'rifles' });
+  assert.equal(lastValue(commands, 'mp_maxmoney'), '0', `${mode} keeps the wallet at $0`);
+  assert.equal(lastValue(commands, 'mp_startmoney'), '0', `${mode} starts the match at $0`);
+  assert.equal(lastValue(commands, 'mp_afterroundmoney'), '0', `${mode} awards no round income`);
+  assert.equal(lastValue(commands, 'mp_buytime'), '0', `${mode} has no buy window`);
+  assert.equal(lastValue(commands, 'mp_free_armor'), '2', `${mode} grants vest and helmet at spawn`);
+  assert.ok(commands.every((command) => !/60000/.test(command)), `${mode} never configures $60000`);
+  // Every per-match map cfg of every server instance is generated from the same
+  // rule set, so the money-less closure is identical on all three servers.
+  const mapCfg = buildMatchMapConfig(mode, mode, { weapon: 'weapon_awp', slot: 'primary', category: 'rifles' });
+  assert.match(mapCfg, /^mp_maxmoney 0$/m, `${mode} map cfg keeps the wallet at $0`);
+  assert.match(mapCfg, /^mp_afterroundmoney 0$/m, `${mode} map cfg awards no round income`);
+  assert.match(mapCfg, /^mp_free_armor 2$/m, `${mode} map cfg grants vest and helmet`);
+}
+assert.equal(lastValue(buildDuelModeCommands('FIRST_TO_10', null, null), 'mp_afterroundmoney'), '10000', 'FIRST_TO_10 still refills to $10,000');
+assert.equal(lastValue(buildDuelModeCommands('FIRST_TO_10', null, null), 'mp_maxmoney'), '10000', 'FIRST_TO_10 keeps the $10,000 cap');
+assert.equal(lastValue(buildDuelModeCommands('SOLO_1V1', null, null), 'mp_maxmoney'), '10000', 'Classic keeps the $10,000 cap');
+assert.match(manager, /isMoneylessMode\(current\.mode, current\.weaponModifier\)/, 'the manager closes the economy only for money-less modes');
+assert.match(manager, /moneylessGuardTimer = setInterval\(\(\) => enforceMoneylessEconomy\(\), 500\)/, 'the manager keeps a money-less match closed while it runs');
 const grenadePhase = grenadePlugin.slice(grenadePlugin.indexOf('private void ApplyLoadout'), grenadePlugin.indexOf('private void GiveKnifeIfGrenadesSpent'));
 assert.doesNotMatch(grenadePhase, /BlockPickup\(/, 'GRENADE_ONLY keeps pickup unblocked during the grenade phase so the last grenade can be re-equipped');
 assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife availability follows actual grenade throws');
