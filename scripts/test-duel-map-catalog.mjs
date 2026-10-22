@@ -28,6 +28,7 @@ const integrations = {
   matchApi: fs.readFileSync("app/api/matches/route.ts", "utf8"),
   matchmakingApi: fs.readFileSync("app/api/matchmaking/route.ts", "utf8"),
   profile: fs.readFileSync("app/profile/page.tsx", "utf8"),
+  history: fs.readFileSync("components/Match/MatchHistory.tsx", "utf8"),
   live: fs.readFileSync("components/Live/Live.tsx", "utf8"),
 };
 assert.match(integrations.create, /DUEL_MAPS/);
@@ -37,7 +38,8 @@ assert.match(integrations.matchmaking, /isMapModeSupported/);
 assert.match(integrations.matchApi, /getDuelMap/);
 assert.match(integrations.matchApi, /MODE_NOT_SUPPORTED_FOR_MAP/);
 assert.match(integrations.matchmakingApi, /isMapModeSupported/);
-assert.match(integrations.profile, /getDuelMap\(m\.mapName\)/);
+assert.match(integrations.profile, /MatchHistory/);
+assert.match(integrations.history, /getDuelMap\(match\.mapName\)/);
 assert.match(integrations.live, /DUEL_MAPS/);
 
 const mapBody = catalog.slice(catalog.indexOf("export const DUEL_MAPS"), catalog.indexOf("export const DUEL_MAP_IDS"));

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 const profile=fs.readFileSync("app/profile/page.tsx","utf8");
+const history=fs.readFileSync("components/Match/MatchHistory.tsx","utf8");
 const ru=fs.readFileSync("locales/ru.ts","utf8");
 const checks=[
  ["profile tabs use responsive grid", /grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6/.test(profile)],
@@ -7,7 +8,8 @@ const checks=[
  ["matches tab uses locale key", /\$\{t\.matches\}/.test(profile)],
  ["achievements stat uses locale key", /t=\{t\.hubCards\.achievements\}/.test(profile)],
  ["russian map heading uses accusative", /chooseMap:"Выберите карту"/.test(ru)],
- ["own profile recent matches capped at five", /slice\(0,5\)/.test(profile)],
+ ["own profile reuses the shared recent history block", /<MatchHistory variant="recent" embedded \/>/.test(profile)],
+ ["recent history is capped at five", /slice\(0,\s*5\)/.test(history)],
 ];
 let failed=0; for(const [name,ok] of checks){console.log(`${ok?"PASS":"FAIL"} ${name}`); if(!ok) failed++;}
 if(failed) process.exit(1);

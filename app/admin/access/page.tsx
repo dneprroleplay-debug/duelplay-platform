@@ -260,8 +260,6 @@ export default function AdminAccessPage(){
         </aside>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-[var(--theme-accent)]">АКТУАЛЬНЫЕ ДАННЫЕ</div><h3 className="mt-1 text-xl font-black">Данные обновляются автоматически</h3><p className="mt-1 text-sm leading-6 text-zinc-500">Матчи, онлайн, серверы и операционные показатели доступны здесь без перехода в другие разделы.</p></div><div className="flex flex-wrap gap-2"><LivePill text="АКТУАЛЬНЫЕ ДАННЫЕ"/><LivePill text="ОБНОВЛЯЕТСЯ"/><LivePill text="КЛАВИАТУРА"/></div></div></section>
-
       <section className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5 sm:p-6"><div className="text-xs font-black uppercase tracking-[.22em] text-zinc-600">ДОСТУПНЫЕ ФУНКЦИИ</div><div className="mt-2 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{available.slice(0,9).map(c=><div key={c.permission} className="rounded-2xl border border-white/6 bg-white/[.02] p-4"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]">{c.icon}</span><div><b>{c.title}</b><p className="mt-1 text-xs leading-5 text-zinc-600">{c.description}</p></div></div></div>)}</div>{available.length>9&&<div className="mt-4 text-center text-xs text-zinc-700">+ ещё {available.length-9} команд — все доступны справа.</div>}</section>
     </div>
 
@@ -282,7 +280,6 @@ function RoleWorkspace({role,commands,actualRole,founder,onCommand}:{role:Role;c
 }
 
 function MiniStat({label,value}:{label:string;value:number|null|undefined}){return <div className="rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5"><div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">{label}</div><div className="mt-1 text-lg font-black">{value??"—"}</div></div>}
-function LivePill({text}:{text:string}){return <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[.04] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-300">● {text}</span>}
 
 function MfaGate({error,errorCode,code,setCode,secret,uri,qr,busy,onSetup,onVerify}:{error:string;errorCode:string;code:string;setCode:(v:string)=>void;secret:string;uri:string;qr:string;busy:boolean;onSetup:()=>void;onVerify:()=>void}){
   const setup=errorCode==="ADMIN_MFA_SETUP_REQUIRED" || (!secret && /настроить|setup|required/i.test(error));

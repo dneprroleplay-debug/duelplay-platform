@@ -45,6 +45,18 @@ assert.match(publicProfileApi, /const total=derivedWins \+ derivedLosses/, "tota
 assert.match(publicProfileApi, /finishedMatchCount=decisiveFinishedMatches\.length/, "profile completion still counts all decisive finished matches");
 
 // ---------------------------------------------------------------------------
+// 1a. Public match history honours the same server-side privacy contract.
+// ---------------------------------------------------------------------------
+{
+  const publicHistoryApi = read("app/api/profile/[nickname]/history/route.ts");
+  assert.match(publicHistoryApi, /if \(!visibleToViewer\)/, "the public history API checks profile visibility on the server");
+  assert.match(publicHistoryApi, /if \(!isMe && !profile\.showStatsPublic\)/, "the public history API withholds hidden statistics");
+  assert.match(publicHistoryApi, /OR: \[\{ playerOneId: profile\.id \}, \{ playerTwoId: profile\.id \}\]/, "the public history only returns matches of the requested player");
+  assert.match(publicHistoryApi, /const isMe = Boolean\(viewer && viewer\.id === profile\.id\)/, "the profile owner can always read their own history");
+  assert.match(publicHistoryApi, /status: "ACCEPTED"/, "friends-only profiles require an accepted friendship");
+}
+
+// ---------------------------------------------------------------------------
 // 1b. Corrected privacy contract: owner-aware visibility, no fabricated zeros.
 // ---------------------------------------------------------------------------
 assert.match(publicProfileApi, /const statsVisible=isMe\|\|u\.showStatsPublic;/, "visibility combines owner identity with the public-stats flag");

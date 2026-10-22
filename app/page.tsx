@@ -12,7 +12,6 @@ import TopSkins from "../components/TopSkins/TopSkins";
 import Cases from "../components/Cases/Cases";
 import HomeIntro from "../components/Common/HomeIntro";
 import BannerStrip from "../components/Home/BannerStrip";
-import MatchHistory from "@/components/Match/MatchHistory";
 import { deferEffectTask } from "@/lib/effect-defer";
 
 function HomeContent(){
@@ -166,7 +165,6 @@ function HomeContent(){
       </section>
 
       <Live refreshKey={refreshKey} mode="waiting" showFilters/>
-      <MatchHistory variant="recent"/>
       <CreateMatch onCreated={()=>setRefreshKey(v=>v+1)}/>
       <TopSkins/>
       <Cases/>

@@ -136,7 +136,7 @@ const check = (condition, message) => {
   const demoCreateMatch = read("components/CreateMatch/DemoCreateMatch.tsx");
   const matchPage = read("app/matches/[id]/page.tsx");
   check(games.includes("mapDescription(language"), "the map cards use the localized description");
-  check(createMatch.includes("mapDescription(language") && createMatch.includes("modeDescription(language"), "the REAL match creation screen uses localized descriptions");
+  check(!createMatch.includes("mapDescription(language") && createMatch.includes("modeDescription(language"), "the REAL match creation screen keeps the mode description and hides the map text block");
   check(demoCreateMatch.includes("mapDescription(language") && demoCreateMatch.includes("modeDescription(language"), "the DEMO match creation screen uses localized descriptions");
   check(matchPage.includes("mapDescriptionText(language") && matchPage.includes("modeDescriptionText(language"), "the match details use localized descriptions");
 }

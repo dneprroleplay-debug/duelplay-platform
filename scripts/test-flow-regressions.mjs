@@ -94,10 +94,16 @@ const check = (ok, label) => {
 // ---------------------------------------------------------------- 5. all matches
 {
   const history = read("components/Match/MatchHistory.tsx");
-  check(history.includes('href="/matches"'), "the recent block links to the full match list");
+  check(history.includes("const allHref") && history.includes('"/matches"'), "the recent block links to the full match list");
   check(history.includes("allMatches"), "the link label is localized");
   const home = read("app/page.tsx");
-  check(home.includes('<MatchHistory variant="recent"/>'), "the home page keeps a compact recent block");
+  check(!home.includes("MatchHistory"), "the home page no longer duplicates the match history");
+  const profile = read("app/profile/page.tsx");
+  check(profile.includes('<MatchHistory variant="recent" embedded />'), "the personal profile shows the five latest matches");
+  const publicProfile = read("app/profile/[nickname]/page.tsx");
+  check(publicProfile.includes('<MatchHistory variant="recent" embedded nickname={p.nickname}/>'), "the public profile shows the five latest matches");
+  const publicHistory = read("app/profile/[nickname]/history/page.tsx");
+  check(publicHistory.includes('<MatchHistory variant="full" nickname={nickname}/>'), "the public profile links to the full history");
   const matchesPage = read("app/matches/page.tsx");
   check(matchesPage.includes('<MatchHistory variant="full"/>'), "the full list page renders filters and pagination");
   check(matchesPage.includes('/live') === false, "the entry point does not lead to the LIVE page");
