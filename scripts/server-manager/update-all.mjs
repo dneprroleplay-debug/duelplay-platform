@@ -180,7 +180,7 @@ async function smokeCheckServer(server) {
   if (!(await udpPortAvailable(server.port))) throw new Error(`${server.name}: UDP port ${server.port} is already in use; not starting a second process.`);
   const args = [
     '-dedicated', '-console', '-usercon', '-ip', '127.0.0.1', '-port', String(server.port), '-maxplayers', '2',
-    '+game_type', '0', '+game_mode', '1', '+map', 'de_dust2', '+sv_lan', '1', '+sv_visiblemaxplayers', '2', '+bot_quota', '0',
+    '+game_type', '0', '+game_mode', '1', '+map', 'de_dust2', '+sv_lan', '1', '+sv_cheats', '0', '+sv_visiblemaxplayers', '2', '+bot_quota', '0',
   ];
   log(`${server.name}: starting a private loopback CS2 smoke process on UDP ${server.port}.`);
   const child = spawn(script, args, { cwd: server.root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });

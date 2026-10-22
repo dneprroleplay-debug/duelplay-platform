@@ -50,6 +50,7 @@ export function isMoneylessMode(mode, weaponModifier = null) {
 // out disappears on the next enforcement tick instead of staying spendable.
 export function getMoneylessEconomyCommands() {
   return [
+    'sv_cheats 0',
     'mp_maxmoney 0',
     'mp_startmoney 0',
     'mp_afterroundmoney 0',
@@ -121,6 +122,7 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
   // 10-0 round lead cannot end the match before someone reaches 10 kills; the
   // 19-round limit remains the safety cap.
   const commands = [
+    'sv_cheats 0',
     'mp_warmup_online_enabled 0', 'mp_warmuptime 0', 'mp_warmup_pausetimer 0', 'mp_warmup_end',
     'mp_autoteambalance 0', 'mp_limitteams 0', 'mp_freezetime 5',
     'mp_roundtime 2', 'mp_roundtime_defuse 2', 'mp_roundtime_hostage 2',
