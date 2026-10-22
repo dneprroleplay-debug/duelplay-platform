@@ -81,7 +81,7 @@ export default function SiteAtmosphere(){
  const baseIntensity=Number(effects.intensity??48);
  const performance=performanceMode;
  const performanceFactor=performance==="performance"?0.38:performance==="balanced"?0.72:1;
- const count=Math.max(12,Math.min(1200,Math.round(baseIntensity*userIntensity/100*12.5*performanceFactor)));
+  const count=Math.max(12,Math.min(180,Math.round(baseIntensity*userIntensity/100*2.5*performanceFactor)));
  const snow=seasonId==="winter"||seasonId==="christmas"||seasonId==="new-year";
  const snowDotCount=snow?Math.max(18,Math.round(count*.62)):0;
  const particleEffectKind = seasonId==="st-patricks" ? "stpatricks" : seasonId==="lunar-new-year" ? "lunarnewyear" : seasonId==="april-fools" ? "aprilfools" : seasonId==="valentines" ? "hearts" : particleKind;

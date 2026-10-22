@@ -279,13 +279,12 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
                 // Once the round entitlement is spent, the arm timer is the only path that
                 // notices a new pawn lifetime in the same round. EventPlayerSpawned can be
                 // missed or can fire before the pawn exists, and a new life starts with the
-                // engine's default knife only. ApplyLoadout reaches GiveKnifeIfGrenadesSpent,
+                // engine's default knife only. ApplyLoadout no longer grants a knife,
                 // which never re-issues grenades at zero and refuses a second knife for the
                 // same life through HasKnifeBeenGranted/TryBeginKnife.
                 if (state.RemainingTotal == 0)
                 {
-                    if (!TryGetValidPawn(player, out _)) continue;
-                    if (!state.HasKnifeBeenGranted(lifeId)) ApplyLoadout(player);
+                    // No knife is ever granted; an exhausted life simply has no grenades left.
                     continue;
                 }
 
@@ -405,9 +404,8 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
         CapturePickupState(player, pawn, lifeId);
         if (state.RemainingTotal == 0)
         {
-            LogPawnDiagnostic("apply-loadout-knife-route", player, "entitlement exhausted", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-            GiveKnifeIfGrenadesSpent(player, state, lifeId, pawn);
-            LogPawnDiagnostic("apply-loadout-after-knife-route", player, "knife path returned", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
+            // GRENADE_ONLY has no knife in any life cycle. Do not grant or select one.
+            LogPawnDiagnostic("apply-loadout-exhausted", player, "grenade entitlement exhausted; no knife granted", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
             return;
         }
 
@@ -564,8 +562,8 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
     {
         if (!_playerRoundStates.TryGetValue(player.SteamID, out var state) || state.RoundId != _roundNumber) return false;
         if (state.RemainingTotal > 0) return state.IsLoadoutCommitted(lifeId);
-        // The grenade phase is over for this life; it is ready once the knife is back.
-        return TryGetValidPawn(player, out var pawn) && CountWeapon(pawn, "weapon_knife") > 0;
+        // The grenade phase is over for this life. No knife is granted, so it is ready.
+        return true;
     }
 
     /// <summary>
@@ -651,79 +649,6 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
 
         LogPawnDiagnostic("stray-knife-refresh-failed", player, "all safe engine-managed refresh attempts were short", MaxLoadoutAttempts, roundId, lifeId);
         return false;
-    }
-
-    private void GiveKnifeIfGrenadesSpent(CCSPlayerController player, GrenadeRoundState state, long lifeId, CCSPlayerPawn? knownPawn = null)
-    {
-        if (!_enabled || !_roundStarted || state.RemainingTotal != 0 || !IsLivePlayer(player)
-            || state.RoundId != _roundNumber || !TryGetLivePawn(player, out var pawn))
-        {
-            LogPawnDiagnostic("knife-grant-skipped", player, DescribeKnifeRefusal(state, lifeId), sourceRoundId: state.RoundId, sourceLifeId: lifeId);
-            if (Diagnostics)
-                Logger.LogInformation("GRENADE_ONLY knife grant skipped for SteamID {SteamId}, round {Round}, life {Life}: {Reason}",
-                    player.SteamID, _roundNumber, lifeId, DescribeKnifeRefusal(state, lifeId));
-            return;
-        }
-
-        var actual = CountGrenades(pawn);
-        if (actual.Values.Any(count => count != 0))
-        {
-            LogPawnDiagnostic("knife-grant-blocked", player, $"inventory still contains grenades: {string.Join(',', actual.Select(pair => $"{pair.Key}={pair.Value}"))}", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-            Logger.LogError(
-                "GRENADE_ONLY knife blocked for SteamID {SteamId}, round {Round}: quota is spent but inventory remains HE={He} flash={Flash} smoke={Smoke} incendiary={Incendiary}",
-                player.SteamID, _roundNumber, actual[GrenadeKind.He], actual[GrenadeKind.Flash], actual[GrenadeKind.Smoke], actual[GrenadeKind.Incendiary]);
-            return;
-        }
-        if (!state.TryBeginKnife(_roundNumber, lifeId))
-        {
-            LogPawnDiagnostic("knife-grant-skipped", player, DescribeKnifeRefusal(state, lifeId), sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-            Logger.LogInformation(
-                "GRENADE_ONLY knife not granted for SteamID {SteamId}, round {Round}, life {Life}: {Reason}",
-                player.SteamID, _roundNumber, lifeId, DescribeKnifeRefusal(state, lifeId));
-            return;
-        }
-
-        try
-        {
-            LogPawnDiagnostic("knife-grant-before", player, "knife operation reserved for life", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-            CapturePickupState(player, knownPawn ?? pawn, lifeId);
-            AllowPickup(knownPawn ?? pawn);
-            if (CountWeapon(pawn, "weapon_knife") == 0)
-            {
-                var knife = player.GiveNamedItem<CBasePlayerWeapon>("weapon_knife");
-                if (knife is null || !knife.IsValid || CountWeapon(pawn, "weapon_knife") == 0)
-                    throw new InvalidOperationException("CS2 did not place weapon_knife in the player's inventory.");
-            }
-
-            try
-            {
-                player.ExecuteClientCommandFromServer("use weapon_knife");
-                Logger.LogInformation("GRENADE_ONLY switched the client to weapon_knife for SteamID {SteamId}, round {Round}", player.SteamID, _roundNumber);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "GRENADE_ONLY could not switch the client to weapon_knife for SteamID {SteamId}, round {Round}", player.SteamID, _roundNumber);
-            }
-
-            BlockPickup(knownPawn ?? pawn);
-            Logger.LogInformation("GRENADE_ONLY knife granted/verified for SteamID {SteamId}, round {Round}: all 12 allotted grenades were thrown", player.SteamID, _roundNumber);
-            LogPawnDiagnostic("knife-grant-after", player, "knife selected and pickup blocked", sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-        }
-        catch (Exception ex)
-        {
-            LogPawnDiagnostic("knife-grant-failed", player, ex.GetType().Name, sourceRoundId: _roundNumber, sourceLifeId: lifeId);
-            Logger.LogError(ex, "GRENADE_ONLY knife grant failed for SteamID {SteamId}, round {Round} after all allotted grenades were thrown", player.SteamID, _roundNumber);
-        }
-    }
-
-    private string DescribeKnifeRefusal(GrenadeRoundState? state, long lifeId)
-    {
-        if (state is null) return "no round state";
-        if (!_roundStarted) return "round is not active";
-        if (state.RoundId != _roundNumber) return $"round mismatch (state={state.RoundId}, current={_roundNumber})";
-        if (state.RemainingTotal != 0) return $"grenades still remaining ({state.RemainingTotal})";
-        if (state.HasKnifeBeenGranted(lifeId)) return "knife already attempted for this life";
-        return "not live or missing a valid pawn";
     }
 
     private static void GiveGrenades(CCSPlayerController player, string classname, int count)
@@ -1054,8 +979,7 @@ public sealed class DuelPlayGrenadeOnly : BasePlugin
                 LogGrenadeDiagnostics(player, pawn, state, "throw", lifeId, kind);
                 if (state.RemainingTotal == 0)
                 {
-                    LogPawnDiagnostic("last-grenade-exhausted", player, $"verified final throw type={kind} consumed={consumed}", sourceRoundId: roundId, sourceLifeId: lifeId);
-                    GiveKnifeIfGrenadesSpent(player, state, GetLifeId(player), pawn);
+                    LogPawnDiagnostic("last-grenade-exhausted", player, $"verified final throw type={kind} consumed={consumed}; no knife granted", sourceRoundId: roundId, sourceLifeId: lifeId);
                     return;
                 }
                 // Re-select a remaining grenade so the client always has a usable weapon to

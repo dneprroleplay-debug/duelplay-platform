@@ -497,6 +497,7 @@ export async function PATCH(request:NextRequest){
       if(!ticketId||!message)return NextResponse.json({error:"Нужен текст ответа"},{status:400});
       const ticket=await prisma.supportTicket.findUnique({where:{id:ticketId}});
       if(!ticket)return NextResponse.json({error:"Обращение не найдено"},{status:404});
+      if(ticket.status==="CLOSED")return NextResponse.json({error:"Обращение закрыто"},{status:409});
       await prisma.ticketMessage.create({data:{ticketId,senderId:me.id,message}});
       await prisma.supportTicket.update({where:{id:ticketId},data:{status:"WAITING_ON_USER",assignedToId:me.id}});
       await prisma.notification.create({data:{userId:ticket.userId,type:"SYSTEM",status:"UNREAD",title:"Ответ поддержки",body:message,payload:{ticketId,kind:"SUPPORT_REPLY",subject:ticket.subject}}});

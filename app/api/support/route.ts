@@ -42,18 +42,30 @@ export async function POST(req:NextRequest){
  const user=await getCurrentUser(); if(!user)return NextResponse.json({error:"Войдите в аккаунт"},{status:401});
  const body=await req.json(); const ticketId=String(body.ticketId||"").trim(); const message=String(body.message||"").trim().slice(0,3000);
  if(!message)return NextResponse.json({error:"Введите сообщение"},{status:400});
- if(ticketId){
-   const ticket=await prisma.supportTicket.findUnique({where:{id:ticketId},include:{messages:{orderBy:{createdAt:"asc"}}}});
-   if(!ticket)return NextResponse.json({error:"Обращение не найдено"},{status:404});
-   const isAdmin=isStaffRole(user.role);
-   if(ticket.userId!==user.id&&!isAdmin)return NextResponse.json({error:"Нет доступа"},{status:403});
-   const senderIsAdmin=isAdmin&&ticket.userId!==user.id;
-   await prisma.ticketMessage.create({data:{ticketId,senderId:user.id,message}});
-   await prisma.supportTicket.update({where:{id:ticketId},data:{status:senderIsAdmin?"WAITING_ON_USER":"IN_PROGRESS",assignedToId:senderIsAdmin?user.id:ticket.assignedToId}});
-   const updated=await prisma.supportTicket.findUnique({where:{id:ticketId},include:{messages:{orderBy:{createdAt:"asc"}}}});
-   if(senderIsAdmin)await prisma.notification.create({data:{userId:ticket.userId,type:"SYSTEM",status:"UNREAD",title:"Ответ поддержки",body:message,payload:{ticketId,kind:"SUPPORT_REPLY",subject:ticket.subject}}});
-   return NextResponse.json({ok:true,ticket:await hydrateTicketSenders(updated!)});
- }
+  if(ticketId){
+    const isAdmin=isStaffRole(user.role);
+    try {
+      const updated=await prisma.$transaction(async tx=>{
+        const ticket=await tx.supportTicket.findUnique({where:{id:ticketId},include:{messages:{orderBy:{createdAt:"asc"}}}});
+        if(!ticket)throw new Error("NOT_FOUND");
+        if(ticket.userId!==user.id&&!isAdmin)throw new Error("FORBIDDEN");
+        if(ticket.status==="CLOSED")throw new Error("CLOSED");
+        const senderIsAdmin=isAdmin&&ticket.userId!==user.id;
+        await tx.ticketMessage.create({data:{ticketId,senderId:user.id,message}});
+        await tx.supportTicket.update({where:{id:ticketId},data:{status:senderIsAdmin?"WAITING_ON_USER":"IN_PROGRESS",assignedToId:senderIsAdmin?user.id:ticket.assignedToId}});
+        const fresh=await tx.supportTicket.findUnique({where:{id:ticketId},include:{messages:{orderBy:{createdAt:"asc"}}}});
+        if(senderIsAdmin)await tx.notification.create({data:{userId:ticket.userId,type:"SYSTEM",status:"UNREAD",title:"Ответ поддержки",body:message,payload:{ticketId,kind:"SUPPORT_REPLY",subject:ticket.subject}}});
+        return fresh!;
+      });
+      return NextResponse.json({ok:true,ticket:await hydrateTicketSenders(updated)});
+    } catch (e) {
+      const msg=e instanceof Error?e.message:"";
+      if(msg==="NOT_FOUND")return NextResponse.json({error:"Обращение не найдено"},{status:404});
+      if(msg==="FORBIDDEN")return NextResponse.json({error:"Нет доступа"},{status:403});
+      if(msg==="CLOSED")return NextResponse.json({error:"Обращение закрыто"},{status:409});
+      throw e;
+    }
+  }
  const subject=String(body.subject||"").trim().slice(0,160),category=String(body.category||"GENERAL").slice(0,32);
  if(!subject)return NextResponse.json({error:"Укажите тему обращения"},{status:400});
  const ticket=await prisma.supportTicket.create({data:{userId:user.id,subject,category,priority:category==="SECURITY"?"HIGH":"MEDIUM",messages:{create:{senderId:user.id,message}}},include:{messages:true}});

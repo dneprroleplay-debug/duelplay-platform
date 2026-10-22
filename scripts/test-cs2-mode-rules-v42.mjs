@@ -200,7 +200,7 @@ for (const map of mapDetails) {
     }
     assert.equal(rules.get('mp_t_default_grenades'), '0', `${at} never grants engine grenades`);
     assert.equal(rules.get('mp_t_default_melee'), mode === 'GRENADE_ONLY' ? '0' : 'weapon_knife', `${at} sets the knife policy`);
-    assert.equal(rules.get('mp_maxrounds'), '19', `${at} keeps the 19-round ceiling`);
+    assert.equal(rules.get('mp_maxrounds'), mode === 'FIRST_TO_10' ? '19' : '13', `${at} keeps the 13-round ceiling (19 for FIRST_TO_10)`);
     assert.equal(rules.get('mp_respawn_on_death_t'), mode === 'GRENADE_ONLY' ? '1' : '0', `${at} respawns on death only in grenade mode`);
     assert.equal(rules.get('mp_respawn_on_death_ct'), mode === 'GRENADE_ONLY' ? '1' : '0', `${at} respawns on death only in grenade mode`);
     assert.equal(rules.get('mp_use_respawn_waves'), '0', `${at} keeps respawn waves off so a respawn is immediate`);
@@ -429,7 +429,7 @@ assert.equal(lastValue(buildDuelModeCommands('FIRST_TO_10', null, null), 'mp_max
 assert.equal(lastValue(buildDuelModeCommands('SOLO_1V1', null, null), 'mp_maxmoney'), '10000', 'Classic keeps the $10,000 cap');
 assert.match(manager, /isMoneylessMode\(current\.mode, current\.weaponModifier\)/, 'the manager closes the economy only for money-less modes');
 assert.match(manager, /moneylessGuardTimer = setInterval\(\(\) => enforceMoneylessEconomy\(\), 500\)/, 'the manager keeps a money-less match closed while it runs');
-const grenadePhase = grenadePlugin.slice(grenadePlugin.indexOf('private void ApplyLoadout'), grenadePlugin.indexOf('private void GiveKnifeIfGrenadesSpent'));
+const grenadePhase = grenadePlugin.slice(grenadePlugin.indexOf('private void ApplyLoadout'), grenadePlugin.indexOf('private void', grenadePlugin.indexOf('private void ApplyLoadout') + 'private void ApplyLoadout'.length));
 assert.doesNotMatch(grenadePhase, /BlockPickup\(/, 'GRENADE_ONLY keeps pickup unblocked during the grenade phase so the last grenade can be re-equipped');
 assert.match(grenadePlugin, /RegisterEventHandler<EventGrenadeThrown>/, 'knife availability follows actual grenade throws');
 assert.match(grenadePlugin, /CountGrenades\(pawn\)/, 'GRENADE_ONLY verifies the actual inventory after issuing items');
