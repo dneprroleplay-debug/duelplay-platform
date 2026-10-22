@@ -16,6 +16,7 @@ import {
   getMoneylessEconomyCommands,
   getRuleReapplyDelays,
   isMoneylessMode,
+  parseBuyZoneNames,
   resolveEffectiveMode,
   shouldRestartAfterFirstConnect,
 } from './mode-policy.mjs';
@@ -85,6 +86,11 @@ let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
 let moneylessGuardTimer = null;
+let buyZoneReportPending = false;
+let buyZoneReportBuffer = '';
+let buyZoneGuardTimer = null;
+const BUY_ZONE_REPORT_SETTLE_MS = 400;
+const BUY_ZONE_GUARD_INTERVAL_MS = 3000;
 const duelRuleTimers = new Set();
 let lastRoundRuleApplyAt = 0;
 let shuttingDown = false;
@@ -388,10 +394,12 @@ function clearCurrentTimers() {
   if (startupDeadlineTimer) clearTimeout(startupDeadlineTimer);
   if (warmupGuardTimer) clearInterval(warmupGuardTimer);
   if (moneylessGuardTimer) clearInterval(moneylessGuardTimer);
+  if (buyZoneGuardTimer) clearInterval(buyZoneGuardTimer);
   readyTimer = null;
   startupDeadlineTimer = null;
   warmupGuardTimer = null;
   moneylessGuardTimer = null;
+  buyZoneGuardTimer = null;
   for (const timer of duelRuleTimers) clearTimeout(timer);
   duelRuleTimers.clear();
 }
@@ -488,13 +496,40 @@ function enforceMoneylessEconomy() {
 
 // Removing the buy zone makes CS2 answer with the stock "You left the buy zone"
 // message instead of opening the shop, like a knife-only map without a buy zone.
+// The zone is a map entity with a map specific name (fy_snow ships
+// "434_buyzone_434"), so the name is discovered from the CS2 entity report
+// instead of being guessed.
 function closeMoneylessShop() {
   if (!current || resultSent) return;
   if (!isMoneylessMode(current.mode, current.weaponModifier)) return;
   enforceMoneylessEconomy();
   for (const rule of getBuyZoneRemovalCommands()) command(rule);
+  requestBuyZoneRemoval();
 }
 
+// CS2 exposes "ent_list_report [-a] [-class name] [-name name] [-pos]". The
+// report is printed to the console, so the manager reads it back from the
+// server output and removes every buy zone it finds.
+function requestBuyZoneRemoval() {
+  if (!current || resultSent) return;
+  if (!isMoneylessMode(current.mode, current.weaponModifier)) return;
+  if (buyZoneReportPending) return;
+  buyZoneReportPending = true;
+  buyZoneReportBuffer = '';
+  command('ent_list_report -class func_buyzone');
+  setTimeout(() => {
+    if (!buyZoneReportPending) return;
+    buyZoneReportPending = false;
+    const names = parseBuyZoneNames(buyZoneReportBuffer);
+    buyZoneReportBuffer = '';
+    for (const name of names) command(`ent_fire ${name} kill`);
+    if (names.length) console.log(`[DuelPlay] removed ${names.length} buy zone(s): ${names.join(', ')}`);
+  }, BUY_ZONE_REPORT_SETTLE_MS);
+}
+
+function parseBuyZoneNamesFromBuffer(buffer) {
+  return parseBuyZoneNames(buffer);
+}
 function writeMatchMapConfig(mapNames, mode, weaponModifier, randomWeapon = null) {
   const mapCfgDir = join(CS2_DIR, 'csgo', 'cfg', 'maps');
   mkdirSync(mapCfgDir, { recursive: true });
@@ -864,11 +899,14 @@ async function claimAndStart(match) {
   if (isMoneylessMode(mode, weaponModifier)) {
     if (moneylessGuardTimer) clearInterval(moneylessGuardTimer);
     moneylessGuardTimer = setInterval(() => enforceMoneylessEconomy(), 500);
+    if (buyZoneGuardTimer) clearInterval(buyZoneGuardTimer);
+    buyZoneGuardTimer = setInterval(() => requestBuyZoneRemoval(), BUY_ZONE_GUARD_INTERVAL_MS);
   }
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString();
     process.stdout.write(`[CS2] ${text}`);
+    if (buyZoneReportPending) buyZoneReportBuffer += text;
     observeServerLine(text);
     if (/SV:\s+2 player server started/i.test(text) || /GC Connection established|activated session on GC/i.test(text)) {
       setTimeout(() => {

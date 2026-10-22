@@ -72,6 +72,21 @@ const buyZone = policy.getBuyZoneRemovalCommands();
 assert.ok(buyZone.length > 0, "the buy zone removal is defined");
 assert.ok(buyZone.every((rule) => /func_buyzone/.test(rule)), "the buy zone removal only targets func_buyzone");
 
+// --- the buy zone is discovered from the CS2 entity report -------------------
+// fy_snow ships a baked buy zone named "434_buyzone_434", so a hardcoded name
+// can never work on every map. The manager reads the entity report instead.
+const report = [
+  'Found 2 entities',
+  '  102 func_buyzone "434_buyzone_434"',
+  '  103 func_buyzone buyzone2',
+].join("\n");
+const discovered = policy.parseBuyZoneNames(report);
+assert.ok(discovered.includes("434_buyzone_434"), "the map specific buy zone name is discovered");
+assert.ok(discovered.includes("buyzone2"), "every discovered buy zone name is used");
+assert.deepEqual(policy.parseBuyZoneNames("no entities found"), [], "an empty report removes nothing");
+assert.deepEqual(policy.parseBuyZoneNames("  55 func_door door_12"), [], "unrelated entities are never touched");
+assert.deepEqual(policy.parseBuyZoneNames(""), [], "an empty buffer removes nothing");
+
 // --- the server manager actually applies it ---------------------------------
 const manager = source("scripts/server-manager/server-manager.mjs");
 assert.match(manager, /isMoneylessMode/, "the manager imports the money-less mode check");
@@ -85,6 +100,10 @@ assert.match(manager, /Round_Start[\s\S]{0,400}?closeMoneylessShop\(\)/, "the sh
 assert.match(manager, /Restart_Round[\s\S]{0,300}?closeMoneylessShop\(\)/, "the shop is closed again after a map round restart");
 assert.match(manager, /finalizePlayerLoadoutAfterConnect\(\);\s*closeMoneylessShop\(\);/, "the shop is closed again when a player connects");
 assert.match(manager, /if \(moneylessGuardTimer\) clearInterval\(moneylessGuardTimer\)/, "the money-less guard is stopped with the other match timers");
+assert.match(manager, /command\('ent_list_report -class func_buyzone'\)/, "the manager asks CS2 for the buy zone entities");
+assert.match(manager, /buyZoneReportBuffer \+= text/, "the manager reads the entity report back from the server output");
+assert.match(manager, /command\(`ent_fire \$\{name\} kill`\)/, "every discovered buy zone is removed by its own name");
+assert.match(manager, /buyZoneGuardTimer = setInterval\(\(\) => requestBuyZoneRemoval\(\), BUY_ZONE_GUARD_INTERVAL_MS\)/, "the buy zone is re-checked while the match runs");
 
 // --- the protected plugin stays untouched ------------------------------------
 const plugin = source("scripts/cs2-plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.cs");

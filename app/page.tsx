@@ -29,7 +29,7 @@ function HomeContent(){
   // the first client render made returning visitors hydrate a different
   // background than the SSR markup, which React reports as hydration error #418.
   // The stored value is applied in an effect after hydration instead.
-  const [heroBackground,setHeroBackground]=useState("hero-01");
+  const [heroBackground,setHeroBackground]=useState("hero-01");const [commissionRate,setCommissionRate]=useState(10);
 
   useEffect(()=>{
     try{
@@ -70,7 +70,7 @@ function HomeContent(){
         const r=await fetch("/api/site-settings",{cache:"no-store"});
         if(!r.ok)return;
         const d=await r.json();
-        const next=String(d?.heroBackground||"");
+        const next=String(d?.heroBackground||"");if(typeof d?.commissionRate==="number")setCommissionRate(d.commissionRate);
         if(!/^hero-(0[1-9]|10)$/.test(next))return;
         if(next===heroBackground)return;
         setHeroBackground(next);
@@ -109,7 +109,7 @@ function HomeContent(){
       const list=Array.isArray(matches)?matches:[];
       setCount(list.length);
       setOpenMatches(list.filter((m:{id:string;status:string})=>m.status==="WAITING_FOR_PLAYERS").slice(0,4));
-      if(typeof settings.heroBackground==="string"){
+      if(typeof settings.heroBackground==="string"){ if(typeof settings.commissionRate==="number")setCommissionRate(settings.commissionRate);
         const nextHero=settings.heroBackground;
 
         // Apply the stored hero immediately and preload it in the background:
@@ -158,7 +158,7 @@ function HomeContent(){
             <div className="mt-4 grid w-full max-w-3xl grid-cols-3 gap-2 sm:gap-3">
               <Stat value={String(count)} label={t.activeDuels}/>
               <Stat value={<span data-no-i18n>1v1</span>} label={t.formatLabel}/>
-              <Stat value="10%" label={t.commissionLabel}/>
+              <Stat value={`${commissionRate}%`} label={t.commissionLabel}/>
             </div>
           </div>
         </div>

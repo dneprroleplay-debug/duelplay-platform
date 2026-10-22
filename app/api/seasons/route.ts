@@ -86,8 +86,9 @@ export async function DELETE(r:NextRequest) {
   const me = access.user;
   const id = String(new URL(r.url).searchParams.get("id") ?? "").trim();
   if (id) {
-    const row = await prisma.season.findUnique({where:{id},select});
+    const row = await prisma.season.findUnique({where:{id},select:{...select, _count:{select:{duelPasses:true}}}});
     if (!row) return jsonResponse({error:"Season not found"},{status:404});
+    if (row._count.duelPasses > 0) return jsonResponse({error:"Season has dependent duel passes"},{status:409});
     await prisma.season.delete({where:{id}});
     await audit(me.id,"DELETE_SEASON","SEASON",id,{name:row.name,theme:row.theme,active:row.active});
     return jsonResponse({ok:true,deletedId:id});

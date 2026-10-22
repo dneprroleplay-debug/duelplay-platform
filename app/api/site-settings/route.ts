@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { themeById, isThemeId, isThemeBackgroundId, isThemeHeroId } from "@/lib/themes";
 import { audit } from "@/lib/admin";
 import { requirePermission } from "@/lib/admin-rbac";
+import { getPlatformNumber } from "@/lib/platform-settings";
 
 const allowed = new Set(["standardTheme", "backgroundTheme", "heroBackground"]);
+const DEFAULT_COMMISSION_RATE = 10;
 
 export async function GET(){
   const rows=await prisma.siteSettings.findMany({where:{key:{in:["standardTheme","backgroundTheme","heroBackground"]}}});
@@ -12,12 +14,16 @@ export async function GET(){
     const row=rows.find(x=>x.key===key);
     return typeof row?.value==="object"&&row.value&&"id" in row.value?String((row.value as {id?:unknown}).id):fallback;
   };
+  // The platform commission is a single source of truth: the admin changes
+  // COMMISSION_RATE, the server charges that rate and the whole site shows it.
+  const commissionRate=await getPlatformNumber("COMMISSION_RATE", DEFAULT_COMMISSION_RATE);
   return NextResponse.json({
     theme:themeById(read("standardTheme","STANDARD")).id,
     accent:themeById(read("standardTheme","STANDARD")).accent,
     background:read("backgroundTheme","stars"),
-    heroBackground:read("heroBackground","hero-01")
-  });
+    heroBackground:read("heroBackground","hero-01"),
+    commissionRate
+  },{headers:{"Cache-Control":"no-store"}});
 }
 
 export async function PATCH(r:NextRequest){

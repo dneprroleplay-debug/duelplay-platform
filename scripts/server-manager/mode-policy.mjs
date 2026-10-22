@@ -75,6 +75,24 @@ export function getBuyZoneRemovalCommands() {
   ];
 }
 
+// CS2 exposes "ent_list_report [-a] [-class name] [-name name] [-pos]". The
+// report is printed to the console, so the manager reads it back from the
+// server output. Every buy zone entity carries a map specific name (fy_snow
+// ships "434_buyzone_434"), so the names are taken from the report instead of
+// being guessed.
+export function parseBuyZoneNames(buffer) {
+  const names = new Set();
+  for (const line of String(buffer || '').split(/\r?\n/)) {
+    if (!/buyzone/i.test(line)) continue;
+    for (const token of line.replace(/["']/g, ' ').split(/\s+/)) {
+      if (!/buyzone/i.test(token)) continue;
+      if (!/^[A-Za-z0-9_\-]+$/.test(token)) continue;
+      names.add(token);
+    }
+  }
+  return [...names];
+}
+
 export function chooseRandomWeapon(random = Math.random) {
   const index = Math.floor(random() * WEAPONS.length);
   return WEAPONS[Math.max(0, Math.min(WEAPONS.length - 1, index))];
