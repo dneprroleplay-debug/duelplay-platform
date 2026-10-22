@@ -1,5 +1,5 @@
 export const DUEL_MODES = [
-  { id: "SOLO_1V1", label: "Classic 1v1", description: "Standard CS2 duel.", weaponModifier: null },
+  { id: "SOLO_1V1", label: "Classic", description: "Standard CS2 duel.", weaponModifier: null },
   { id: "AWP_ONLY", label: "AWP Only", description: "AWP only.", weaponModifier: "AWP_ONLY" },
   { id: "DEAGLE_ONLY", label: "Deagle Only", description: "Desert Eagle only.", weaponModifier: "DEAGLE_ONLY" },
   { id: "KNIFE_ONLY", label: "Knife Only", description: "Knife only.", weaponModifier: "KNIFE_ONLY" },

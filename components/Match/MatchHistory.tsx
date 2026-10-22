@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useLanguage } from "@/components/Common/LanguageContext";
 import { getDuelMap } from "@/lib/duel-maps";
 import { DUEL_MODES } from "@/lib/duel-modes";
+import { modeHeaderLabel } from "@/lib/duel-descriptions";
 import { formatMatchAmount } from "@/lib/match-currency";
 
 type HistoryMatch = {
@@ -199,7 +200,7 @@ export default function MatchHistory({variant="both", nickname, embedded=false}:
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2"><b data-no-i18n className="truncate">{map?.displayName || match.mapName || "CS2"}</b><span className={`text-[10px] font-black uppercase tracking-wider ${tone(match)}`}>{resultLabel(match)}</span></div>
-        <div className="mt-1 truncate text-xs text-zinc-500">{mode?.label || match.mode} · {copy.opponent}: <span data-no-i18n>{opponent?.nickname || "—"}</span></div>
+        <div className="mt-1 truncate text-xs text-zinc-500"><span data-no-i18n>{modeHeaderLabel(language, match.mode, mode?.label || match.mode)}</span> · {copy.opponent}: <span data-no-i18n>{opponent?.nickname || "—"}</span></div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400"><span>{copy.stake}: <b data-no-i18n>{formatMatchAmount(match.economyMode, match.betAmount)}</b></span><span>·</span><span>{new Date(match.createdAt).toLocaleDateString()}</span></div>
       </div>
       <span className="shrink-0 text-xs font-bold text-[var(--theme-accent)]">{copy.open} →</span>

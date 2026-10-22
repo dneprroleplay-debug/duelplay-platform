@@ -118,7 +118,7 @@ const check = (condition, message) => {
 {
   const { DUEL_MAPS } = await import(pathToFileURL(`${root}/lib/duel-maps.ts`));
   const { DUEL_MODES } = await import(pathToFileURL(`${root}/lib/duel-modes.ts`));
-  const { mapDescription, modeDescription } = await import(pathToFileURL(`${root}/lib/duel-descriptions.ts`));
+  const { mapDescription, modeDescription, modeLabel, modeHeaderLabel } = await import(pathToFileURL(`${root}/lib/duel-descriptions.ts`));
   for (const map of DUEL_MAPS) {
     for (const language of LANGUAGES) {
       const text = mapDescription(language, map.id, "");
@@ -129,12 +129,25 @@ const check = (condition, message) => {
     for (const language of LANGUAGES) {
       const text = modeDescription(language, mode.id, "");
       check(text.length > 10, `${language} mode ${mode.id} has a description`);
+      const label = modeLabel(language, mode.id, "");
+      check(label.length > 2, `${language} mode ${mode.id} has a label`);
     }
   }
+  check(modeLabel("RU", "AWP_ONLY") !== modeLabel("EN", "AWP_ONLY"), "Russian mode labels are localized");
+  check(modeLabel("UA", "GRENADE_ONLY") !== modeLabel("EN", "GRENADE_ONLY"), "Ukrainian mode labels are localized");
+  check(modeHeaderLabel("RU", "SOLO_1V1", "") === "Classic", "the Classic mode header label is stable across languages");
+  check(modeLabel("RU", "SOLO_1V1", "") === "Classic" && modeLabel("PL", "SOLO_1V1", "") === "Classic", "the Classic mode label is stable across languages");
+  check(modeHeaderLabel("EN", "AWP_ONLY", "") === modeLabel("EN", "AWP_ONLY", ""), "other mode header labels keep their catalogue labels");
   const games = read("components/Games/Games.tsx");
   const createMatch = read("components/CreateMatch/CreateMatch.tsx");
   const demoCreateMatch = read("components/CreateMatch/DemoCreateMatch.tsx");
+  const matchmakingPanel = read("components/Matchmaking/MatchmakingPanel.tsx");
   const matchPage = read("app/matches/[id]/page.tsx");
+  check(DUEL_MODES.find((mode) => mode.id === "SOLO_1V1")?.label === "Classic", "the Classic catalogue label stays compact for the mode selectors");
+  check(
+    !createMatch.includes("Classic 1v1") && !demoCreateMatch.includes("Classic 1v1") && !matchmakingPanel.includes("Classic 1v1"),
+    "the mode selectors never show the legacy Classic 1v1 label",
+  );
   check(games.includes("mapDescription(language"), "the map cards use the localized description");
   check(!createMatch.includes("mapDescription(language") && createMatch.includes("modeDescription(language"), "the REAL match creation screen keeps the mode description and hides the map text block");
   check(demoCreateMatch.includes("mapDescription(language") && demoCreateMatch.includes("modeDescription(language"), "the DEMO match creation screen uses localized descriptions");

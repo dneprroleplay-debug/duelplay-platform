@@ -47,6 +47,15 @@ export function resolveEffectiveMode(mode, weaponModifier) {
   return weaponModifier && weaponModifier !== 'STANDARD' ? weaponModifier : mode;
 }
 
+// A first-connect restart is needed only for modes that must re-issue a
+// mode-specific default weapon to an already-spawned player. Classic and
+// HEADSHOT_ONLY use the normal arsenal, so restarting after the first connect
+// only replays the workshop freeze/round-start sequence.
+export function shouldRestartAfterFirstConnect(mode, weaponModifier = null) {
+  const effectiveMode = resolveEffectiveMode(mode, weaponModifier);
+  return effectiveMode !== 'SOLO_1V1' && effectiveMode !== 'HEADSHOT_ONLY';
+}
+
 export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon = null) {
   const effectiveMode = resolveEffectiveMode(mode, weaponModifier);
   const restricted = CLOSED_MODES.has(effectiveMode);
@@ -100,13 +109,14 @@ export function buildDuelModeCommands(mode, weaponModifier = null, randomWeapon 
   ];
 
   if (!restricted) {
-    // Start each open-mode match with $10,000 and cap the wallet there. Keep the
-    // engine default after-round award so normal win/loss round income still applies
-    // instead of refilling every player to $10,000 after each round.
-    commands.push('mp_maxmoney 10000', 'mp_startmoney 10000', 'mp_afterroundmoney 0');
-  } else if (!grenadeOnly) {
-    // GRENADE_ONLY keeps its existing economy untouched; every other restricted mode
-    // starts and stays at $0 so the closed shop cannot be bypassed.
+    // Start each open-mode match with $10,000 and cap the wallet there. FIRST_TO_10
+    // refills to that cap after every round; other open modes keep normal win/loss
+    // round income instead of refilling the wallet.
+    const afterRoundMoney = firstTo10 ? '10000' : '0';
+    commands.push('mp_maxmoney 10000', 'mp_startmoney 10000', `mp_afterroundmoney ${afterRoundMoney}`);
+  } else {
+    // Every restricted mode, including GRENADE_ONLY, starts and stays at $0 so
+    // the closed shop cannot be bypassed and no inherited server/map economy leaks in.
     commands.push('mp_maxmoney 0', 'mp_startmoney 0', 'mp_afterroundmoney 0');
   }
 

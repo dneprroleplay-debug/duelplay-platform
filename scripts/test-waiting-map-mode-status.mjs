@@ -4,24 +4,32 @@ import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const matchPage = fs.readFileSync(`${root}/app/matches/[id]/page.tsx`, "utf8");
+const live = fs.readFileSync(`${root}/components/Live/Live.tsx`, "utf8");
+const history = fs.readFileSync(`${root}/components/Match/MatchHistory.tsx`, "utf8");
 const ownProfile = fs.readFileSync(`${root}/app/profile/page.tsx`, "utf8");
 const publicProfile = fs.readFileSync(`${root}/app/profile/[nickname]/page.tsx`, "utf8");
 
 const { DUEL_MODES } = await import(pathToFileURL(`${root}/lib/duel-modes.ts`));
 const { DUEL_MAPS } = await import(pathToFileURL(`${root}/lib/duel-maps.ts`));
 
-// --- Task 2: map + mode descriptions shown while waiting for the second player
+// --- Task 2: map + mode metadata shown in every match state
 assert.ok(matchPage.includes('import { DUEL_MODES } from "@/lib/duel-modes"'), "match page imports the real duel-mode catalog");
 assert.ok(matchPage.includes("const modeConfig=DUEL_MODES.find((x)=>x.id===m.mode)||null"), "mode config is resolved from the persisted match mode");
 assert.ok(matchPage.includes("const mapConfig=getDuelMap(m.mapName)"), "map config is resolved from the persisted match map");
 assert.ok(matchPage.includes("{(mapConfig||modeConfig)&&"), "map/mode description block renders only when catalog data exists");
-assert.ok(matchPage.indexOf('m.status==="WAITING_FOR_PLAYERS"') < matchPage.indexOf("{(mapConfig||modeConfig)&&"), "descriptions render inside the waiting state branch");
+assert.ok(matchPage.indexOf("{(mapConfig||modeConfig)&&") < matchPage.indexOf('{m.status==="WAITING_FOR_PLAYERS"&&<>'), "descriptions render for every lifecycle state, not only while waiting");
 assert.ok(matchPage.includes('data-no-i18n className="mt-2 text-lg font-black text-white">{mapConfig.displayName}</div>'), "map name comes from the catalog and is protected from translation");
-assert.ok(matchPage.includes('data-no-i18n className="mt-2 text-lg font-black text-white">{modeConfig.label}</div>'), "mode label comes from the catalog and is protected from translation");
+assert.ok(matchPage.includes('data-no-i18n className="mt-2 text-lg font-black text-white">{modeHeaderLabel}</div>'), "mode label comes from the localized catalogue helper and is protected from translation");
 assert.ok(matchPage.includes('mapDescriptionText(language,mapConfig?.id,mapConfig?.description||"")'), "map description comes from the localized catalogue helper");
 assert.ok(matchPage.includes('{mapDescription&&<p className="mt-2 text-sm leading-6 text-zinc-400">{mapDescription}</p>}'), "map description renders only when the catalog provides it");
-assert.ok(matchPage.includes('modeDescriptionText(language,m.mode,modeConfig.description||"")'), "mode description comes from the localized catalogue helper");
-assert.ok(matchPage.includes('{modeDescriptionText(language,m.mode,modeConfig.description||"")&&<p className="mt-2 text-sm leading-6 text-zinc-400">'), "mode description renders only when the catalog provides it");
+assert.ok(matchPage.includes('modeDescriptionText(language,m.mode,modeConfig?.description||"")'), "mode description comes from the localized catalogue helper");
+assert.ok(matchPage.includes('modeHeaderLabelText(language,m.mode,modeConfig?.label||m.mode)'), "mode header label comes from the localized catalogue helper");
+assert.ok(matchPage.includes('{m.mode==="SOLO_1V1"?"": "1v1 · "}{modeHeaderLabel}'), "the map header shows Classic without duplicating 1v1");
+assert.ok(matchPage.includes('{modeDescription&&<p className="mt-2 text-sm leading-6 text-zinc-400">{modeDescription}</p>}'), "mode description renders only when the catalog provides it");
+assert.ok(!matchPage.includes("weaponLabel"), "match page no longer duplicates English mode labels in its header");
+assert.ok(live.includes("modeHeaderLabel(language"), "LIVE cards use the compact localized mode label");
+assert.ok(live.includes('{match.mode==="SOLO_1V1"?"": "1v1 • "}{modeText}'), "LIVE cards show Classic without duplicating 1v1");
+assert.ok(history.includes("modeHeaderLabel(language, match.mode"), "match history uses the compact localized mode label");
 
 assert.ok(DUEL_MODES.length >= 8, "duel-mode catalog is populated");
 for (const mode of DUEL_MODES) {

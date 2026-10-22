@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
@@ -101,10 +102,32 @@ for (const p of [
   "DUELPLAY_V9.md",
   "FINAL_1_125.md",
   "schema_models.txt",
-  "tsconfig.tsbuildinfo",
 ]) {
   check(`obsolete root artifact removed: ${p}`, !fs.existsSync(path.join(root, p)));
 }
+
+const tsBuildInfo = "tsconfig.tsbuildinfo";
+const gitRuns = (args) => spawnSync("git", args, { cwd: root, stdio: "ignore" }).status;
+const gitOutput = (args) => {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : "";
+};
+const gitAvailable = gitRuns(["rev-parse", "--is-inside-work-tree"]) === 0;
+const gitignore = fs.existsSync(path.join(root, ".gitignore")) ? fs.readFileSync(path.join(root, ".gitignore"), "utf8") : "";
+const tsBuildInfoIgnored = gitAvailable
+  ? gitRuns(["check-ignore", "-q", "--", tsBuildInfo]) === 0
+  : /(^|\n)\*\.tsbuildinfo\r?\n/.test(gitignore);
+check("TypeScript build info stays Git-ignored", tsBuildInfoIgnored);
+check(
+  "TypeScript build info is not tracked by Git",
+  !gitAvailable || gitOutput(["ls-files", "--error-unmatch", "--", tsBuildInfo]) === "",
+);
+check(
+  "TypeScript build info never reaches the release diff",
+  !gitAvailable ||
+    (gitOutput(["diff", "--name-only", "--", tsBuildInfo]) === "" &&
+      gitOutput(["diff", "--cached", "--name-only", "--", tsBuildInfo]) === ""),
+);
 
 for (const p of [
   ".env",

@@ -478,4 +478,61 @@ Check(zeroLives.TryBeginLoadout(27, 2004, 2), "zero lives: the next round reserv
 Check(zeroLives.CompleteLoadout(27, 2004, Inventory(3, 3, 3, 3)), "zero lives: the next round commits the full kit");
 Check(!zeroLives.HasKnifeBeenGranted(2004), "zero lives: the next round starts with the grenade phase, not a knife");
 
+// Paired round-transition regression for the reported knife correlation. Compare a
+// previous round with one grenade left against one that exhausted the kit and granted
+// a knife. Both paths must reset to a full new-round allowance; exhaustion additionally
+// clears the prior life’s knife-attempt marker before the new grenade loadout commits.
+var transitionWithGrenade = new GrenadeRoundState(30);
+Complete(transitionWithGrenade, 30, 3000, 2, 3, 3, 3, 3);
+for (var i = 0; i < 2; i++) ThrowOne(transitionWithGrenade, 30, GrenadeKind.He, 2 - i);
+for (var i = 0; i < 3; i++) ThrowOne(transitionWithGrenade, 30, GrenadeKind.Flash, 2 - i);
+for (var i = 0; i < 3; i++) ThrowOne(transitionWithGrenade, 30, GrenadeKind.Smoke, 2 - i);
+for (var i = 0; i < 3; i++) ThrowOne(transitionWithGrenade, 30, GrenadeKind.Incendiary, 2 - i);
+Check(transitionWithGrenade.RemainingTotal == 1, "round transition: leftover branch ends with one grenade");
+Check(!transitionWithGrenade.TryBeginKnife(30, 3000), "round transition: leftover branch never requests a knife");
+Check(transitionWithGrenade.ResetForNewRound(31), "round transition: leftover branch accepts the next round");
+CheckRemaining(transitionWithGrenade, 3, 3, 3, 3, "round transition: leftover branch resets to twelve");
+Check(!transitionWithGrenade.HasKnifeBeenGranted(3000), "round transition: leftover branch has no stale knife marker");
+Complete(transitionWithGrenade, 31, 3001, 2, 3, 3, 3, 3);
+
+var transitionAfterKnife = new GrenadeRoundState(32);
+Complete(transitionAfterKnife, 32, 3200, 2, 3, 3, 3, 3);
+foreach (var kind in Enum.GetValues<GrenadeKind>())
+    for (var count = 2; count >= 0; count--) ThrowOne(transitionAfterKnife, 32, kind, count);
+Check(transitionAfterKnife.RemainingTotal == 0, "round transition: knife branch exhausts all twelve grenades");
+Check(transitionAfterKnife.TryBeginKnife(32, 3200), "round transition: exhausted branch grants the prior-life knife");
+Check(transitionAfterKnife.HasKnifeBeenGranted(3200), "round transition: exhausted branch records the prior-life knife");
+Check(transitionAfterKnife.ResetForNewRound(33), "round transition: exhausted branch accepts the next round");
+CheckRemaining(transitionAfterKnife, 3, 3, 3, 3, "round transition: knife branch resets to twelve");
+Check(!transitionAfterKnife.HasKnifeBeenGranted(3200), "round transition: reset clears the prior-life knife marker");
+Check(!transitionAfterKnife.TryBeginKnife(33, 3201), "round transition: a new life cannot receive a knife before its grenades");
+Complete(transitionAfterKnife, 33, 3201, 2, 3, 3, 3, 3);
+Check(transitionAfterKnife.IsLoadoutCommitted(3201), "round transition: exhausted branch commits the full next-round loadout");
+
+// A stray-knife cleanup is authorized only for the current committed pawn and only after
+// any throw callback has settled. The cleanup path uses the engine's bulk RemoveWeapons
+// operation, so it deliberately carries no individual weapon-entity handle across frames.
+var strayKnifeRefresh = new GrenadeRoundState(34);
+Complete(strayKnifeRefresh, 34, 3400, 2, 3, 3, 3, 3);
+Check(strayKnifeRefresh.NoteThrow(34, GrenadeKind.He), "knife cleanup: old life notes a throw before death");
+Check(strayKnifeRefresh.FinalizePendingThrows(34) == 1, "knife cleanup: death finalizes the unverified throw");
+Complete(strayKnifeRefresh, 34, 3401, 2, 2, 3, 3, 3);
+CheckRemaining(strayKnifeRefresh, 2, 3, 3, 3, "knife cleanup: respawn keeps the exact grenade remainder");
+Check(GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3401, 3401, 501, 501, true, false, true), "knife cleanup: current committed life/pawn with a stray knife is eligible");
+CheckRemaining(strayKnifeRefresh, 2, 3, 3, 3, "knife cleanup eligibility itself does not alter the round quota");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(33, 34, 34, 3401, 3401, 501, 501, true, false, true), "knife cleanup: old-round callback is rejected at the round boundary");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3400, 3401, 501, 501, true, false, true), "knife cleanup: prior-life callback is rejected after respawn");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3401, 3401, 500, 501, true, false, true), "knife cleanup: stale pawn index is rejected");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3401, 3401, 501, 501, false, false, true), "knife cleanup: uncommitted loadout is not destructively refreshed");
+Check(strayKnifeRefresh.NoteThrow(34, GrenadeKind.Flash), "knife cleanup: another throw may be pending");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3401, 3401, 501, 501, true, true, true), "knife cleanup: inventory is not reset while a throw is pending");
+Check(strayKnifeRefresh.FinalizePendingThrows(34) == 1, "knife cleanup: pending throw is finalized before refresh can retry");
+Complete(strayKnifeRefresh, 34, 3402, 2, 2, 2, 3, 3);
+CheckRemaining(strayKnifeRefresh, 2, 2, 3, 3, "knife cleanup: after pending-throw finalization only the exact remainder is re-issued");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 34, 34, 3402, 3402, 501, 501, true, false, false), "knife cleanup: repeated callback after knife removal is a no-op");
+Check(strayKnifeRefresh.ResetForNewRound(35), "knife cleanup: a new round advances the cleanup generation");
+Check(!GrenadeRoundState.CanRefreshLoadoutAfterStrayKnife(34, 35, 35, 3402, 3403, 501, 501, false, false, true), "knife cleanup: old-round action cannot touch the new-round pawn");
+Complete(strayKnifeRefresh, 35, 3403, 2, 3, 3, 3, 3);
+CheckRemaining(strayKnifeRefresh, 3, 3, 3, 3, "knife cleanup: valid new-round loadout still receives twelve grenades");
+
 Console.WriteLine("DuelPlayGrenadeOnly state scenarios: PASS (commit/abort loadout, committed-life reporting, inventory-backed throw, duplicate events, per-type quotas, 2/6/9/11/12 throw thresholds, last-grenade duplicate/respawn handling, re-deploy target and classname catalog, first-round vs second-round re-deploy decisions, single-kind respawn remainder and re-select, multi-death remainder with throws between deaths, death finalization, short-grant rejection, knife timing, exact respawn remainder, repeated death/spawn, exhausted respawn, multiple exhausted respawns, new-round refill, reconnect, round identity, stale event rejection)");

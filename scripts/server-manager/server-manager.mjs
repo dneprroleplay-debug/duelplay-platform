@@ -14,6 +14,7 @@ import {
   getFirstToTenKillsWinner,
   getRuleReapplyDelays,
   resolveEffectiveMode,
+  shouldRestartAfterFirstConnect,
 } from './mode-policy.mjs';
 import {
   buildMapConfigNames,
@@ -552,15 +553,15 @@ function canonicalPlayerSteamId(value) {
 function finalizePlayerLoadoutAfterConnect() {
   if (!current || !serverReadyAt || duelRulesAppliedAfterConnect) return;
   duelRulesAppliedAfterConnect = true;
-  const classicMode = current.mode === 'SOLO_1V1' && !current.weaponModifier;
+  const restartAfterConnect = shouldRestartAfterFirstConnect(current.mode, current.weaponModifier);
   applyDuelRules(current.mode, current.weaponModifier);
   command('mp_warmup_end');
 
-  // Classic 1v1 must not restart the round again after the player connects.
-  // Remastered applies its own workshop settings during that restart, which was
-  // causing the first freeze to become ~12 seconds even after mp_freezetime was
-  // set to 5. The server startup already performed the initial restart.
-  if (!classicMode) command('mp_restartgame 1');
+  // Classic and HEADSHOT_ONLY must not restart the round again after the player
+  // connects. They use the normal arsenal, and a replay of the workshop restart
+  // only delays the first real round. Modes with a forced default weapon still
+  // restart once so that weapon reaches an already-spawned player.
+  if (restartAfterConnect) command('mp_restartgame 1');
 
   for (const delay of getRuleReapplyDelays('PLAYER_CONNECTED')) {
     scheduleCurrentMatchTask(delay, () => {

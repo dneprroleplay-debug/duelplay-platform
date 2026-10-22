@@ -93,7 +93,7 @@ assert.match(realCreate, /\[\["1v1",t\.format\]/, "REAL creation format card use
 assert.match(realCreate, /a==="1v1"\?<span data-no-i18n>\{a\}<\/span>:a/, "only the fixed REAL creation format value is protected from translation");
 assert.match(realCreate, /<option data-no-i18n key=\{x\.id\} value=\{x\.id\}/, "REAL game-mode labels preserve their fixed 1v1 designation");
 assert.match(demoCreate, /<option data-no-i18n key=\{item\.id\} value=\{item\.id\}>\{item\.label\}<\/option>/, "DEMO game-mode labels preserve their fixed 1v1 designation");
-assert.match(liveLobby, /<span data-no-i18n>1v1<\/span>/, "lobby cards use protected 1v1 format text");
+assert.match(liveLobby, /<span data-no-i18n>\{match\.mode==="SOLO_1V1"\?"": "1v1 [^"]*"\}\{modeText\}<\/span>/, "lobby cards keep the protected 1v1 format token and show Classic without duplicating 1v1");
 assert.match(matchmaking, /MATCHMAKING · <span data-no-i18n>1v1<\/span>/, "matchmaking badge uses protected lowercase 1v1");
 assert.match(matchmaking, /<option data-no-i18n key=\{x\.id\} value=\{x\.id\}/, "matchmaking mode labels preserve the fixed 1v1 designation");
 for (const asset of fs.readdirSync(`${root}/public/images/maps`).filter((name) => name.endsWith(".svg"))) {
@@ -113,7 +113,7 @@ for (const [locale, language] of [["ru", "RU"], ["ua", "UA"], ["en", "EN"], ["pl
   }
 }
 assert.match(matchPage, /CS2 · <span data-no-i18n>1v1<\/span> DUEL/, "match heading uses protected 1v1");
-assert.match(matchPage, / · <span data-no-i18n>1v1<\/span> · \{weaponLabel/, "match details use protected 1v1");
+assert.match(matchPage, /<span data-no-i18n>\{m\.mode==="SOLO_1V1"\?"": "1v1 [^"]*"\}\{modeHeaderLabel\}<\/span>/, "match details use the protected 1v1 format token and show Classic without duplicating 1v1");
 assert.match(source("app/api/matches/[id]/result/route.ts"), /CS2 1v1 и получил/, "REAL settlement notification copy uses the canonical format without changing its financial payload");
 const createMatchApi = source("app/api/matches/route.ts");
 assert.match(createMatchApi, /amount\s*\*\s*2\s*\*\s*commissionRate/);

@@ -105,6 +105,53 @@ const MODE_DESCRIPTIONS: Record<DescriptionLanguage, Record<DuelModeId, string>>
   },
 };
 
+const MODE_LABELS: Record<DescriptionLanguage, Record<DuelModeId, string>> = {
+  RU: {
+    SOLO_1V1: "Classic",
+    AWP_ONLY: "Только AWP",
+    DEAGLE_ONLY: "Только Desert Eagle",
+    KNIFE_ONLY: "Только нож",
+    HEADSHOT_ONLY: "Только в голову",
+    RANDOM_WEAPON: "Случайное оружие",
+    FIRST_TO_10: "До 10 убийств",
+    GRENADE_ONLY: "Только гранаты",
+  },
+  UA: {
+    SOLO_1V1: "Classic",
+    AWP_ONLY: "Лише AWP",
+    DEAGLE_ONLY: "Лише Desert Eagle",
+    KNIFE_ONLY: "Лише ніж",
+    HEADSHOT_ONLY: "Лише в голову",
+    RANDOM_WEAPON: "Випадкова зброя",
+    FIRST_TO_10: "До 10 вбивств",
+    GRENADE_ONLY: "Лише гранати",
+  },
+  EN: {
+    SOLO_1V1: "Classic",
+    AWP_ONLY: "AWP Only",
+    DEAGLE_ONLY: "Deagle Only",
+    KNIFE_ONLY: "Knife Only",
+    HEADSHOT_ONLY: "Headshot Only",
+    RANDOM_WEAPON: "Random Weapon",
+    FIRST_TO_10: "First to 10",
+    GRENADE_ONLY: "Grenade Only",
+  },
+  PL: {
+    SOLO_1V1: "Classic",
+    AWP_ONLY: "Tylko AWP",
+    DEAGLE_ONLY: "Tylko Desert Eagle",
+    KNIFE_ONLY: "Tylko nóż",
+    HEADSHOT_ONLY: "Tylko w głowę",
+    RANDOM_WEAPON: "Losowa broń",
+    FIRST_TO_10: "Do 10 fragów",
+    GRENADE_ONLY: "Tylko granaty",
+  },
+};
+
+const MODE_HEADER_LABELS: Partial<Record<DuelModeId, string>> = {
+  SOLO_1V1: "Classic",
+};
+
 function localeOf(language: string | null | undefined): DescriptionLanguage {
   return language === "RU" || language === "UA" || language === "EN" || language === "PL" ? language : "EN";
 }
@@ -126,5 +173,11 @@ export function modeDescription(language: string | null | undefined, modeId: str
 export function modeLabel(language: string | null | undefined, modeId: string | null | undefined, fallback = ""): string {
   const mode = DUEL_MODES.find(item => item.id === modeId);
   if (!mode) return fallback;
-  return mode.label;
+  return MODE_LABELS[localeOf(language)][mode.id] ?? mode.label;
+}
+
+export function modeHeaderLabel(language: string | null | undefined, modeId: string | null | undefined, fallback = ""): string {
+  const mode = DUEL_MODES.find(item => item.id === modeId);
+  if (!mode) return fallback;
+  return MODE_HEADER_LABELS[mode.id] ?? MODE_LABELS[localeOf(language)][mode.id] ?? mode.label;
 }

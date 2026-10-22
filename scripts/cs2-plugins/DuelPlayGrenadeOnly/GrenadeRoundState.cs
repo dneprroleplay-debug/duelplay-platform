@@ -201,6 +201,32 @@ public sealed class GrenadeRoundState(long roundId)
     /// </summary>
     public bool HasKnifeBeenGranted(long lifeId) => _knifeAttempts.Contains(lifeId);
 
+    /// <summary>
+    /// A stray spawn knife may be refreshed only against the still-current, committed
+    /// life/pawn. Any pending throw must settle first so re-granting the recorded remainder
+    /// cannot restore a grenade that has already been thrown.
+    /// </summary>
+    public static bool CanRefreshLoadoutAfterStrayKnife(
+        long operationRoundId,
+        long currentRoundId,
+        long stateRoundId,
+        long operationLifeId,
+        long currentLifeId,
+        uint operationPawnIndex,
+        uint currentPawnIndex,
+        bool loadoutCommitted,
+        bool hasPendingThrows,
+        bool strayKnifePresent)
+    {
+        return operationRoundId == currentRoundId
+            && currentRoundId == stateRoundId
+            && operationLifeId == currentLifeId
+            && operationPawnIndex == currentPawnIndex
+            && loadoutCommitted
+            && !hasPendingThrows
+            && strayKnifePresent;
+    }
+
     public bool ResetForNewRound(long newRoundId)
     {
         if (newRoundId == RoundId) return false;
