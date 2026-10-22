@@ -31,10 +31,39 @@ async function main() {
     ["Legend","Reach level 100.",5000,{kind:"LEVEL",target:100}],
   ] as const;
   for(const [name,description,xpReward,conditions] of rewards) await prisma.achievement.upsert({where:{name},update:{description,xpReward,conditions},create:{name,description,xpReward,conditions}});
-  for(let day=1;day<=30;day++) await prisma.loginReward.upsert({where:{day},update:{},create:{day,reward:{type:day%7===0?"RARE_CASE":"XP",amount:day%7===0?1:50+day*10}}});
+  await prisma.loginReward.upsert({where:{day:1},update:{reward:{balance:20},active:true},create:{day:1,reward:{balance:20},active:true}});
+  await prisma.loginReward.upsert({where:{day:2},update:{reward:{balance:20},active:true},create:{day:2,reward:{balance:20},active:true}});
+  await prisma.loginReward.upsert({where:{day:3},update:{reward:{balance:25},active:true},create:{day:3,reward:{balance:25},active:true}});
+  await prisma.loginReward.upsert({where:{day:4},update:{reward:{balance:25},active:true},create:{day:4,reward:{balance:25},active:true}});
+  await prisma.loginReward.upsert({where:{day:5},update:{reward:{balance:30},active:true},create:{day:5,reward:{balance:30},active:true}});
+  await prisma.loginReward.upsert({where:{day:6},update:{reward:{balance:30},active:true},create:{day:6,reward:{balance:30},active:true}});
+  await prisma.loginReward.upsert({where:{day:7},update:{reward:{balance:75,cosmeticSlug:"frame-neon-pulse"},active:true},create:{day:7,reward:{balance:75,cosmeticSlug:"frame-neon-pulse"},active:true}});
+  await prisma.loginReward.upsert({where:{day:8},update:{reward:{balance:25},active:true},create:{day:8,reward:{balance:25},active:true}});
+  await prisma.loginReward.upsert({where:{day:9},update:{reward:{balance:30},active:true},create:{day:9,reward:{balance:30},active:true}});
+  await prisma.loginReward.upsert({where:{day:10},update:{reward:{balance:35},active:true},create:{day:10,reward:{balance:35},active:true}});
+  await prisma.loginReward.upsert({where:{day:11},update:{reward:{balance:35},active:true},create:{day:11,reward:{balance:35},active:true}});
+  await prisma.loginReward.upsert({where:{day:12},update:{reward:{balance:40},active:true},create:{day:12,reward:{balance:40},active:true}});
+  await prisma.loginReward.upsert({where:{day:13},update:{reward:{balance:40},active:true},create:{day:13,reward:{balance:40},active:true}});
+  await prisma.loginReward.upsert({where:{day:14},update:{reward:{balance:100},active:true},create:{day:14,reward:{balance:100},active:true}});
+  await prisma.loginReward.upsert({where:{day:15},update:{reward:{balance:100,cosmeticSlug:"frame-electric-storm"},active:true},create:{day:15,reward:{balance:100,cosmeticSlug:"frame-electric-storm"},active:true}});
+  await prisma.loginReward.upsert({where:{day:16},update:{reward:{balance:40},active:true},create:{day:16,reward:{balance:40},active:true}});
+  await prisma.loginReward.upsert({where:{day:17},update:{reward:{balance:40},active:true},create:{day:17,reward:{balance:40},active:true}});
+  await prisma.loginReward.upsert({where:{day:18},update:{reward:{balance:45},active:true},create:{day:18,reward:{balance:45},active:true}});
+  await prisma.loginReward.upsert({where:{day:19},update:{reward:{balance:45},active:true},create:{day:19,reward:{balance:45},active:true}});
+  await prisma.loginReward.upsert({where:{day:20},update:{reward:{balance:50},active:true},create:{day:20,reward:{balance:50},active:true}});
+  await prisma.loginReward.upsert({where:{day:21},update:{reward:{balance:150},active:true},create:{day:21,reward:{balance:150},active:true}});
+  await prisma.loginReward.upsert({where:{day:22},update:{reward:{balance:45},active:true},create:{day:22,reward:{balance:45},active:true}});
+  await prisma.loginReward.upsert({where:{day:23},update:{reward:{balance:50},active:true},create:{day:23,reward:{balance:50},active:true}});
+  await prisma.loginReward.upsert({where:{day:24},update:{reward:{balance:50},active:true},create:{day:24,reward:{balance:50},active:true}});
+  await prisma.loginReward.upsert({where:{day:25},update:{reward:{balance:55},active:true},create:{day:25,reward:{balance:55},active:true}});
+  await prisma.loginReward.upsert({where:{day:26},update:{reward:{balance:55},active:true},create:{day:26,reward:{balance:55},active:true}});
+  await prisma.loginReward.upsert({where:{day:27},update:{reward:{balance:60},active:true},create:{day:27,reward:{balance:60},active:true}});
+  await prisma.loginReward.upsert({where:{day:28},update:{reward:{balance:200},active:true},create:{day:28,reward:{balance:200},active:true}});
+  await prisma.loginReward.upsert({where:{day:29},update:{reward:{balance:75},active:true},create:{day:29,reward:{balance:75},active:true}});
+  await prisma.loginReward.upsert({where:{day:30},update:{reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true},create:{day:30,reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true}});
   
   for (const [slug,name,type,price] of [
-    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99]
+    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99],["frame-neon-pulse","Neon Pulse","FRAME",0],["frame-electric-storm","Electric Storm","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0],["frame-neon-pulse","Neon Pulse","FRAME",0],["frame-electric-storm","Electric Storm","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0],["frame-neon-pulse","Неоновый импульс","FRAME",0],["frame-electric-storm","Электрический шторм","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0]
   ] as const) await prisma.cosmeticItem.upsert({where:{slug},update:{name,type,price,active:true},create:{slug,name,type,price,active:true,metadata:{nonPayToWin:true}}});
   const missions=[
     ["daily-3-duels","Play 3 duels","PLAY_DUELS",3,{xp:150}],

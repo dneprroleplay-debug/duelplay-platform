@@ -25,7 +25,7 @@ export async function grantReward(tx: Tx, userId: string, rewardInput: unknown, 
   }
 
   const caseRequested = Boolean(reward.case || reward.caseId || reward.caseSlug);
-  const cosmeticRequested = Boolean(reward.cosmetic || reward.cosmeticItemId);
+  const cosmeticRequested = Boolean(reward.cosmetic || reward.cosmeticItemId || reward.cosmeticSlug);
   let inventoryItemId: string | null = null;
 
   if (caseRequested) {
@@ -50,7 +50,8 @@ export async function grantReward(tx: Tx, userId: string, rewardInput: unknown, 
   }
 
   if (cosmeticRequested) {
-    const item = await tx.cosmeticItem.findFirst({ where: reward.cosmeticItemId ? { id: String(reward.cosmeticItemId), active: true } : { active: true }, orderBy: { price: "asc" } });
+    const where = reward.cosmeticItemId ? { id: String(reward.cosmeticItemId) } : reward.cosmeticSlug ? { slug: String(reward.cosmeticSlug) } : undefined;
+const item = await tx.cosmeticItem.findFirst({ where: where ? { ...where, active: true } : { active: true }, orderBy: { price: "asc" } });
     if (item) {
       const owned = await tx.cosmeticPurchase.findUnique({ where: { userId_itemId: { userId, itemId: item.id } } });
       if (!owned) await tx.cosmeticPurchase.create({ data: { userId, itemId: item.id, price: 0 } });
