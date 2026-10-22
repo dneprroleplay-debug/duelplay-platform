@@ -16,6 +16,13 @@ function nextSequence(last: { cycle: number; day: number } | null) {
   return { cycle: last.cycle, day: last.day + 1 };
 }
 
+function normalizeReward(reward: unknown) {
+  if (!reward || typeof reward !== "object" || Array.isArray(reward)) return reward;
+  const source = reward as Record<string, unknown>;
+  const balance = source.balance ?? source.coins ?? source.amount;
+  return { ...source, balance };
+}
+
 export async function GET() {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,9 +38,9 @@ export async function GET() {
   const next = nextSequence(last);
 
   return NextResponse.json({
-    rewards,
-    claimed,
-    todayClaim,
+    rewards: rewards.map((reward) => ({ ...reward, reward: normalizeReward(reward.reward) })),
+    claimed: claimed.map((claim) => ({ ...claim, reward: normalizeReward(claim.reward) })),
+    todayClaim: todayClaim ? { ...todayClaim, reward: normalizeReward(todayClaim.reward) } : null,
     currentCycle: next.cycle,
     nextDay: next.day,
     canClaim: !todayClaim,
@@ -64,35 +71,37 @@ export async function POST(_r: NextRequest) {
         select: { cycle: true, day: true },
       });
       const { cycle, day } = nextSequence(last);
-      const reward = await tx.loginReward.findUnique({ where: { day } });
-      if (!reward || !reward.active) throw new Error("NOT_FOUND");
+const reward = await tx.loginReward.findUnique({ where: { day } });
+if (!reward || !reward.active) throw new Error("NOT_FOUND");
+const normalizedReward = normalizeReward(reward.reward);
 
-      const row = await tx.userLoginReward.create({
-        data: {
-          userId: me.id,
-          cycle,
-          day,
-          claimDate,
-          reward: reward.reward === null ? Prisma.JsonNull : reward.reward,
-        },
-      });
-      const granted = await grantReward(
-        tx,
-        me.id,
-        reward.reward,
-        `login-reward:${row.id}`,
-        `Login reward · Cycle ${cycle} · Day ${day}`,
-        row.id,
-      );
-      return { row, granted };
+const row = await tx.userLoginReward.create({
+  data: {
+    userId: me.id,
+    cycle,
+    day,
+    claimDate,
+    reward: normalizedReward === null ? Prisma.JsonNull : (normalizedReward as Prisma.InputJsonValue),
+  },
+});
+const granted = await grantReward(
+  tx,
+  me.id,
+  normalizedReward,
+  `login-reward:${row.id}`,
+  `Login reward · Cycle ${cycle} · Day ${day}`,
+  row.id,
+);
+return { row: { ...row, reward: normalizedReward }, granted };
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (e) {
-    const code = e instanceof Error ? e.message : "";
-    return NextResponse.json(
-      { error: code === "ALREADY" ? "Daily reward already claimed" : code === "NOT_FOUND" ? "Reward not found" : "Could not claim reward" },
-      { status: code === "ALREADY" ? 409 : 400 },
-    );
-  }
+} catch (e) {
+  console.error("login-rewards claim failed", e);
+  const code = e instanceof Error ? e.message : "";
+  return NextResponse.json(
+    { error: code === "ALREADY" ? "Daily reward already claimed" : code === "NOT_FOUND" ? "Reward not found" : "Could not claim reward", code },
+    { status: code === "ALREADY" ? 409 : code === "NOT_FOUND" ? 404 : 500 },
+  );
+}
 }
