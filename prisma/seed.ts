@@ -63,7 +63,7 @@ async function main() {
   await prisma.loginReward.upsert({where:{day:30},update:{reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true},create:{day:30,reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true}});
   
   for (const [slug,name,type,price] of [
-    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99],["frame-neon-pulse","Neon Pulse","FRAME",0],["frame-electric-storm","Electric Storm","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0],["frame-neon-pulse","Neon Pulse","FRAME",0],["frame-electric-storm","Electric Storm","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0],["frame-neon-pulse","Неоновый импульс","FRAME",0],["frame-electric-storm","Электрический шторм","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0]
+    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99],["frame-neon-pulse","Неоновый импульс","FRAME",0],["frame-electric-storm","Электрический шторм","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0]
   ] as const) await prisma.cosmeticItem.upsert({where:{slug},update:{name,type,price,active:true},create:{slug,name,type,price,active:true,metadata:{nonPayToWin:true}}});
   const missions=[
     ["daily-3-duels","Play 3 duels","PLAY_DUELS",3,{xp:150}],
