@@ -129,7 +129,7 @@ const check = (ok, label) => {
   check(history.includes('import Image from "next/image"'), "the match history thumbnails are delivered through next/image");
   check(history.includes('sizes="(max-width:640px) 100vw, 112px"'), "the match history thumbnails declare their sizes");
   const create = read("components/CreateMatch/CreateMatch.tsx");
-  check(create.includes("object-contain"), "the map preview shows the whole map");
+  check(create.includes("h-auto w-full"), "the map preview shows the whole map");
   check(create.includes("priority"), "the selected map preview is loaded with high priority");
 }
 
@@ -157,8 +157,13 @@ const check = (ok, label) => {
   check(!/bg-black/.test(matchBanner), "the match banner has no black side bars");
   check(matchBanner.includes("mapImage||\"/images/maps/mirage.jpg\""), "the banner uses the catalogue image of the selected map");
   const create = read("components/CreateMatch/CreateMatch.tsx");
-  check(create.includes("scale-125 object-cover blur-xl"), "the match creation preview uses the same blurred backdrop treatment");
-  check(create.includes("object-contain"), "the match creation preview still shows the complete map");
+  const createPreview = create.slice(create.indexOf("map-preview-"), create.indexOf("</Field><Field label=\"Mode\">"));
+  check(!createPreview.includes("blur-"), "the match creation preview has no blur effect");
+  check(!createPreview.includes("saturate-"), "the match creation preview has no colour-altering filter");
+  check(!createPreview.includes("radial-gradient"), "the match creation preview has no coloured overlay or gradient");
+  check(!createPreview.includes("object-cover"), "the match creation preview no longer crops the map");
+  check(createPreview.includes("h-auto w-full"), "the match creation preview keeps the map's original aspect ratio");
+  check(createPreview.includes("quality={90}"), "the match creation preview requests a crisp image");
   check(!create.includes("DUEL_MAPS.map((m)=>m.image)\n    );"), "the creation page no longer preloads all ten map images");
 }
 
