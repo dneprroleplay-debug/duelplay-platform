@@ -145,10 +145,11 @@ const check = (ok, label) => {
 // ---------------------------------------------------------------- 9. map visibility
 {
   const match = read("app/matches/[id]/page.tsx");
-  check(match.includes("object-contain"), "the match banner shows the whole map image");
-  check(match.includes("scale-125 object-cover blur-xl"), "the match banner fills the frame with a zoomed, blurred copy of the same map");
-  check(!/bg-black/.test(match.slice(match.indexOf("relative h-56"), match.indexOf("relative h-56") + 400)), "the match banner has no black side bars");
-  check(match.includes("mapImage||\"/images/maps/mirage.jpg\""), "the banner uses the catalogue image of the selected map");
+  const matchBanner = match.slice(match.indexOf("relative h-56"), match.indexOf("absolute inset-x-5 bottom-7"));
+  check(matchBanner.includes("object-cover object-center"), "the match banner fills the full width with the selected map image");
+  check(!matchBanner.includes("object-contain"), "the match banner no longer letterboxes the map with side bars");
+  check(!/bg-black/.test(matchBanner), "the match banner has no black side bars");
+  check(matchBanner.includes("mapImage||\"/images/maps/mirage.jpg\""), "the banner uses the catalogue image of the selected map");
   const create = read("components/CreateMatch/CreateMatch.tsx");
   check(create.includes("scale-125 object-cover blur-xl"), "the match creation preview uses the same blurred backdrop treatment");
   check(create.includes("object-contain"), "the match creation preview still shows the complete map");
