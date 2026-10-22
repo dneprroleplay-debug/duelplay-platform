@@ -8,7 +8,7 @@ import { creditWallet, debitWallet, lockWallet } from "@/lib/wallet";
 import { assertAccountCanWithdraw, assessUserRisk } from "@/lib/anti-fraud";
 import { getPlatformNumber } from "@/lib/platform-settings";
 import { isPaymentGatewayConfigured, getConfiguredPaymentProvider } from "@/lib/payment-gateway";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { enforceRateLimit, isRateLimitError } from "@/lib/rate-limit";
 
 const PROVIDER_ALIASES: Record<string, PaymentProvider> = {
   STRIPE: "STRIPE",
@@ -22,6 +22,8 @@ const PROVIDER_ALIASES: Record<string, PaymentProvider> = {
 };
 
 const ACTIVE_WITHDRAWAL_STATUSES = ["PENDING", "MANUAL_REVIEW", "PROCESSING", "COMPLETED"] as const;
+const HISTORY_PAGE_SIZE = 25;
+const HISTORY_MAX_PAGE_SIZE = 100;
 
 function parsePositiveAmount(raw: unknown) {
   try {
@@ -42,9 +44,15 @@ function serializeMoney(value: Prisma.Decimal | null | undefined) {
   return value?.toString() ?? "0";
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+
+  const rawLimit = Number(request.nextUrl.searchParams.get("limit"));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(HISTORY_MAX_PAGE_SIZE, Math.floor(rawLimit))
+    : HISTORY_PAGE_SIZE;
+  const cursorId = String(request.nextUrl.searchParams.get("cursor") ?? "").trim();
 
   const wallet = await prisma.wallet.findUnique({
     where: { userId: user.id },
@@ -54,16 +62,50 @@ export async function GET() {
   });
   if (!wallet) return NextResponse.json({ error: "Кошелёк не найден" }, { status: 409 });
 
+  try {
+    await prisma.$transaction(tx => enforceRateLimit(tx, user.id, "WALLET_HISTORY_VIEW", 60, 60_000));
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      return NextResponse.json({ error: "Слишком много запросов истории", errorCode: "RATE_LIMITED" }, { status: 429 });
+    }
+    throw error;
+  }
+
+  // The cursor has to belong to the same wallet, otherwise a foreign cursor
+  // could be used to read another user's journal.
+  const cursor = cursorId
+    ? await prisma.transaction.findFirst({
+      where: { id: cursorId, walletId: wallet.id },
+      select: { id: true, createdAt: true },
+    })
+    : null;
+  if (cursorId && !cursor) return NextResponse.json({ error: "Курсор истории не найден" }, { status: 400 });
+
   const [transactions, pendingDeposits, pendingWithdrawals] = await Promise.all([
     prisma.transaction.findMany({
-      where: { walletId: wallet.id },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: { id: true, type: true, amount: true, description: true, status: true, currency: true, referenceType: true, referenceId: true, createdAt: true },
+      where: {
+        walletId: wallet.id,
+        ...(cursor ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: {
+        id: true, type: true, amount: true, description: true, status: true, currency: true,
+        referenceType: true, referenceId: true, createdAt: true,
+        balanceBefore: true, balanceAfter: true, lockedBalanceBefore: true, lockedBalanceAfter: true,
+      },
     }),
     prisma.deposit.aggregate({ where: { walletId: wallet.id, status: { in: ["PENDING", "PROCESSING"] } }, _sum: { amount: true } }),
     prisma.withdrawal.aggregate({ where: { walletId: wallet.id, status: { in: ["PENDING", "MANUAL_REVIEW", "PROCESSING"] } }, _sum: { amount: true } }),
   ]);
+
+  const hasMore = transactions.length > limit;
+  const page = hasMore ? transactions.slice(0, limit) : transactions;
 
   return NextResponse.json({
     wallet: {
@@ -82,10 +124,16 @@ export async function GET() {
         createdAt: hold.createdAt,
       })),
     },
-    transactions: transactions.map(transaction => ({
+    transactions: page.map(transaction => ({
       ...transaction,
       amount: transaction.amount.toString(),
+      balanceBefore: transaction.balanceBefore.toString(),
+      balanceAfter: transaction.balanceAfter.toString(),
+      lockedBalanceBefore: transaction.lockedBalanceBefore.toString(),
+      lockedBalanceAfter: transaction.lockedBalanceAfter.toString(),
     })),
+    nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
+    hasMore,
   });
 }
 
