@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auditRequest } from "@/lib/admin";
-import { requireGameModeAdmin } from "@/lib/admin-rbac";
+import { requireGameModeAdmin } from "../../../../lib/admin-rbac";
 import { GAME_MODE_CONFIG_SERVER_NAMES, ensureGameModeConfigInitialized, getGameModeConfigBundle, normalizeGameModeConfig } from "@/lib/game-mode-config-store";
 import { GRENADE_TYPES, RANDOM_WEAPON_CATALOG, gameModeConfigChecksum } from "@/lib/game-mode-config.mjs";
 import { DUEL_MAPS } from "@/lib/duel-maps";
