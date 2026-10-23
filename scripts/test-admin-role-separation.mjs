@@ -11,6 +11,7 @@ const layout = read(path.join("app", "admin", "operations", "layout.tsx"));
 const legacy = read(path.join("components", "Admin", "LegacyAdminPanel.tsx"));
 const accessPage = read(path.join("app", "admin", "access", "page.tsx"));
 const commandCatalog = read(path.join("lib", "admin-commands.ts"));
+const gameModeRoute = read(path.join("app", "api", "admin", "game-modes", "route.ts"));
 
 function rolePermissionsSource(role) {
   const match = rbac.match(new RegExp(`\\n\\s*${role}:\\s*\\{[^}]*permissions:\\s*\\[([^\\]]*)\\]`));
@@ -67,6 +68,18 @@ const checks = [
   [
     "RBAC catalog documents payout and theme permissions",
     commandCatalog.includes('["creator.payouts.pay",') && commandCatalog.includes('["creator.payouts.manage",') && commandCatalog.includes('["settings.content.manage",') && accessPage.includes("ADMIN_COMMAND_CATALOG"),
+  ],
+  [
+    "Game mode config permission is granted only to SUPERADMIN; FOUNDER remains protected wildcard",
+    roleHas("SUPERADMIN", "game_modes.configure") && !roleHas("ADMIN", "game_modes.configure") && !roleHas("CONTENT_ADMIN", "game_modes.configure") && !roleHas("TECH_ADMIN", "game_modes.configure") && rolePermissionsSource("FOUNDER").includes('"*"'),
+  ],
+  [
+    "Game mode API reads and writes use a strict FOUNDER/SUPERADMIN role guard",
+    rbac.includes('export function hasGameModeAdminRole(roleCode: unknown)') && rbac.includes('roleCode === "FOUNDER" || roleCode === "SUPERADMIN"') && rbac.includes('export async function requireGameModeAdmin()') && (gameModeRoute.match(/requireGameModeAdmin\(\)/g) || []).length >= 2,
+  ],
+  [
+    "Game mode Control Center entry and panel are hidden from all other role codes",
+    commandCatalog.includes('["game_modes.configure",') && legacy.includes('(d.me.role==="FOUNDER"||d.me.role==="SUPERADMIN")&&can("game_modes.configure")') && accessPage.includes('roleCode==="FOUNDER"||roleCode==="SUPERADMIN"'),
   ],
 ];
 

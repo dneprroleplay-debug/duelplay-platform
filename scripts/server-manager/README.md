@@ -15,7 +15,7 @@ Optional environment is documented in `.env.example`.
 
 The manager updates and validates the dedicated CS2 server with SteamCMD before it starts accepting DuelPlay matches. This prevents a stale dedicated-server build from producing the Steam/CS2 "client out of date" error when a player joins from the current Steam client.
 
-Set `CS2_AUTO_UPDATE=false` only if the VPS has another controlled update mechanism. If `steamcmd` is not in PATH, set `STEAMCMD_BIN` to its full executable path.
+CS2 updates are disabled by default so routine manager restarts never download or validate the game unexpectedly. Set `CS2_AUTO_UPDATE=true` only during an explicitly approved maintenance window; keep it false during normal operation. If `steamcmd` is not in PATH for that approved update, set `STEAMCMD_BIN` to its full executable path.
 
 The READY connection URL is the standard `steam://connect/HOST:PORT` form. The VPS must also allow inbound UDP traffic on the configured CS2 port (default `27015`).
 

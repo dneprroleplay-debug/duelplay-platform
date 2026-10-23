@@ -33,6 +33,7 @@ export const LEGACY_COMPAT_GAME_MODE_CONFIG: GameModeConfig;
 export function validateGameModeConfig(input: unknown, options?: { mapIds?: readonly string[]; mapSafetyProfiles?: Record<string, { verified?: boolean; minimumSafeGravityPercent?: number }> }): { ok: true; value: GameModeConfig; errors?: never } | { ok: false; errors: Array<{ path: string; message: string }>; value?: never };
 export function modeIsAvailable(config: GameModeConfig, modeId: GameModeId, mapId: string, mapSupported?: boolean): boolean;
 export function snapshotForMatch(config: GameModeConfig, modeId: GameModeId, mapId: string, version?: number, checksum?: string | null): { schemaVersion: 1; version: number; checksum: string | null; modeId: GameModeId; mapId: string; mode: Record<string, unknown> };
+export function extractMatchModeSettings(modeId: string, snapshot: unknown, mapId: string): { gravityPercent?: number; speedPercent?: number };
 export function canonicalJson(value: unknown): string;
 export function gameModeConfigChecksum(config: unknown): string;
 export function allConfigServersAcknowledged(acks: Array<{ serverName: string; checksum: string; status: string; modeControllerVersion?: string | null; capabilities?: string[] | null }>, checksum: string): boolean;

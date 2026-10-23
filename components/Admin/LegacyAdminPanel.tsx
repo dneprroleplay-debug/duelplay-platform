@@ -8,6 +8,7 @@ import {THEMES} from "@/lib/themes";
 import {SEASON_PRESETS, type SeasonPreset} from "@/lib/season-presets";
 import AdminContentWorkspace from "@/components/Admin/AdminContentWorkspace";
 import AdminReportsWorkspace from "@/components/Admin/AdminReportsWorkspace";
+import GameModeSettings from "@/components/Admin/GameModeSettings";
 import {heroBackgroundOptions} from "@/lib/hero-backgrounds";
 import { deferEffectTask } from "@/lib/effect-defer";
 
@@ -122,12 +123,17 @@ const BG_COPY:any={
    skins:can("content.skins.manage"),
    avatars:can("content.avatars.manage"),
    security:can("security.view")||can("disputes.view")||can("risk.cases.review")||can("evidence.view"),
-   support:can("support.view"),
-   creator:can("creator.payouts.manage"),
-   levels:can("roles.manage")||can("roles.assign"),
- } as Record<string,boolean>)[id] ?? false;
- const menu=[
-  ["users",L.users,d.users.length,"♟"],["matches",L.matches,d.matches.length,"⚔"],["finance",L.finance,d.transactions.length,"$"],["transactions",L.transactions,d.transactions.length,"↔"],["servers",L.servers,d.servers.length,"◈"],["settings",L.settings,d.themes.length,"⚙"],["seasons",L.seasons,SEASON_PRESETS.length,"❄"],["logs",L.logs,d.logs.length,"≡"],["techOps","Технические события",0,"⚠"],["notifications",L.notifications,0,"◉"],["skins",L.skins,d.topSkins.length,"◇"],["avatars",L.avatars,d.avatarPresets.length,"✦"],["content","Контент-магазин",0,"✦"],["reports","Жалобы игроков",0,"⚑"],["security",L.security,d.fraud.length+d.disputes.length,"!"],["support",L.support,d.tickets.length,"?"],["creator",L.creator,d.creatorPayouts.length,"◈"],["levels",L.levels,"RBAC","▣"]];
+    support:can("support.view"),
+    creator:can("creator.payouts.manage"),
+    levels:can("roles.manage")||can("roles.assign"),
+    gameModes:(d.me.role==="FOUNDER"||d.me.role==="SUPERADMIN")&&can("game_modes.configure"),
+  } as Record<string,boolean>)[id] ?? false;
+  const gameModeSettingsAllowed=(d.me.role==="FOUNDER"||d.me.role==="SUPERADMIN")&&can("game_modes.configure");
+  const gameModeSettingsLabel=language==="RU"?"Игровые режимы":language==="UA"?"Ігрові режими":language==="PL"?"Tryby gry":"Game modes";
+  if(tab==="gameModes")return gameModeSettingsAllowed?<main className={embedded?"w-full px-0 pb-10":"mx-auto min-h-screen max-w-7xl px-4 pb-20 pt-24 sm:px-6"}><GameModeSettings/></main>:<div role="alert" className="rounded-2xl border border-red-400/20 bg-red-400/5 p-5 text-sm text-red-300">{language==="RU"?"Доступ запрещён.":language==="UA"?"Доступ заборонено.":language==="PL"?"Brak dostępu.":"Access denied."}</div>;
+  const menu=[
+   ["users",L.users,d.users.length,"♟"],["matches",L.matches,d.matches.length,"⚔"],["finance",L.finance,d.transactions.length,"$"],["transactions",L.transactions,d.transactions.length,"↔"],["servers",L.servers,d.servers.length,"◈"],["settings",L.settings,d.themes.length,"⚙"],["seasons",L.seasons,SEASON_PRESETS.length,"❄"],["logs",L.logs,d.logs.length,"≡"],["techOps","Технические события",0,"⚠"],["notifications",L.notifications,0,"◉"],["skins",L.skins,d.topSkins.length,"◇"],["avatars",L.avatars,d.avatarPresets.length,"✦"],["content","Контент-магазин",0,"✦"],["reports","Жалобы игроков",0,"⚑"],["security",L.security,d.fraud.length+d.disputes.length,"!"],["support",L.support,d.tickets.length,"?"],["creator",L.creator,d.creatorPayouts.length,"◈"],["levels",L.levels,"RBAC","▣"]];
+  if(gameModeSettingsAllowed)menu.splice(5,0,["gameModes",gameModeSettingsLabel,10,"🎮"]);
  const visibleMenu=menu.filter(([id])=>canTab(String(id)));
  return <><main className={embedded?"w-full px-0 pb-10":"mx-auto min-h-screen max-w-7xl px-4 pb-20 pt-24 sm:px-6"}>{!embedded&&<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><span className="pill">{`${L.center} — LEVEL ${d.me.level}`}</span><h1 className="mt-3 text-3xl font-black sm:text-4xl">{L.centerTitle}</h1><p className="mt-2 text-zinc-500">{L.centerDesc}</p></div><div className="flex items-center gap-2"><div className="rounded-2xl border border-[var(--theme-accent)]/25 bg-[var(--theme-accent-bg)] px-4 py-3 text-sm"><b data-player-name>{d.me.nickname}</b><span className="ml-2 text-[var(--theme-accent)]">{d.me.role}</span></div></div></div>}
  <div className={embedded?"w-full":"mt-8 grid gap-6 lg:grid-cols-[220px_1fr]"}>{!embedded&&<aside className="panel rounded-3xl p-3 h-fit lg:sticky lg:top-24">{visibleMenu.map(([id,name,n,icon])=><button key={String(id)} onClick={()=>setTab(String(id))} className={`mb-1 flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm transition ${tab===id?"bg-[var(--theme-accent-bg)] text-[var(--theme-accent)]":"text-zinc-400 hover:bg-white/5 hover:text-white"}`}><span><span className="mr-3 opacity-80">{icon}</span>{name}</span><span className="text-xs text-zinc-600">{n}</span></button>)}</aside>}

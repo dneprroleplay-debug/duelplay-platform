@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getDuelMap } from "@/lib/duel-maps";
-import { MatchMode } from "@prisma/client";
+import { MatchMode, Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/lib/current-user";
 import { getPlatformNumber } from "@/lib/platform-settings";
 import { debitWallet, lockWallet } from "@/lib/wallet";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { assertAbuseGuard } from "@/lib/anti-fraud";
 import { isDuelMode, normalizeModeWeaponModifier } from "@/lib/duel-modes";
+import { buildMatchModeConfigSnapshot, getActiveGameModeConfig } from "@/lib/game-mode-config-store";
+import type { GameModeId } from "@/lib/game-mode-config.mjs";
 
 
 const ALLOWED_FORMATS = new Set(["1v1"]);
@@ -19,6 +21,7 @@ function challengeError(error: unknown) {
   if (code === "RATE_LIMITED") return NextResponse.json({ error: "Too many challenge requests. Try again later." }, { status: 429 });
   if (code === "INSUFFICIENT_BALANCE" || code === "FUNDS") return NextResponse.json({ error: "Insufficient balance." }, { status: 400 });
   if (code === "PLAYER_BUSY") return NextResponse.json({ error: "The player is currently in another active match.", errorCode: "PLAYER_BUSY" }, { status: 409 });
+  if (code === "MODE_CONFIG_NOT_AVAILABLE") return NextResponse.json({ error: "This game mode is not currently available on the selected map.", errorCode: code }, { status: 409 });
   if (code === "CLAIMED") return NextResponse.json({ error: "Challenge was already processed." }, { status: 409 });
   if (code === "GAME") return NextResponse.json({ error: "CS2 game configuration is unavailable." }, { status: 503 });
   return NextResponse.json({ error: "Unable to process challenge." }, { status: 500 });
@@ -69,6 +72,8 @@ export async function POST(r: NextRequest) {
     const result = await prisma.$transaction(async tx => {
       await assertAbuseGuard(tx, me.id, "CHALLENGE_CREATE");
       await enforceRateLimit(tx, me.id, "CHALLENGE_CREATE", 20, 60_000);
+      const activeModeConfig = await getActiveGameModeConfig(tx);
+      buildMatchModeConfigSnapshot(activeModeConfig, mode, mapConfig.id, mapConfig.supportedModes[mode as keyof typeof mapConfig.supportedModes]);
       // Lock both players before checking limits/duplicates so concurrent requests cannot bypass them.
       const lockedUsers = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "User" WHERE id IN (${me.id}::uuid, ${receiverId}::uuid) ORDER BY id FOR UPDATE
@@ -170,6 +175,10 @@ export async function PATCH(r: NextRequest) {
       const game = await tx.game.findUnique({ where: { slug: "cs2" } });
       if (!game) throw new Error("GAME");
       const commissionRate = await getPlatformNumber("COMMISSION_RATE", 10);
+      const challengeMap = getDuelMap(row.mapName);
+      if (!challengeMap || !isDuelMode(row.mode) || !challengeMap.supportedModes[row.mode]) throw new Error("MODE_CONFIG_NOT_AVAILABLE");
+      const activeModeConfig = await getActiveGameModeConfig(tx);
+      const modeConfigSnapshot = buildMatchModeConfigSnapshot(activeModeConfig, row.mode as GameModeId, challengeMap.id, challengeMap.supportedModes[row.mode]);
 
       if (stake > 0) {
         const senderDebit = await debitWallet(tx, row.senderId, stake, `challenge:${row.id}:sender`, "MATCH_BET", `Challenge stake В· ${row.id}`, row.id);
@@ -181,6 +190,12 @@ export async function PATCH(r: NextRequest) {
         gameId: game.id, playerOneId: row.senderId, playerTwoId: row.receiverId, mode: row.mode as MatchMode, format: row.format,
         weaponModifier: row.weaponModifier, mapName: row.mapName || "Mirage", betAmount: stake,
         commission: Number((stake * 2 * (commissionRate / 100)).toFixed(4)), status: "READY", startDeadlineAt: new Date(Date.now() + 120000),
+        modeConfigSnapshot: {
+          create: {
+            revisionVersion: activeModeConfig.version > 0 ? activeModeConfig.version : null,
+            snapshot: modeConfigSnapshot as Prisma.InputJsonValue,
+          },
+        },
       } });
 
       if (stake > 0) {

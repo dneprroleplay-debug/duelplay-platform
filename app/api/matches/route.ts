@@ -10,6 +10,7 @@ import { isDuelMode, normalizeModeWeaponModifier, type DuelModeId } from "@/lib/
 import { getDuelMap } from "@/lib/duel-maps";
 import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
 import { assertMatchmakingAvailable } from "@/lib/maintenance";
+import { buildMatchModeConfigSnapshot, getActiveGameModeConfig } from "@/lib/game-mode-config-store";
 import { Prisma } from "@prisma/client";
 
 const COMMISSION_RATE = .10, MIN_BET = 3, MAX_BET = 10000;
@@ -158,8 +159,19 @@ export async function POST(request: NextRequest) {
         await recordFraudSignal(tx, user.id, risk.score, "High-risk duel creation", { flags: risk.flags, amount });
       }
 
+      const activeModeConfig = await getActiveGameModeConfig(tx);
+      const modeConfigSnapshot = buildMatchModeConfigSnapshot(activeModeConfig, mode, mapConfig.id, mapConfig.supportedModes[mode]);
+      const modeConfigFields = {
+        modeConfigSnapshot: {
+          create: {
+            revisionVersion: activeModeConfig.version > 0 ? activeModeConfig.version : null,
+            snapshot: modeConfigSnapshot as Prisma.InputJsonValue,
+          },
+        },
+      };
+
       if (demoContext) {
-        const match = await tx.match.create({ data: { economyMode: "DEMO", gameId: game.id, playerOneId: user.id, mode: mode as DuelModeId, format, weaponModifier: weapon.weaponModifier, mapName: mapConfig.serverMapName, betAmount: amount, commission: fee, status: "WAITING_FOR_PLAYERS", connectionPhaseCompleted: false } });
+        const match = await tx.match.create({ data: { economyMode: "DEMO", gameId: game.id, playerOneId: user.id, mode: mode as DuelModeId, format, weaponModifier: weapon.weaponModifier, mapName: mapConfig.serverMapName, betAmount: amount, commission: fee, status: "WAITING_FOR_PLAYERS", connectionPhaseCompleted: false, ...modeConfigFields } });
         await demoContext.demo.reserveDemoStake(user.id, match.id, String(amount), idempotencyKey, `match-stake:${idempotencyKey}`);
         await tx.notification.create({ data: { userId: user.id, type: "SYSTEM", title: "DEMO match created", body: "Your DEMO match was created and is waiting for a second player. It uses virtual DC credits; real money was not affected.", payload: { economyMode: "DEMO", matchId: match.id, kind: "DEMO_MATCH_CREATED" } } });
         return match;
@@ -168,7 +180,7 @@ export async function POST(request: NextRequest) {
       const debit = await debitWallet(tx, user.id, amount, idempotencyKey, "MATCH_BET", `Ставка на CS2 · ${mapConfig.serverMapName}`);
       if (debit.idempotent) throw new Error("IDEMPOTENCY_CONFLICT");
       await lockWallet(tx, user.id, amount, `match-stake:${idempotencyKey}`, "MATCH_STAKE", undefined, `Ставка зарезервирована · ${mapConfig.serverMapName}`);
-      const match = await tx.match.create({ data: { gameId: game.id, playerOneId: user.id, mode: mode as DuelModeId, format, weaponModifier: weapon.weaponModifier, mapName: mapConfig.serverMapName, betAmount: amount, commission: fee, status: "WAITING_FOR_PLAYERS", connectionPhaseCompleted: false } });
+      const match = await tx.match.create({ data: { gameId: game.id, playerOneId: user.id, mode: mode as DuelModeId, format, weaponModifier: weapon.weaponModifier, mapName: mapConfig.serverMapName, betAmount: amount, commission: fee, status: "WAITING_FOR_PLAYERS", connectionPhaseCompleted: false, ...modeConfigFields } });
       await tx.transaction.update({ where: { id: debit.transaction.id }, data: { referenceId: match.id } });
       const hold = await tx.walletHold.findUnique({ where: { idempotencyKey: `match-stake:${idempotencyKey}` } });
       if (hold) await tx.walletHold.update({ where: { id: hold.id }, data: { referenceId: match.id } });
@@ -199,6 +211,7 @@ export async function POST(request: NextRequest) {
     if (code === "INSUFFICIENT_BALANCE") return NextResponse.json({ error: "Недостаточно средств для создания матча", errorCode: code }, { status: 400 });
     if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "Создание DEMO-матчей для аккаунта отключено", errorCode: code }, { status: 403 });
     if (code === "DEMO_DISABLED") return NextResponse.json({ error: "DEMO-режим сейчас отключён", errorCode: code }, { status: 409 });
+    if (code === "MODE_CONFIG_NOT_AVAILABLE") return NextResponse.json({ error: "Этот игровой режим пока недоступен на выбранной карте", errorCode: code }, { status: 409 });
     if (["ACCOUNT_SUSPENDED", "ACCOUNT_BANNED", "ACCOUNT_DEACTIVATED"].includes(code)) return NextResponse.json({ error: "Аккаунт временно недоступен для игры", errorCode: code }, { status: 403 });
     console.error(error); return NextResponse.json({ error: "Не удалось создать матч" }, { status: 500 });
   }

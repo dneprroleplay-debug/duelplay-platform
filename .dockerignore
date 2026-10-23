@@ -1,0 +1,29 @@
+# Local build output and dependencies must not enter the production build context.
+node_modules
+.next
+out
+coverage
+.vercel
+.git
+*.tsbuildinfo
+**/bin
+**/obj
+
+# Never bake local environment files or credentials into the image.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Temporary OpenCode diagnostics from local troubleshooting.
+build_output.txt
+build_error.txt
+claim_diff.txt
+diff.txt
+git_status.txt
+gmc.txt
+gms_store.txt
+mode-policy.txt
+schema_diff.txt
+sm_diff.txt
+sm_full.txt

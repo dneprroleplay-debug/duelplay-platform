@@ -133,13 +133,14 @@ export default function AdminAccessPage(){
     if(!role)return [] as Command[];
     if(role.permissions.includes("*"))return COMMANDS;
     const set=new Set(role.permissions);
-    return COMMANDS.filter(x=>set.has(x.permission));
+    return COMMANDS.filter(x=>set.has(x.permission)&&(x.permission!=="game_modes.configure"||roleCode==="FOUNDER"||roleCode==="SUPERADMIN"));
   },[data]);
   const available = useMemo(()=>{
     if(!data)return [] as Command[];
-    if(data.me.permissions.includes("*"))return COMMANDS;
+    const canConfigureModes=data.me.roleCode==="FOUNDER"||data.me.roleCode==="SUPERADMIN";
+    if(data.me.permissions.includes("*"))return COMMANDS.filter(x=>x.permission!=="game_modes.configure"||canConfigureModes);
     const set=new Set(data.me.permissions);
-    return COMMANDS.filter(x=>set.has(x.permission));
+    return COMMANDS.filter(x=>set.has(x.permission)&&(x.permission!=="game_modes.configure"||canConfigureModes));
   },[data]);
   const selectedRole=useMemo(()=>data?.roles.find(r=>r.code===(selectedRoleCode||data?.me.roleCode))||null,[data,selectedRoleCode]);
   const selectedRoleCommands=useMemo(()=>selectedRole?roleCommands(selectedRole.code):available,[selectedRole,roleCommands,available]);

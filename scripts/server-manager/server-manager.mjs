@@ -1,4 +1,4 @@
-﻿import { createServer } from 'node:http';
+import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -30,7 +30,10 @@ import {
 } from './map-launch.mjs';
 import {
   GAME_MODE_CONTROLLER_VERSION,
+  GRAVITY_PERCENT_OPTIONS,
+  SPEED_PERCENT_OPTIONS,
   REQUIRED_GAME_MODE_CONTROLLER_CAPABILITIES,
+  extractMatchModeSettings,
   gameModeConfigChecksum,
   validateGameModeConfig,
 } from '../../lib/game-mode-config.mjs';
@@ -49,7 +52,7 @@ const CS2_STEAMCMD_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
 const CS2_UPDATE_MARKER = process.env.DUELPLAY_CS2_SYNC_MARKER || join(CS2_STEAMCMD_DIR, '.duelplay-sync-in-progress');
 const CS2_UPDATE_MARKER_MAX_AGE_MS = 4 * 60 * 60_000;
 const CS2_SCRIPT = join(CS2_DIR, 'cs2.sh');
-const CS2_AUTO_UPDATE = !['0', 'false', 'no'].includes(String(process.env.CS2_AUTO_UPDATE ?? 'true').toLowerCase());
+const CS2_AUTO_UPDATE = !['0', 'false', 'no'].includes(String(process.env.CS2_AUTO_UPDATE ?? 'false').toLowerCase());
 const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
 const CS2_APP_ID = Number(process.env.CS2_APP_ID || 730);
 const HOST = process.env.CS2_PUBLIC_HOST || '127.0.0.1';
@@ -372,14 +375,44 @@ function updateCs2Server() {
   if (CS2_AUTO_UPDATE) console.log('[DuelPlay] CS2 dedicated server update/validation completed');
 }
 
+function writeIfChanged(filePath, contents) {
+  if (existsSync(filePath) && readFileSync(filePath, 'utf8') === contents) return;
+  writeFileSync(filePath, contents);
+}
+
+function writeModeConfigFiles(mode = null, settings = {}) {
+  const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
+  mkdirSync(cfgDir, { recursive: true });
+
+  // Always reset the inactive mode's cfg to neutral values. This prevents a
+  // mode-specific file from retaining settings from the previous match.
+  const gravityPercent = mode === 'LOW_GRAVITY' ? settings.gravityPercent : 100;
+  const speedPercent = mode === 'SPEED_DUEL' ? settings.speedPercent : 100;
+  if (mode === 'LOW_GRAVITY' && !GRAVITY_PERCENT_OPTIONS.includes(gravityPercent)) {
+    throw new Error('MODE_CONFIG_UNAVAILABLE');
+  }
+  if (mode === 'SPEED_DUEL' && !SPEED_PERCENT_OPTIONS.includes(speedPercent)) {
+    throw new Error('MODE_CONFIG_UNAVAILABLE');
+  }
+
+  const gravity = Math.round(800 * gravityPercent / 100);
+  const speed = Math.round(250 * speedPercent / 100);
+  writeIfChanged(join(cfgDir, 'duelplay_low_gravity.cfg'), `// DuelPlay LOW_GRAVITY config\nsv_gravity ${gravity}\n`);
+  writeIfChanged(join(cfgDir, 'duelplay_speed_duel.cfg'), `// DuelPlay SPEED_DUEL config\nmp_walkspeed ${speed}\nmp_maxspeed ${speed}\n`);
+}
+
+function resetModeConfigs() {
+  // Reset live cvars where the process still exists and always restore neutral
+  // files for the next match. No server update or restart is initiated here.
+  command('sv_gravity 800');
+  command('mp_walkspeed 250');
+  command('mp_maxspeed 250');
+  writeModeConfigFiles(null, {});
+}
+
 function writeConfigs() {
-  // Generated mode cfgs are loaded verbatim by `+exec duelplay_<mode>` at server
-  // launch. They must track the current mode policy, otherwise an already
-  // provisioned server keeps a stale (and previously invalid) rule set forever.
-  const writeIfChanged = (filePath, contents) => {
-    if (existsSync(filePath) && readFileSync(filePath, 'utf8') === contents) return;
-    writeFileSync(filePath, contents);
-  };
+  // These files are rewritten with validated settings immediately before each
+  // match launch; startup only writes neutral defaults.
   const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
   mkdirSync(cfgDir, { recursive: true });
   const serverCfgPath = join(cfgDir, 'gamemode_competitive_server.cfg');
@@ -422,17 +455,7 @@ function writeConfigs() {
       : `${currentServerCfg}${currentServerCfg.endsWith('\n') ? '' : '\n'}mp_buytime 15\n`;
     writeIfChanged(serverCfgPath, nextServerCfg);
   }
-  const modeConfigMap = new Map()
-modeConfigMap.set('LOW_GRAVITY', () => {
-    const p = current?.settings?.gravityPercent ?? 60
-    return [`sv_gravity ${Math.round(800 * p / 100)}`]
-  })
-modeConfigMap.set('SPEED_DUEL', () => {
-    const p = current?.settings?.speedPercent ?? 140
-    return [`mp_walkspeed ${Math.round(250 * p / 100)}`, `mp_maxspeed ${Math.round(250 * p / 100)}`]
-  })
-
-for (const [name, mode, modifier] of [
+  for (const [name, mode, modifier] of [
     ['duelplay_awp.cfg', 'AWP_ONLY', 'AWP_ONLY'],
     ['duelplay_grenade.cfg', 'GRENADE_ONLY', 'GRENADE_ONLY'],
     ['duelplay_deagle.cfg', 'DEAGLE_ONLY', 'DEAGLE_ONLY'],
@@ -441,15 +464,9 @@ for (const [name, mode, modifier] of [
     ['duelplay_first_to_10.cfg', 'FIRST_TO_10', null],
   ]) {
     const rules = buildDuelModeCommands(mode, modifier)
-    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n')
+    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
   }
-  for (const [name, mode] of [
-    ['duelplay_low_gravity.cfg', 'LOW_GRAVITY'],
-    ['duelplay_speed_duel.cfg', 'SPEED_DUEL'],
-  ]) {
-    const rules = modeConfigMap.get(mode)?.() ?? []
-    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} config`, ...rules].join('\n') + '\n')
-  }
+  writeModeConfigFiles(null, {});
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
   const gsiPath = join(cfgDir, 'gamestate_integration_duelplay.cfg');
   if (!existsSync(gsiPath) || readFileSync(gsiPath, 'utf8') !== gsi) writeFileSync(gsiPath, gsi);
@@ -978,42 +995,26 @@ async function claimAndStart(match) {
   const workshopSourceFolder = resolveWorkshopSourceFolder(workshopId);
   const firstToTen = resolveEffectiveMode(mode, weaponModifier) === 'FIRST_TO_10';
   
-// Extract mode-specific settings from claimed snapshot — single source of truth.
-  // Path must be claimed.modeConfigSnapshot.mode.settings.{gravityPercent|speedPercent|gravityPercentByMap}
-  // Map ID comes from claimed.mapId (set by claim API from DB match record).
-  let modeSettings = {};
-  const claimedSnapshot = claimed.modeConfigSnapshot;
-  if (claimedSnapshot && typeof claimedSnapshot === 'object' && !Array.isArray(claimedSnapshot)) {
-    const modeCfg = claimedSnapshot.mode;
-    if (modeCfg && typeof modeCfg === 'object') {
-      const settings = modeCfg.settings;
-      if (settings && typeof settings === 'object') {
-        // LOW_GRAVITY: gravityPercent from snapshot, map-specific override via gravityPercentByMap[mapId]
-        if (mode === 'LOW_GRAVITY' && settings.gravityPercent !== undefined) {
-          modeSettings.gravityPercent = settings.gravityPercent;
-          // Map-specific override: if mapId is known and gravityPercentByMap has an entry for it, use it
-          if (settings.gravityPercentByMap && claimed.mapId) {
-            const mapSpecific = settings.gravityPercentByMap[claimed.mapId];
-            if (mapSpecific !== undefined && [20, 40, 50, 60, 70, 80, 100].includes(mapSpecific)) {
-              modeSettings.gravityPercent = mapSpecific;
-            }
-          }
-        }
-        // SPEED_DUEL: speedPercent from snapshot only
-        if (mode === 'SPEED_DUEL' && settings.speedPercent !== undefined) {
-          modeSettings.speedPercent = settings.speedPercent;
-        }
-      }
+  // Validate the exact immutable mode/map snapshot with the shared helper.
+  // Invalid advanced-mode config is cancelled/refunded, never started with defaults.
+  let modeSettings;
+  try {
+    modeSettings = extractMatchModeSettings(mode, claimed.modeConfigSnapshot, claimed.mapId);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'MODE_CONFIG_UNAVAILABLE';
+    reportTechnicalEvent({ source: 'server-manager', category: 'match.config-rejected', severity: 'ERROR', message: 'Match rejected because its advanced game-mode snapshot is missing or invalid.', matchId: match.id, correlationId: match.id, details: { serverId: claimed.serverId, mode, mapId: claimed.mapId, reason } });
+    try {
+      await api(`/api/matches/${match.id}/server`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'failed', serverId: claimed.serverId, reason: 'Invalid game-mode configuration; match cancelled safely.' })
+      });
+    } catch (reportError) {
+      console.error('[DuelPlay] failed to reject invalid mode configuration', reportError);
+      throw new Error(`MODE_CONFIG_UNAVAILABLE: ${reason}; failed to cancel claimed match`);
     }
+    console.error(`[DuelPlay] rejected match ${match.id}: ${reason}`);
+    return;
   }
-  // Fail-closed: if LOW_GRAVITY or SPEED_DUEL mode has no valid settings from snapshot,
-  // the match claim is declined — no defaults 60%/140% are substituted, and the
-  // match config API will return INVALID_MODE_CONFIG, preventing server start.
-  if ((mode === 'LOW_GRAVITY' || mode === 'SPEED_DUEL') && Object.keys(modeSettings).length === 0) {
-    throw new Error('MODE_CONFIG_UNAVAILABLE');
-  }
-  // If modeSettings is empty after extraction (for non-LOW_GRAVITY/SPEED_DUEL modes),
-  // writeConfigs() will use defaults.
   const mapConfigNames = buildMapConfigNames(match.mapName, workshopId, workshopSourceFolder);
   writeMatchMapConfig(mapConfigNames, mode, weaponModifier, randomWeapon);
   const mapLaunchArgs = buildMapLaunchArgs(match.mapName, workshopId);
@@ -1057,6 +1058,8 @@ async function claimAndStart(match) {
   }
 
   console.log(`[DuelPlay] starting ${match.id} on ${runtimeHost}:${runtimePort}${workshopId ? ` workshop=${workshopId}` : ''}`);
+  // Write validated per-match settings before +exec reads the cfg files.
+  writeModeConfigFiles(mode, modeSettings);
   const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: process.env });
   reportTechnicalEvent({ source: 'cs2', category: 'process.starting', severity: 'INFO', message: 'CS2 process start requested.', matchId: match.id, correlationId: match.id, details: { pid: child.pid ?? null, port: runtimePort } });
   current = {
@@ -1145,6 +1148,7 @@ async function claimAndStart(match) {
     clearCurrentTimers();
     const finished = current;
     current = null;
+    try { resetModeConfigs(); } catch (resetError) { console.error('[DuelPlay] failed to reset mode configs after process exit', resetError); }
     if (!finished) return;
     console.log(`[DuelPlay] CS2 exited code=${code} signal=${signal}`);
     reportTechnicalEvent({ source: 'cs2', category: signal ? 'process.crashed' : 'process.stopped', severity: signal || (code !== 0 && code !== null) ? 'CRITICAL' : 'INFO', message: signal ? `CS2 exited after signal ${signal}.` : `CS2 process exited with code ${code}.`, matchId: finished.id, correlationId: finished.id, result: signal ? `signal:${signal}` : `exit:${code}`, details: { pid: finished.process.pid, exitCode: code, signal, wasReady: serverReadyAt > 0 } });
