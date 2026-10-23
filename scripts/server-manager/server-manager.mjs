@@ -1,7 +1,8 @@
 ﻿import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTechnicalEventOutbox } from './technical-event-outbox.mjs';
 import { managerHealthSnapshot } from './manager-health.mjs';
@@ -27,6 +28,12 @@ import {
   parseWorkshopSourceFolder,
   safeMapConfigName,
 } from './map-launch.mjs';
+import {
+  GAME_MODE_CONTROLLER_VERSION,
+  REQUIRED_GAME_MODE_CONTROLLER_CAPABILITIES,
+  gameModeConfigChecksum,
+  validateGameModeConfig,
+} from '../../lib/game-mode-config.mjs';
 
 const required = (name) => {
   const value = process.env[name];
@@ -54,6 +61,13 @@ const READY_DELAY_MS = Number(process.env.CS2_READY_DELAY_MS || 20000);
 const POLL_MS = 2000;
 const HEARTBEAT_MS = 1000;
 const MANAGER_HEARTBEAT_MS = 10000;
+const MODE_CONFIG_POLL_MS = Number(process.env.DUELPLAY_MODE_CONFIG_POLL_MS || 30_000);
+const MODE_CONFIG_DIR = join(CS2_DIR, 'csgo', 'cfg');
+const MODE_CONFIG_ACTIVE_FILE = join(MODE_CONFIG_DIR, 'duelplay-game-mode-config.json');
+const MODE_CONFIG_PENDING_FILE = join(MODE_CONFIG_DIR, 'duelplay-game-mode-config.pending.json');
+const MODE_CONTROLLER_DIR = join(CS2_DIR, 'csgo', 'addons', 'counterstrikesharp', 'plugins', 'DuelPlayModeController');
+const MODE_CONTROLLER_DLL = join(MODE_CONTROLLER_DIR, 'DuelPlayModeController.dll');
+const MODE_CONTROLLER_MANIFEST = join(MODE_CONTROLLER_DIR, 'mode-controller.manifest.json');
 const CONNECT_TIMEOUT_MS = Number(process.env.DUELPLAY_CONNECTION_TIMEOUT_MS || 5 * 60 * 1000);
 const SERVER_START_TIMEOUT_MS = Number(process.env.DUELPLAY_SERVER_START_TIMEOUT_MS || 2 * 60 * 1000);
 const PORT_PROBE_TIMEOUT_MS = Number(process.env.DUELPLAY_PORT_PROBE_TIMEOUT_MS || 1500);
@@ -84,6 +98,14 @@ let connectionPhaseCompleted = false;
 let duelRulesAppliedAfterConnect = false;
 let lastHeartbeatSentAt = 0;
 let lastManagerHeartbeatAt = 0;
+let lastModeConfigPollAt = 0;
+let modeConfigPollInFlight = false;
+let stagedModeConfig = null;
+let lastModeConfigAckKey = '';
+let activeModeConfigVersion = null;
+let activeModeConfigChecksum = null;
+let modeControllerVersion = null;
+let modeControllerCapabilities = [];
 let readyTimer = null;
 let startupDeadlineTimer = null;
 let warmupGuardTimer = null;
@@ -215,6 +237,86 @@ async function api(path, init = {}) {
   return data;
 }
 
+function verifyModeController() {
+  try {
+    if (!existsSync(MODE_CONTROLLER_DLL) || !existsSync(MODE_CONTROLLER_MANIFEST)) return { ok: false, error: 'MODE_CONTROLLER_MISSING' };
+    const manifest = JSON.parse(readFileSync(MODE_CONTROLLER_MANIFEST, 'utf8'));
+    const binaryHash = createHash('sha256').update(readFileSync(MODE_CONTROLLER_DLL)).digest('hex');
+    if (manifest.version !== GAME_MODE_CONTROLLER_VERSION || manifest.sha256 !== binaryHash) return { ok: false, error: 'MODE_CONTROLLER_VERSION_OR_HASH_MISMATCH' };
+    if (!Array.isArray(manifest.capabilities) || !REQUIRED_GAME_MODE_CONTROLLER_CAPABILITIES.every(capability => manifest.capabilities.includes(capability))) {
+      return { ok: false, error: 'MODE_CONTROLLER_CAPABILITY_MISSING' };
+    }
+    return { ok: true, version: manifest.version, capabilities: manifest.capabilities, sha256: binaryHash };
+  } catch {
+    return { ok: false, error: 'MODE_CONTROLLER_MANIFEST_INVALID' };
+  }
+}
+
+function writeJsonAtomically(filePath, value) {
+  mkdirSync(join(filePath, '..'), { recursive: true, mode: 0o700 });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  renameSync(tempPath, filePath);
+}
+
+async function acknowledgeModeConfig(payload, status, controller, error = null) {
+  return api('/api/server-manager/game-mode-config/ack', {
+    method: 'POST',
+    body: JSON.stringify({
+      serverName: SERVER_ID,
+      version: payload.version,
+      checksum: payload.checksum,
+      status,
+      modeControllerVersion: controller?.version ?? null,
+      capabilities: controller?.capabilities ?? [],
+      error,
+    }),
+  });
+}
+
+async function pollModeConfig() {
+  if (modeConfigPollInFlight || Date.now() - lastModeConfigPollAt < MODE_CONFIG_POLL_MS) return;
+  modeConfigPollInFlight = true;
+  lastModeConfigPollAt = Date.now();
+  try {
+    const payload = await api(`/api/server-manager/game-mode-config?serverName=${encodeURIComponent(SERVER_ID)}`);
+    if (payload.ready !== true || !Number.isInteger(payload.version) || !Array.isArray(payload.mapIds)) return;
+    const normalized = validateGameModeConfig(payload.config, { mapIds: payload.mapIds, mapSafetyProfiles: payload.mapSafetyProfiles || {} });
+    if (!normalized.ok) throw new Error(`INVALID_CONFIG:${normalized.errors.map(item => item.path).join(',')}`);
+    const checksum = gameModeConfigChecksum(normalized.value);
+    if (checksum !== payload.checksum) throw new Error('CONFIG_CHECKSUM_MISMATCH');
+    const controller = verifyModeController();
+    const ackKey = `${payload.version}:${payload.checksum}:${payload.isPending ? 'pending' : 'active'}`;
+    if (!controller.ok) {
+      await acknowledgeModeConfig(payload, 'FAILED', null, controller.error);
+      if (stagedModeConfig?.error !== controller.error || stagedModeConfig?.version !== payload.version) {
+        console.error(`[DuelPlay] mode config v${payload.version} is not staged: ${controller.error}`);
+      }
+      stagedModeConfig = { version: payload.version, checksum: payload.checksum, error: controller.error };
+      return;
+    }
+
+    const target = payload.isPending ? MODE_CONFIG_PENDING_FILE : MODE_CONFIG_ACTIVE_FILE;
+    writeJsonAtomically(target, { schemaVersion: 1, version: payload.version, checksum, config: normalized.value });
+    if (ackKey !== lastModeConfigAckKey) {
+      await acknowledgeModeConfig(payload, 'STAGED', controller);
+      lastModeConfigAckKey = ackKey;
+    }
+    modeControllerVersion = controller.version;
+    modeControllerCapabilities = controller.capabilities;
+    stagedModeConfig = { version: payload.version, checksum, isPending: payload.isPending === true, filePath: target };
+    if (!payload.isPending) {
+      activeModeConfigVersion = payload.version;
+      activeModeConfigChecksum = checksum;
+    }
+    console.log(`[DuelPlay] mode config v${payload.version} staged (${payload.isPending ? 'pending publish' : 'published'}).`);
+  } catch (error) {
+    console.error('[DuelPlay] mode config poll failed', error);
+  } finally {
+    modeConfigPollInFlight = false;
+  }
+}
+
 function ensureMetamodGameInfo() {
   const gameInfoPath = join(CS2_DIR, 'csgo', 'gameinfo.gi');
 
@@ -320,7 +422,17 @@ function writeConfigs() {
       : `${currentServerCfg}${currentServerCfg.endsWith('\n') ? '' : '\n'}mp_buytime 15\n`;
     writeIfChanged(serverCfgPath, nextServerCfg);
   }
-  for (const [name, mode, modifier] of [
+  const modeConfigMap = new Map()
+modeConfigMap.set('LOW_GRAVITY', () => {
+    const p = current?.settings?.gravityPercent ?? 60
+    return [`sv_gravity ${Math.round(800 * p / 100)}`]
+  })
+modeConfigMap.set('SPEED_DUEL', () => {
+    const p = current?.settings?.speedPercent ?? 140
+    return [`mp_walkspeed ${Math.round(250 * p / 100)}`, `mp_maxspeed ${Math.round(250 * p / 100)}`]
+  })
+
+for (const [name, mode, modifier] of [
     ['duelplay_awp.cfg', 'AWP_ONLY', 'AWP_ONLY'],
     ['duelplay_grenade.cfg', 'GRENADE_ONLY', 'GRENADE_ONLY'],
     ['duelplay_deagle.cfg', 'DEAGLE_ONLY', 'DEAGLE_ONLY'],
@@ -328,8 +440,15 @@ function writeConfigs() {
     ['duelplay_headshot.cfg', 'HEADSHOT_ONLY', 'HEADSHOT_ONLY'],
     ['duelplay_first_to_10.cfg', 'FIRST_TO_10', null],
   ]) {
-    const rules = buildDuelModeCommands(mode, modifier);
-    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n');
+    const rules = buildDuelModeCommands(mode, modifier)
+    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} rules`, ...rules].join('\n') + '\n')
+  }
+  for (const [name, mode] of [
+    ['duelplay_low_gravity.cfg', 'LOW_GRAVITY'],
+    ['duelplay_speed_duel.cfg', 'SPEED_DUEL'],
+  ]) {
+    const rules = modeConfigMap.get(mode)?.() ?? []
+    writeIfChanged(join(cfgDir, name), [`// DuelPlay ${mode} config`, ...rules].join('\n') + '\n')
   }
   const gsi = `"DuelPlay"\n{\n  "uri" "http://127.0.0.1:${MANAGER_PORT}/gsi"\n  "timeout" "1.0"\n  "buffer" "0.0"\n  "throttle" "0.0"\n  "heartbeat" "1.0"\n  "auth"\n  {\n    "token" "${GSI_TOKEN}"\n  }\n  "output"\n  {\n    "precision_time" "3"\n    "precision_position" "1"\n    "precision_vector" "3"\n  }\n  "data"\n  {\n    "provider" "1"\n    "map" "1"\n    "map_round_wins" "1"\n    "round" "1"\n    "player_id" "1"\n    "player_state" "1"\n    "player_match_stats" "1"\n    "player_weapons" "1"\n    "allplayers" "1"\n    "allplayers_id" "1"\n    "allplayers_state" "1"\n    "allplayers_match_stats" "1"\n    "allplayers_weapons" "1"\n    "allplayers_position" "1"\n    "allgrenades" "1"\n    "phase_countdowns" "1"\n  }\n}\n`;
   const gsiPath = join(cfgDir, 'gamestate_integration_duelplay.cfg');
@@ -858,6 +977,43 @@ async function claimAndStart(match) {
   const workshopId = claimed.workshopId ? String(claimed.workshopId).trim() : '';
   const workshopSourceFolder = resolveWorkshopSourceFolder(workshopId);
   const firstToTen = resolveEffectiveMode(mode, weaponModifier) === 'FIRST_TO_10';
+  
+// Extract mode-specific settings from claimed snapshot — single source of truth.
+  // Path must be claimed.modeConfigSnapshot.mode.settings.{gravityPercent|speedPercent|gravityPercentByMap}
+  // Map ID comes from claimed.mapId (set by claim API from DB match record).
+  let modeSettings = {};
+  const claimedSnapshot = claimed.modeConfigSnapshot;
+  if (claimedSnapshot && typeof claimedSnapshot === 'object' && !Array.isArray(claimedSnapshot)) {
+    const modeCfg = claimedSnapshot.mode;
+    if (modeCfg && typeof modeCfg === 'object') {
+      const settings = modeCfg.settings;
+      if (settings && typeof settings === 'object') {
+        // LOW_GRAVITY: gravityPercent from snapshot, map-specific override via gravityPercentByMap[mapId]
+        if (mode === 'LOW_GRAVITY' && settings.gravityPercent !== undefined) {
+          modeSettings.gravityPercent = settings.gravityPercent;
+          // Map-specific override: if mapId is known and gravityPercentByMap has an entry for it, use it
+          if (settings.gravityPercentByMap && claimed.mapId) {
+            const mapSpecific = settings.gravityPercentByMap[claimed.mapId];
+            if (mapSpecific !== undefined && [20, 40, 50, 60, 70, 80, 100].includes(mapSpecific)) {
+              modeSettings.gravityPercent = mapSpecific;
+            }
+          }
+        }
+        // SPEED_DUEL: speedPercent from snapshot only
+        if (mode === 'SPEED_DUEL' && settings.speedPercent !== undefined) {
+          modeSettings.speedPercent = settings.speedPercent;
+        }
+      }
+    }
+  }
+  // Fail-closed: if LOW_GRAVITY or SPEED_DUEL mode has no valid settings from snapshot,
+  // the match claim is declined — no defaults 60%/140% are substituted, and the
+  // match config API will return INVALID_MODE_CONFIG, preventing server start.
+  if ((mode === 'LOW_GRAVITY' || mode === 'SPEED_DUEL') && Object.keys(modeSettings).length === 0) {
+    throw new Error('MODE_CONFIG_UNAVAILABLE');
+  }
+  // If modeSettings is empty after extraction (for non-LOW_GRAVITY/SPEED_DUEL modes),
+  // writeConfigs() will use defaults.
   const mapConfigNames = buildMapConfigNames(match.mapName, workshopId, workshopSourceFolder);
   writeMatchMapConfig(mapConfigNames, mode, weaponModifier, randomWeapon);
   const mapLaunchArgs = buildMapLaunchArgs(match.mapName, workshopId);
@@ -871,7 +1027,9 @@ async function claimAndStart(match) {
     ...(weaponModifier === 'DEAGLE_ONLY' || mode === 'DEAGLE_ONLY' ? ['+exec', 'duelplay_deagle'] : []),
     ...(weaponModifier === 'KNIFE_ONLY' || mode === 'KNIFE_ONLY' ? ['+exec', 'duelplay_knife'] : []),
     ...(weaponModifier === 'HEADSHOT_ONLY' || mode === 'HEADSHOT_ONLY' ? ['+exec', 'duelplay_headshot'] : []),
-    ...(mode === 'FIRST_TO_10' ? ['+exec', 'duelplay_first_to_10'] : [])
+    ...(mode === 'FIRST_TO_10' ? ['+exec', 'duelplay_first_to_10'] : []),
+    ...(mode === 'LOW_GRAVITY' ? ['+exec', 'duelplay_low_gravity'] : []),
+    ...(mode === 'SPEED_DUEL' ? ['+exec', 'duelplay_speed_duel'] : [])
   ];
   reportTechnicalEvent({ source: 'server-manager', category: 'match.server-assigned', severity: 'INFO', message: 'Manager claimed a match server.', matchId: match.id, correlationId: match.id, details: { serverId: SERVER_ID, port: runtimePort } });
   const portAvailable = await isPortAvailable(runtimePort);
@@ -916,6 +1074,7 @@ async function claimAndStart(match) {
     mode,
     weaponModifier,
     randomWeapon,
+    settings: modeSettings,
     host: runtimeHost,
     port: runtimePort,
     process: child,
@@ -1128,7 +1287,7 @@ async function reportManagerHealth() {
   if (current || Date.now() - lastManagerHeartbeatAt < MANAGER_HEARTBEAT_MS) return;
   await api('/api/server-manager/health', {
     method: 'POST',
-    body: JSON.stringify({ serverName: SERVER_ID, host: HOST, port: PORT, managerPort: MANAGER_PORT, ready: true, managerReady: true, gameProcessReady: false, gameProcessStatus: 'STOPPED', gameProcessPid: null })
+    body: JSON.stringify({ serverName: SERVER_ID, host: HOST, port: PORT, managerPort: MANAGER_PORT, ready: true, managerReady: true, gameProcessReady: false, gameProcessStatus: 'STOPPED', gameProcessPid: null, modeConfigVersion: activeModeConfigVersion, modeConfigChecksum: activeModeConfigChecksum, modeControllerVersion, modeControllerCapabilities })
   });
   lastManagerHeartbeatAt = Date.now();
 }
@@ -1392,7 +1551,7 @@ function detectWinner(body) {
 createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(managerHealthSnapshot({ serverId: SERVER_ID, gamePort: PORT, managerPort: MANAGER_PORT, current, readyAt: serverReadyAt, lastGsiAt })));
+    res.end(JSON.stringify(managerHealthSnapshot({ serverId: SERVER_ID, gamePort: PORT, managerPort: MANAGER_PORT, current, readyAt: serverReadyAt, lastGsiAt, modeConfigVersion: activeModeConfigVersion, modeConfigChecksum: activeModeConfigChecksum, modeControllerVersion, modeControllerCapabilities })));
     return;
   }
   if (req.method === 'POST' && req.url === '/gsi') {
@@ -1415,6 +1574,9 @@ createServer((req, res) => {
 }).listen(MANAGER_PORT, '127.0.0.1', () => {
   console.log(`[DuelPlay] manager listening on 127.0.0.1:${MANAGER_PORT}`);
   reportTechnicalEvent({ source: 'server-manager', category: 'manager.started', severity: 'INFO', message: 'Server manager started and is accepting local requests.', details: { managerPort: MANAGER_PORT } });
+  void pollModeConfig();
+  const modeConfigPollTimer = setInterval(() => { void pollModeConfig(); }, MODE_CONFIG_POLL_MS);
+  modeConfigPollTimer.unref();
   void technicalEventOutbox.flush();
   const retryTimer = setInterval(() => { void technicalEventOutbox.flush(); }, 30_000);
   retryTimer.unref();
@@ -1500,7 +1662,10 @@ async function loop() {
       if (!current) return;
       try {
         const state = await api(`/api/matches/${current.id}`);
-        if (['FINISHED', 'CANCELLED'].includes(state.match?.status)) command('quit');
+        if (['FINISHED', 'CANCELLED'].includes(state.match?.status)) {
+      resetModeConfigs();
+      command('quit');
+    }
       } catch (error) { console.error('[DuelPlay] state poll failed', error); }
     }
   } catch (error) {
@@ -1519,6 +1684,7 @@ async function shutdown() {
   clearCurrentTimers();
   const active = current;
   if (active) {
+    resetModeConfigs();
     command('quit');
     setTimeout(() => process.exit(0), 15000).unref();
   } else {
