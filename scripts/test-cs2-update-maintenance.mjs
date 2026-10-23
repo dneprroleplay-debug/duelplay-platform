@@ -28,6 +28,8 @@ const checks = [
   ['maintenance disable retries before giving up', updater.includes('async function disableMaintenance()') && updater.includes('attempt <= 3')],
   ['SIGTERM/SIGINT restore a pre-mutation window', updater.includes("process.on('SIGTERM'") && updater.includes('finishAndExit')],
   ['the successful path still disables maintenance', updater.includes('maintenance was disabled and the site returned to service')],
+  ['the idempotent skip returns before app_update and full synchronization', updater.indexOf("if (plan.action === 'SKIP')") > -1 && updater.indexOf("if (plan.action === 'SKIP')") < updater.indexOf('if (plan.runSteamCmd)')],
+  ['successful build state is persisted atomically', updater.includes('function persistUpdateState(state)') && updater.includes('renameSync(tempPath, STATE_FILE)') && updater.includes('createSuccessfulState(buildIdAfter, sharedBuildAfter)')],
 
   // The schedule itself must stay exact and timezone-aware.
   ['timer runs daily at 05:00 Europe/Kyiv', timer.includes('OnCalendar=*-*-* 05:00:00 Europe/Kyiv')],

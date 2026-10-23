@@ -12,6 +12,11 @@ export function parseBooleanFlag(value) {
   return TRUE_VALUES.has(String(value ?? '').trim().toLowerCase());
 }
 
+export function parseSteamPublicBuildId(output) {
+  const match = String(output ?? '').match(/"branches"\s*\{\s*"public"\s*\{\s*"buildid"\s*"(\d+)"/i);
+  return match ? match[1] : null;
+}
+
 export function isDeepVerifyDay(now = new Date(), deepVerifyUtcDay = DEEP_VERIFY_UTC_DAY) {
   return now.getUTCDay() === deepVerifyUtcDay;
 }
@@ -38,6 +43,44 @@ export function selectSyncMode({
   if (isDeepVerifyDay(now, deepVerifyUtcDay)) reasons.push('scheduled UTC deep-verification day');
   if (!previousRunWasSuccessful(previousStatus)) reasons.push(`previous update status is ${previousStatus ?? 'unknown'} (not SUCCEEDED)`);
   return { deep: reasons.length > 0, reasons };
+}
+
+export function selectUpdateAction({
+  latestBuildId,
+  installedBuildId,
+  previousStatus,
+  state,
+  sharedIntegrityVerified,
+  instancesSynced,
+  forceDeep = false,
+  scheduledDeep = false,
+} = {}) {
+  if (!latestBuildId || !installedBuildId) {
+    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: 'Steam or installed Build ID is unavailable' };
+  }
+  if (latestBuildId !== installedBuildId) {
+    return { action: 'UPDATE', runSteamCmd: true, runSync: true, deep: true, reason: `Build ID changed (${installedBuildId} -> ${latestBuildId})` };
+  }
+
+  const lastSuccessful = state?.lastSuccessful;
+  const lastAttempt = state?.lastAttempt?.result;
+  const validPriorSuccess = previousStatus === 'SUCCEEDED'
+    && lastSuccessful?.result === 'SUCCEEDED'
+    && lastSuccessful.buildId === latestBuildId
+    && ['SUCCEEDED', 'SKIPPED'].includes(lastAttempt);
+  if (!validPriorSuccess) {
+    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: `previous update state is ${previousStatus ?? 'unknown'} or unverified` };
+  }
+  if (!sharedIntegrityVerified) {
+    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: 'shared installation integrity is not confirmed' };
+  }
+  if (forceDeep || scheduledDeep) {
+    return { action: 'VERIFY', runSteamCmd: false, runSync: true, deep: true, reason: forceDeep ? 'forced deep verification' : 'scheduled deep verification' };
+  }
+  if (!instancesSynced) {
+    return { action: 'SYNC', runSteamCmd: false, runSync: true, deep: false, reason: 'one or more instance roots differ from the confirmed shared build' };
+  }
+  return { action: 'SKIP', runSteamCmd: false, runSync: false, deep: false, reason: 'Steam Build ID, saved success state, shared hashes, and all three instance roots match' };
 }
 
 export async function syncInstances({ servers, deep, sync, verify, log = () => {} }) {
