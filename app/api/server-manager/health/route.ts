@@ -20,7 +20,12 @@ export async function POST(request: NextRequest) {
   const gameProcessReady = data.gameProcessReady === true;
   const gameProcessStatus = typeof data.gameProcessStatus === "string" && ["STOPPED", "STARTING", "READY", "ERROR", "STOPPING"].includes(data.gameProcessStatus) ? data.gameProcessStatus : gameProcessReady ? "READY" : "STOPPED";
   const processId = Number.isInteger(data.gameProcessPid) && Number(data.gameProcessPid) > 0 ? Number(data.gameProcessPid) : null;
-  if (!/^cs2-[1-9]\d*$/.test(name) || !host || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(managerPort) || managerPort < 1 || managerPort > 65535 || typeof data.ready !== "boolean" || (data.managerReady !== undefined && typeof data.managerReady !== "boolean") || (data.gameProcessReady !== undefined && typeof data.gameProcessReady !== "boolean")) {
+  const hasModeConfigVersion = Object.hasOwn(data, "modeConfigVersion");
+  const modeConfigVersion = data.modeConfigVersion === null || data.modeConfigVersion === undefined ? null : Number(data.modeConfigVersion);
+  const modeConfigChecksum = data.modeConfigChecksum === null || data.modeConfigChecksum === undefined ? null : String(data.modeConfigChecksum);
+  const modeControllerVersion = data.modeControllerVersion === null || data.modeControllerVersion === undefined ? null : String(data.modeControllerVersion);
+  const modeControllerCapabilities = data.modeControllerCapabilities === undefined ? null : data.modeControllerCapabilities;
+  if (!/^cs2-[1-9]\d*$/.test(name) || !host || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(managerPort) || managerPort < 1 || managerPort > 65535 || typeof data.ready !== "boolean" || (data.managerReady !== undefined && typeof data.managerReady !== "boolean") || (data.gameProcessReady !== undefined && typeof data.gameProcessReady !== "boolean") || (hasModeConfigVersion && modeConfigVersion !== null && (!Number.isInteger(modeConfigVersion) || modeConfigVersion < 0)) || (modeConfigChecksum !== null && !/^[a-f0-9]{64}$/i.test(modeConfigChecksum)) || (modeControllerVersion !== null && modeControllerVersion.length > 64) || (modeControllerCapabilities !== null && (!Array.isArray(modeControllerCapabilities) || modeControllerCapabilities.some(value => typeof value !== "string" || value.length > 64)))) {
     return NextResponse.json({ error: "INVALID_SERVER_HEALTH" }, { status: 400 });
   }
 
@@ -40,13 +45,19 @@ export async function POST(request: NextRequest) {
       const metadata = existing?.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
         ? existing.metadata as Record<string, unknown>
         : {};
+      const modeConfigMetadata = hasModeConfigVersion ? {
+        modeConfigVersion,
+        modeConfigChecksum,
+        modeControllerVersion,
+        modeControllerCapabilities,
+      } : {};
       const values = {
         host,
         port,
         status: ready ? "READY" as const : "ERROR" as const,
         processId: gameProcessReady ? processId : null,
         lastHeartbeat: now,
-        metadata: { ...metadata, managerPort, managerReady: ready, gameProcessReady, gameProcessStatus, gameProcessPid: gameProcessReady ? processId : null, heartbeatAt: now.toISOString() },
+        metadata: { ...metadata, managerPort, managerReady: ready, gameProcessReady, gameProcessStatus, gameProcessPid: gameProcessReady ? processId : null, heartbeatAt: now.toISOString(), ...modeConfigMetadata },
       };
       const server = await tx.gameServer.update({ where: { id: existing.id }, data: values });
       return { ready, busy: false, serverId: server.id };

@@ -81,6 +81,22 @@ enum MatchMode {
   RANDOM_WEAPON
   FIRST_TO_10
   GRENADE_ONLY
+  LOW_GRAVITY
+  SPEED_DUEL
+}
+
+enum GameModeConfigRevisionStatus {
+  DRAFT
+  PENDING_SYNC
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum GameModeConfigServerAckStatus {
+  PENDING
+  STAGED
+  APPLIED
+  FAILED
 }
 
 enum GameServerStatus {
@@ -692,6 +708,7 @@ model Match {
   commission    Decimal     @db.Decimal(20, 4) @default(0.0000)
   serverConfig  Json?
   gameServer    GameServer?
+  modeConfigSnapshot MatchGameModeConfigSnapshot?
   lobbyCode     String?
   demoUrl       String?
   replayUrl     String?
@@ -1179,6 +1196,78 @@ model GameServer {
 
   @@index([status])
   @@index([matchId])
+}
+
+/// Immutable revision history for the platform-wide game-mode rules.
+model GameModeConfigRevision {
+  version         Int                           @id @default(autoincrement())
+  schemaVersion   Int                           @default(1)
+  config          Json
+  checksum        String                        @db.VarChar(64)
+  status          GameModeConfigRevisionStatus  @default(DRAFT)
+  createdById     String?                       @db.Uuid
+  createdAt       DateTime                      @default(now())
+  publishedAt     DateTime?
+  rollbackOfVersion Int?
+
+  rollbackOf      GameModeConfigRevision?       @relation("GameModeConfigRollback", fields: [rollbackOfVersion], references: [version], onDelete: SetNull)
+  rollbackRevisions GameModeConfigRevision[]    @relation("GameModeConfigRollback")
+  draftState      GameModeConfigState?           @relation("GameModeConfigDraft")
+  publishedState  GameModeConfigState?           @relation("GameModeConfigPublished")
+  pendingState    GameModeConfigState?           @relation("GameModeConfigPending")
+  serverAcks      GameModeConfigServerAck[]
+  matchSnapshots  MatchGameModeConfigSnapshot[]
+
+  @@index([status, createdAt])
+  @@index([createdById, createdAt])
+}
+
+/// Private immutable rules snapshot for a match; this is a relation so public
+/// Match scalar serialization does not expose the admin configuration payload.
+model MatchGameModeConfigSnapshot {
+  matchId         String   @id @db.Uuid
+  revisionVersion Int?
+  snapshot        Json
+  createdAt       DateTime @default(now())
+
+  match           Match                   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  revision        GameModeConfigRevision? @relation(fields: [revisionVersion], references: [version], onDelete: SetNull)
+
+  @@index([revisionVersion])
+}
+
+/// The current published, pending, and draft revision pointers.
+model GameModeConfigState {
+  key              String                  @id @default("global") @db.VarChar(32)
+  draftVersion     Int?                    @unique
+  publishedVersion Int?                   @unique
+  pendingVersion   Int?                    @unique
+  updatedAt        DateTime                @updatedAt
+
+  draftRevision     GameModeConfigRevision? @relation("GameModeConfigDraft", fields: [draftVersion], references: [version], onDelete: SetNull)
+  publishedRevision GameModeConfigRevision? @relation("GameModeConfigPublished", fields: [publishedVersion], references: [version], onDelete: SetNull)
+  pendingRevision   GameModeConfigRevision? @relation("GameModeConfigPending", fields: [pendingVersion], references: [version], onDelete: SetNull)
+}
+
+/// A server acknowledgement is version- and checksum-specific; stale acks cannot
+/// satisfy the publication currently displayed in the Control Center.
+model GameModeConfigServerAck {
+  id             String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  revisionVersion Int
+  serverName     String                       @db.VarChar(64)
+  checksum       String                       @db.VarChar(64)
+  modeControllerVersion String?               @db.VarChar(64)
+  capabilities   Json?
+  status         GameModeConfigServerAckStatus @default(PENDING)
+  error          String?                      @db.VarChar(500)
+  stagedAt       DateTime?
+  appliedAt      DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  revision       GameModeConfigRevision       @relation(fields: [revisionVersion], references: [version], onDelete: Cascade)
+  @@unique([revisionVersion, serverName])
+  @@index([serverName, status, updatedAt])
 }
 
 model ServerTechnicalEvent {

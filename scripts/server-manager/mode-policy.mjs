@@ -1,38 +1,6 @@
-const WEAPONS = [
-  { weapon: 'weapon_ak47', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_m4a1', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_m4a1_silencer', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_galilar', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_famas', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_aug', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_sg556', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_awp', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_ssg08', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_g3sg1', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_scar20', slot: 'primary', category: 'rifles' },
-  { weapon: 'weapon_mac10', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_mp9', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_mp7', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_mp5sd', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_ump45', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_p90', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_bizon', slot: 'primary', category: 'smgs' },
-  { weapon: 'weapon_nova', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_xm1014', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_mag7', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_sawedoff', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_m249', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_negev', slot: 'primary', category: 'heavy' },
-  { weapon: 'weapon_glock', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_hkp2000', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_usp_silencer', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_p250', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_tec9', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_fiveseven', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_cz75a', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_deagle', slot: 'secondary', category: 'pistols' },
-  { weapon: 'weapon_revolver', slot: 'secondary', category: 'pistols' },
-];
+import { RANDOM_WEAPON_CATALOG } from '../../lib/game-mode-config.mjs';
+
+const WEAPONS = RANDOM_WEAPON_CATALOG;
 
 const WEAPON_CATEGORIES = ['pistols', 'smgs', 'rifles', 'heavy'];
 // Modes without an economy: the players get no money and no buy menu at all.

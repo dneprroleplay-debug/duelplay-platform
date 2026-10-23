@@ -6,6 +6,8 @@ import { isServerManagerRequest } from "../auth";
 import { lockMatchForUpdate } from "@/lib/match-lifecycle";
 import { getDuelMap } from "@/lib/duel-maps";
 import { assertMatchmakingAvailable } from "@/lib/maintenance";
+import { buildMatchModeConfigSnapshot, getActiveGameModeConfig } from "@/lib/game-mode-config-store";
+import { isDuelMode } from "@/lib/duel-modes";
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
       if (!locked) throw new Error("NOT_FOUND");
       const match = await tx.match.findUnique({
         where: { id: matchId },
-        include: { playerOne: { select: { steamId: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, isTestAccount: true } }, gameServer: true },
+        include: { playerOne: { select: { steamId: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, isTestAccount: true } }, playerTwo: { select: { steamId: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, isTestAccount: true } }, gameServer: true, modeConfigSnapshot: true },
       });
       if (!match) throw new Error("NOT_FOUND");
       if (!["READY","STARTING"].includes(match.status) || !match.playerTwoId || !match.playerTwo) throw new Error("NOT_READY");
@@ -43,6 +45,13 @@ export async function POST(request: NextRequest) {
       const mapConfig = getDuelMap(match.mapName);
       if (!mapConfig) throw new Error("INVALID_MAP");
       if (!mapConfig.workshopId) throw new Error("WORKSHOP_ID_MISSING");
+      if (!isDuelMode(match.mode) || !mapConfig.supportedModes[match.mode]) throw new Error("INVALID_MODE_CONFIG");
+      const activeModeConfig = await getActiveGameModeConfig(tx);
+      const storedModeSnapshot = match.modeConfigSnapshot?.snapshot;
+      const modeConfigSnapshot = storedModeSnapshot && typeof storedModeSnapshot === "object" && !Array.isArray(storedModeSnapshot)
+        ? storedModeSnapshot
+        : buildMatchModeConfigSnapshot(activeModeConfig, match.mode, mapConfig.id, mapConfig.supportedModes[match.mode]);
+      const modeConfigVersion = match.modeConfigSnapshot?.revisionVersion ?? Number((modeConfigSnapshot as Record<string, unknown>).version ?? 0);
 
       const bothTestAccounts = match.playerOne.isTestAccount === true && match.playerTwo?.isTestAccount === true;
       if ((!match.playerOne.steamId || !match.playerTwo?.steamId) && !bothTestAccounts) throw new Error("STEAM_REQUIRED");
@@ -59,7 +68,7 @@ export async function POST(request: NextRequest) {
 
       const current = (match.serverConfig ?? {}) as Record<string, unknown>;
       await tx.match.update({ where: { id: matchId }, data: { serverConfig: { ...current, state: "STARTING", serverId: server.id, connectUrl: `steam://connect/${host}:${port}` } } });
-      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, playerOneNickname: match.playerOne.nickname, playerTwoNickname: match.playerTwo.nickname, playerOneAvatarUrl: match.playerOne.avatarUrl ?? match.playerOne.steamAvatarUrl ?? null, playerTwoAvatarUrl: match.playerTwo.avatarUrl ?? match.playerTwo.steamAvatarUrl ?? null, mapId: mapConfig.id, mapName: mapConfig.serverMapName, displayName: mapConfig.displayName, workshopId: mapConfig.workshopId, workshopUrl: `https://steamcommunity.com/sharedfiles/filedetails/?id=${mapConfig.workshopId}`, mode: match.mode, weaponModifier: match.weaponModifier ?? null };
+      return { serverId: server.id, matchId, host, port, playerOneSteamId: match.playerOne.steamId, playerTwoSteamId: match.playerTwo.steamId, playerOneNickname: match.playerOne.nickname, playerTwoNickname: match.playerTwo.nickname, playerOneAvatarUrl: match.playerOne.avatarUrl ?? match.playerOne.steamAvatarUrl ?? null, playerTwoAvatarUrl: match.playerTwo.avatarUrl ?? match.playerTwo.steamAvatarUrl ?? null, mapId: mapConfig.id, mapName: mapConfig.serverMapName, displayName: mapConfig.displayName, workshopId: mapConfig.workshopId, workshopUrl: `https://steamcommunity.com/sharedfiles/filedetails/?id=${mapConfig.workshopId}`, mode: match.mode, weaponModifier: match.weaponModifier ?? null, modeConfigVersion, modeConfigSnapshot };
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
@@ -71,10 +80,10 @@ export async function POST(request: NextRequest) {
     if (code === "SERVER_UNAVAILABLE") return NextResponse.json({ error: "No ready CS2 server is available" }, { status: 503 });
     if (code === "STEAM_REQUIRED") return NextResponse.json({ error: "Both players must have Steam linked before a server can start" }, { status: 409 });
     if (code === "INVALID_MAP") return NextResponse.json({ error: "Invalid duel map" }, { status: 409 });
+    if (code === "INVALID_MODE_CONFIG") return NextResponse.json({ error: "Unsupported or invalid mode configuration" }, { status: 409 });
     if (code === "WORKSHOP_ID_MISSING") return NextResponse.json({ error: "Workshop ID is missing for this duel map" }, { status: 409 });
     if (code === "ALREADY_CLAIMED" || code === "SERVER_BUSY") return NextResponse.json({ error: "Server is already busy" }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Could not claim server" }, { status: 500 });
   }
 }
-

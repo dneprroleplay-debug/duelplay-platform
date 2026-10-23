@@ -1,4 +1,4 @@
-export function managerHealthSnapshot({ serverId, gamePort, managerPort, current, readyAt, lastGsiAt = 0, now = Date.now() }) {
+export function managerHealthSnapshot({ serverId, gamePort, managerPort, current, readyAt, lastGsiAt = 0, modeConfigVersion = null, modeConfigChecksum = null, modeControllerVersion = null, modeControllerCapabilities = [], now = Date.now() }) {
   const child = current?.process;
   const running = Boolean(child?.pid && child.exitCode === null && child.signalCode === null);
   const status = !running ? 'STOPPED' : readyAt ? 'READY' : 'STARTING';
@@ -12,6 +12,10 @@ export function managerHealthSnapshot({ serverId, gamePort, managerPort, current
     gameProcessStatus: status,
     gameProcessPid: running ? child.pid : null,
     matchId: current?.id ?? null,
+    modeConfigVersion,
+    modeConfigChecksum,
+    modeControllerVersion,
+    modeControllerCapabilities,
     gsiAgeMs: lastGsiAt ? now - lastGsiAt : null,
   };
 }
