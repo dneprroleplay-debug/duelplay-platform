@@ -16,8 +16,8 @@ export function isDeepVerifyDay(now = new Date(), deepVerifyUtcDay = DEEP_VERIFY
   return now.getUTCDay() === deepVerifyUtcDay;
 }
 
-export function previousRunWasUnsuccessful(status) {
-  return status === 'FAILED' || status === 'RUNNING';
+export function previousRunWasSuccessful(status) {
+  return status === 'SUCCEEDED';
 }
 
 export function selectSyncMode({
@@ -36,7 +36,7 @@ export function selectSyncMode({
   }
   if (forceDeep) reasons.push('DUELPLAY_CS2_DEEP_VERIFY is enabled');
   if (isDeepVerifyDay(now, deepVerifyUtcDay)) reasons.push('scheduled UTC deep-verification day');
-  if (previousRunWasUnsuccessful(previousStatus)) reasons.push(`previous update status is ${previousStatus}`);
+  if (!previousRunWasSuccessful(previousStatus)) reasons.push(`previous update status is ${previousStatus ?? 'unknown'} (not SUCCEEDED)`);
   return { deep: reasons.length > 0, reasons };
 }
 

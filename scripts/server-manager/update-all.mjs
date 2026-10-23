@@ -1,19 +1,20 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createSocket } from 'node:dgram';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
 import { CONTROL_FILES, parseBooleanFlag, selectSyncMode, syncInstances } from './sync-policy.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
+const SHARED_ENV = parseEnvFile(join(CONFIG_DIR, '.env'));
 const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
 const GAME_DIR = join(COMMON_DIR, 'game');
 const LOG_DIR = process.env.DUELPLAY_CS2_UPDATE_LOG_DIR || '/home/ubuntu/cs2/update-logs';
 const BACKUP_DIR = process.env.DUELPLAY_CS2_UPDATE_BACKUP_DIR || '/home/ubuntu/cs2/update-backups';
-const API_URL = String(process.env.DUELPLAY_API_URL || '').replace(/\/$/, '');
-const MANAGER_SECRET = process.env.DUELPLAY_SERVER_MANAGER_SECRET || '';
+const API_URL = String(process.env.DUELPLAY_API_URL || SHARED_ENV.DUELPLAY_API_URL || '').replace(/\/$/, '');
+const MANAGER_SECRET = process.env.DUELPLAY_SERVER_MANAGER_SECRET || SHARED_ENV.DUELPLAY_SERVER_MANAGER_SECRET || '';
 const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
 const APP_ID = String(process.env.CS2_APP_ID || '730');
 const DRAIN_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_DRAIN_TIMEOUT_MS || 60 * 60_000);
@@ -38,7 +39,24 @@ function required(value, name) {
   return value;
 }
 
+function parseEnvFile(filePath) {
+  if (!existsSync(filePath)) throw new Error(`Missing per-server environment file: ${filePath}`);
+  const values = {};
+  for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    values[match[1]] = value;
+  }
+  return values;
+}
+
 const servers = loadInstanceRegistry(CONFIG_DIR);
+const expectedServerOrder = ['cs2-1', 'cs2-2', 'cs2-3'];
+if (servers.map(server => server.name).join(',') !== expectedServerOrder.join(',')) {
+  throw new Error(`Expected exactly ${expectedServerOrder.join(',')} in numeric instance order; found ${servers.map(server => server.name).join(',') || 'none'}.`);
+}
 
 async function managerApi(path, init = {}) {
   const response = await fetch(`${required(API_URL, 'DUELPLAY_API_URL')}${path}`, {
@@ -191,6 +209,11 @@ function verifyInstanceMatchesShared(server, sharedBuild) {
 function verifyPerServerComponents() {
   const manifest = JSON.parse(readFileSync(new URL('./component-bundle/manifest.json', import.meta.url), 'utf8'));
   validateComponentManifest(manifest);
+  if (manifest.approval === 'UNVERIFIED' && manifest.compatibility === 'UNKNOWN') {
+    verifyProductionPluginParity();
+    log(`Component bundle ${manifest.bundleVersion} is unverified; existing production plugin files were checked for parity and will be preserved. Missing secondary copies can only be restored from cs2-3 under maintenance.`);
+    return;
+  }
   if (manifest.approval !== 'APPROVED' || manifest.compatibility !== 'VERIFIED' || manifest.components.some(item => !item.sha256 || !item.version)) {
     throw new Error(`Component bundle ${manifest.bundleVersion} is not approved or fully versioned; update is blocked before SteamCMD. No files were changed.`);
   }
@@ -203,6 +226,59 @@ function verifyPerServerComponents() {
   }
   if (failures.length) throw new Error(`Component integrity check failed: ${failures.join(', ')}. No component files were copied or repaired.`);
   log(`All ${servers.length} registered instances match approved component bundle ${manifest.bundleVersion}.`);
+}
+
+function verifyProductionPluginParity() {
+  const referenceServer = servers.find(server => server.name === 'cs2-3');
+  if (!referenceServer) throw new Error('Production plugin reference instance cs2-3 is missing.');
+  const protectedFiles = [
+    'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll',
+    'csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so',
+    'csgo/addons/metamod/duelplayplayeravatar.vdf',
+    'csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll',
+  ];
+  for (const relativePath of protectedFiles) {
+    const referencePath = join(referenceServer.root, relativePath);
+    if (!existsSync(referencePath)) throw new Error(`Protected production component is missing on cs2-3: ${relativePath}`);
+    const referenceHash = hashFile(referencePath);
+    for (const server of servers) {
+      const componentPath = join(server.root, relativePath);
+      if (!existsSync(componentPath)) {
+        if (server.name === referenceServer.name) throw new Error(`Protected production component is missing on cs2-3: ${relativePath}`);
+        log(`${server.name}: protected component ${relativePath} is missing; existing cs2-3 copy will be used only after maintenance begins.`);
+        continue;
+      }
+      const actualHash = hashFile(componentPath);
+      if (actualHash !== referenceHash) throw new Error(`Protected production component differs on ${server.name}: ${relativePath}; leaving all copies untouched.`);
+    }
+  }
+}
+
+function copyFromWorkingServer(source, target, label) {
+  if (!existsSync(source)) throw new Error(`Reference ${label} is missing on cs2-3: ${source}`);
+  mkdirSync(dirname(target), { recursive: true });
+  if (existsSync(target)) {
+    if (hashFile(source) !== hashFile(target)) throw new Error(`${label} differs on ${target}; leaving it untouched for review.`);
+    return;
+  }
+  copyFileSync(source, target);
+  log(`Installed missing ${label} into ${target} from the existing cs2-3 build.`);
+}
+
+function ensurePerServerPlugins() {
+  const reference = servers.find(server => server.name === 'cs2-3').root;
+  const requiredFiles = [
+    ['csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll', 'nickname plugin'],
+    ['csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so', 'player avatar plugin'],
+    ['csgo/addons/metamod/duelplayplayeravatar.vdf', 'player avatar Metamod loader'],
+  ];
+  for (const server of servers) {
+    for (const [relativePath, label] of requiredFiles) {
+      copyFromWorkingServer(join(reference, relativePath), join(server.root, relativePath), `${label} (${server.name})`);
+    }
+    const grenadePlugin = join(server.root, 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll');
+    if (!existsSync(grenadePlugin)) throw new Error(`Grenade plugin is missing on ${server.name}: ${grenadePlugin}`);
+  }
 }
 
 function ensureMetamodEntry(contents) {
@@ -441,6 +517,7 @@ async function main() {
   // From here on the shared server files can change; maintenance must stay enabled even on
   // failure so players never join a half-updated server.
   mutationStarted = true;
+  ensurePerServerPlugins();
   await runProcess(STEAMCMD_BIN, [
     '+force_install_dir', COMMON_DIR,
     '+login', 'anonymous',

@@ -22,6 +22,7 @@ const checks = [
   ['an interrupted previous run is detected', updater.includes("before.updateStatus?.status === 'RUNNING'")],
   ['pre-flight failures restore the previous maintenance state', updater.includes('restoreMaintenanceIfSafe(') && updater.includes('maintenanceTouched')],
   ['a mutation boundary is recorded before SteamCMD', updater.indexOf('mutationStarted = true;') > -1 && updater.indexOf('mutationStarted = true;') < updater.indexOf("await runProcess(STEAMCMD_BIN")],
+  ['production plugin parity is checked before maintenance and missing files are repaired only after the mutation boundary', updater.includes('function ensurePerServerPlugins()') && updater.indexOf('verifyPerServerComponents();') < updater.indexOf('await setMaintenance(true);') && updater.indexOf('mutationStarted = true;') < updater.indexOf('ensurePerServerPlugins();')],
   ['server-changing failures keep maintenance enabled', updater.includes("mutationStarted) return false")],
   ['success disables maintenance even if status recording fails', updater.includes('Could not record success status') && updater.includes('await disableMaintenance()')],
   ['maintenance disable retries before giving up', updater.includes('async function disableMaintenance()') && updater.includes('attempt <= 3')],

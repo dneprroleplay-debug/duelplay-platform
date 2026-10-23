@@ -73,14 +73,17 @@ test('uses full checksum when the previous run failed or was interrupted', () =>
   }
 });
 
-test('does not treat an unknown previous status or missing build id as a verified no-op', () => {
-  const unknownStatus = selectSyncMode({
-    buildIdBefore: '26144732',
-    buildIdAfter: '26144732',
-    previousStatus: null,
-    now: MONDAY,
-  });
-  assert.equal(unknownStatus.deep, false);
+test('uses full checksum when the previous status is missing or unknown', () => {
+  for (const previousStatus of [null, undefined, 'PENDING', 'UNKNOWN']) {
+    const unknownStatus = selectSyncMode({
+      buildIdBefore: '26144732',
+      buildIdAfter: '26144732',
+      previousStatus,
+      now: MONDAY,
+    });
+    assert.equal(unknownStatus.deep, true, String(previousStatus));
+    assert.match(unknownStatus.reasons.join('; '), /previous update status is .*not SUCCEEDED/);
+  }
 
   const missingBuildId = selectSyncMode({
     buildIdBefore: null,
