@@ -1,9 +1,11 @@
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createSocket } from 'node:dgram';
 import { join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
+import { CONTROL_FILES, parseBooleanFlag, selectSyncMode, syncInstances } from './sync-policy.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
@@ -17,6 +19,8 @@ const APP_ID = String(process.env.CS2_APP_ID || '730');
 const DRAIN_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_DRAIN_TIMEOUT_MS || 60 * 60_000);
 const MANAGER_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_MANAGER_TIMEOUT_MS || 180_000);
 const SMOKE_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_SMOKE_TIMEOUT_MS || 180_000);
+const SYNC_MARKER = process.env.DUELPLAY_CS2_SYNC_MARKER || join(COMMON_DIR, '.duelplay-sync-in-progress');
+const FORCE_DEEP_VERIFY = parseBooleanFlag(process.env.DUELPLAY_CS2_DEEP_VERIFY);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const stamp = new Date().toISOString().replaceAll(':', '-');
 
@@ -88,6 +92,100 @@ function runProcess(command, args, options = {}) {
       else reject(new Error(`${command} failed (exit=${code ?? 'null'}, signal=${signal ?? 'none'})`));
     });
   });
+}
+
+function hashFile(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function readCs2Build(root) {
+  try {
+    const contents = readFileSync(join(root, 'csgo', 'steam.inf'), 'utf8');
+    const match = contents.match(/^ServerVersion=(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSharedBuildId() {
+  try {
+    const contents = readFileSync(join(COMMON_DIR, 'steamapps', 'appmanifest_730.acf'), 'utf8');
+    const match = contents.match(/"buildid"\s+"(\d+)"/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function cs2ProcessesRunning() {
+  try {
+    const result = spawnSync('pgrep', ['-x', 'cs2'], { encoding: 'utf8' });
+    return result.status === 0 && String(result.stdout || '').trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function beginSyncMarker() {
+  writeFileSync(SYNC_MARKER, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { mode: 0o600 });
+  log(`Sync marker created: ${SYNC_MARKER}. New match starts are blocked until the update finishes.`);
+}
+
+function clearSyncMarker(reason) {
+  try {
+    if (existsSync(SYNC_MARKER)) {
+      unlinkSync(SYNC_MARKER);
+      log(`Sync marker removed (${reason}).`);
+    }
+  } catch (error) {
+    log(`Could not remove sync marker (${reason}): ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+}
+
+async function assertInstancesIdle() {
+  for (const server of servers) {
+    let health;
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.managerPort}/health`, { signal: AbortSignal.timeout(3000) });
+      health = await response.json();
+    } catch (error) {
+      throw new Error(`${server.name}: manager health is unavailable; deferring update (${error instanceof Error ? error.message : 'unknown error'}).`);
+    }
+    if (!health || health.ok !== true || health.matchId || health.gameProcessStatus !== 'STOPPED' || health.gameProcessPid) {
+      throw new Error(`${server.name}: not idle (matchId=${health?.matchId ?? 'unknown'}, status=${health?.gameProcessStatus ?? 'unknown'}, pid=${health?.gameProcessPid ?? 'unknown'}); deferring update.`);
+    }
+  }
+  if (cs2ProcessesRunning()) throw new Error('A CS2 process is running outside the manager idle state; deferring update.');
+  log(`All ${servers.length} instances report STOPPED with no assigned match; safe to update.`);
+}
+
+async function syncInstanceFromShared(server, deep) {
+  await runProcess('rsync', [
+    '-a',
+    ...(deep ? ['--checksum'] : []),
+    '--exclude=/steamapps',
+    '--exclude=/csgo/addons',
+    '--exclude=/csgo/cfg',
+    '--exclude=/csgo/logs',
+    '--exclude=/csgo/replays',
+    '--exclude=/csgo/screenshots',
+    `${GAME_DIR}/`, `${server.root}/`
+  ], { cwd: COMMON_DIR });
+}
+
+function verifyInstanceMatchesShared(server, sharedBuild) {
+  const instanceBuild = readCs2Build(server.root);
+  if (instanceBuild !== sharedBuild) throw new Error(`${server.name}: version ${instanceBuild ?? 'unknown'} does not match shared ${sharedBuild}.`);
+  for (const relativePath of CONTROL_FILES) {
+    const sharedPath = join(GAME_DIR, relativePath);
+    const instancePath = join(server.root, relativePath);
+    if (!existsSync(sharedPath) || !existsSync(instancePath)) throw new Error(`${server.name}: control file ${relativePath} is missing.`);
+    const sharedHash = hashFile(sharedPath);
+    const instanceHash = hashFile(instancePath);
+    if (sharedHash !== instanceHash) throw new Error(`${server.name}: control file ${relativePath} hash ${instanceHash} does not match shared ${sharedHash}.`);
+  }
+  log(`${server.name}: build ${instanceBuild} and control files match the shared installation.`);
 }
 
 function verifyPerServerComponents() {
@@ -300,8 +398,12 @@ async function finishAndExit(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   log(`Received ${signal}; stopping the update safely.`);
-  if (!mutationStarted) await restoreMaintenanceIfSafe(`${signal} before server changes`);
-  else log('The update had already started changing the server; maintenance stays enabled until it finishes.');
+  if (!mutationStarted) {
+    await restoreMaintenanceIfSafe(`${signal} before server changes`);
+    clearSyncMarker(`${signal} before server changes`);
+  } else {
+    log('The update had already started changing the server; maintenance and the sync marker stay in place until the update finishes.');
+  }
   await new Promise(resolve => logFile.end(resolve));
   process.exit(signal === 'SIGINT' ? 130 : 143);
 }
@@ -313,11 +415,15 @@ async function main() {
   required(API_URL, 'DUELPLAY_API_URL');
   required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
   log(`CS2 shared-install update started; persistent log: ${logPath}`);
+  const buildIdBefore = readSharedBuildId();
+  log(`Shared CS2 build before update: ${readCs2Build(GAME_DIR) ?? 'unknown'} (buildid ${buildIdBefore ?? 'unknown'}).`);
+  for (const server of servers) log(`${server.name}: instance build before update: ${readCs2Build(server.root) ?? 'unknown'}.`);
   verifyPerServerComponents();
 
   // A previous run that was killed (timeout, reboot, OOM) leaves the status at RUNNING.
   // This run owns the flock now, so treat that status as interrupted and keep going.
   const before = await getMaintenanceSnapshot();
+  const previousStatus = before.updateStatus?.status ?? null;
   previousMaintenance = before.maintenance === true;
   if (before.updateStatus?.status === 'RUNNING') {
     log(`Previous update status is still RUNNING (started ${before.updateStatus.startedAt ?? 'unknown'}); treating it as interrupted by a crash or reboot.`);
@@ -328,7 +434,9 @@ async function main() {
   maintenanceTouched = true;
   await setUpdateStatus('RUNNING');
   log('Website maintenance is enabled.');
+  beginSyncMarker();
   await waitForMatchDrain();
+  await assertInstancesIdle();
 
   // From here on the shared server files can change; maintenance must stay enabled even on
   // failure so players never join a half-updated server.
@@ -340,6 +448,27 @@ async function main() {
     '+quit',
   ], { cwd: GAME_DIR });
   log('SteamCMD validated the single shared CS2 installation.');
+  const sharedBuildAfter = readCs2Build(GAME_DIR);
+  const buildIdAfter = readSharedBuildId();
+  log(`Shared CS2 build after SteamCMD: ${sharedBuildAfter ?? 'unknown'} (buildid ${buildIdAfter ?? 'unknown'}).`);
+  if (!sharedBuildAfter) throw new Error('Shared CS2 build version is unavailable after SteamCMD; refusing to synchronize instances.');
+
+  const { deep, reasons } = selectSyncMode({
+    buildIdBefore,
+    buildIdAfter,
+    previousStatus,
+    forceDeep: FORCE_DEEP_VERIFY,
+  });
+  log(`Synchronization mode: ${deep ? 'full checksum' : 'quick size+mtime'}${reasons.length ? ` (${reasons.join('; ')})` : ''}.`);
+
+  await syncInstances({
+    servers,
+    deep,
+    sync: syncInstanceFromShared,
+    verify: server => verifyInstanceMatchesShared(server, sharedBuildAfter),
+    log,
+  });
+  log(`All ${servers.length} instance roots are synchronized with the shared CS2 build.`);
 
   syncPerServerGameInfo();
   for (const server of servers) await smokeCheckServer(server);
@@ -354,6 +483,7 @@ async function main() {
   if (!(await disableMaintenance())) {
     throw new Error('Update completed but maintenance could not be disabled through the app API; verify the site and lift it manually.');
   }
+  clearSyncMarker('update completed successfully');
   log('All smoke tests passed; maintenance was disabled and the site returned to service.');
 }
 
@@ -375,5 +505,6 @@ try {
     process.exitCode = 1;
   }
 } finally {
+  if (!mutationStarted) clearSyncMarker('update stopped before server mutations');
   if (!shuttingDown) await new Promise(resolve => logFile.end(resolve));
 }

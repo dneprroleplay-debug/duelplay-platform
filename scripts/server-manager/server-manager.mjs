@@ -39,6 +39,8 @@ const RESULT_SECRET = required('CS2_RESULT_SECRET');
 const GSI_TOKEN = required('CS2_GSI_TOKEN');
 const CS2_DIR = process.env.CS2_DIR || '/home/ubuntu/cs2/game';
 const CS2_STEAMCMD_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
+const CS2_UPDATE_MARKER = process.env.DUELPLAY_CS2_SYNC_MARKER || join(CS2_STEAMCMD_DIR, '.duelplay-sync-in-progress');
+const CS2_UPDATE_MARKER_MAX_AGE_MS = 4 * 60 * 60_000;
 const CS2_SCRIPT = join(CS2_DIR, 'cs2.sh');
 const CS2_AUTO_UPDATE = !['0', 'false', 'no'].includes(String(process.env.CS2_AUTO_UPDATE ?? 'true').toLowerCase());
 const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
@@ -815,8 +817,35 @@ function observeServerLine(text) {
   }
 }
 
+function readCs2Build(root) {
+  try {
+    const contents = readFileSync(join(root, 'csgo', 'steam.inf'), 'utf8');
+    const match = contents.match(/^ServerVersion=(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function cs2UpdateInProgress() {
+  try {
+    return Date.now() - statSync(CS2_UPDATE_MARKER).mtimeMs < CS2_UPDATE_MARKER_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+}
+
+let lastUpdateDeferralLogAt = 0;
+
 async function claimAndStart(match) {
   if (current) return;
+  if (cs2UpdateInProgress()) {
+    if (Date.now() - lastUpdateDeferralLogAt > 60_000) {
+      console.log('[DuelPlay] CS2 update is in progress; match start is deferred.');
+      lastUpdateDeferralLogAt = Date.now();
+    }
+    return;
+  }
   const claimed = await api('/api/server-manager/claim', {
     method: 'POST',
     body: JSON.stringify({ matchId: match.id, serverName: SERVER_ID, host: HOST, port: PORT })
@@ -852,6 +881,21 @@ async function claimAndStart(match) {
       body: JSON.stringify({ action: 'failed', serverId: claimed.serverId })
     });
     throw new Error(`CS2 port ${runtimePort} is already in use`);
+  }
+
+  const sharedBuild = readCs2Build(join(CS2_STEAMCMD_DIR, 'game'));
+  const instanceBuild = readCs2Build(CS2_DIR);
+  if (!sharedBuild || !instanceBuild || sharedBuild !== instanceBuild) {
+    reportTechnicalEvent({ source: 'cs2', category: 'process.start-blocked', severity: 'CRITICAL', message: 'CS2 build mismatch; refusing to start a stale instance.', matchId: match.id, correlationId: match.id, details: { instanceBuild, sharedBuild, serverId: claimed.serverId } });
+    try {
+      await api(`/api/matches/${match.id}/server`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'failed', serverId: claimed.serverId })
+      });
+    } catch (reportError) {
+      console.error('[DuelPlay] failed to report stale CS2 build', reportError);
+    }
+    throw new Error(`CS2 build mismatch: instance ${instanceBuild ?? 'unknown'}, shared ${sharedBuild ?? 'unknown'}; refusing to start a stale server.`);
   }
 
   console.log(`[DuelPlay] starting ${match.id} on ${runtimeHost}:${runtimePort}${workshopId ? ` workshop=${workshopId}` : ''}`);
@@ -924,6 +968,9 @@ async function claimAndStart(match) {
     }
   });
   child.stderr.on('data', (chunk) => process.stderr.write(`[CS2:ERR] ${chunk}`));
+  child.stdin?.on('error', () => {});
+  child.stdout?.on('error', () => {});
+  child.stderr?.on('error', () => {});
   child.on('error', async (error) => {
     console.error('[DuelPlay] CS2 process error', error);
     const failed = current;
