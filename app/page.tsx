@@ -191,7 +191,6 @@ function HomeContent(){
         <div className="panel rounded-3xl p-8 sm:p-10"><div className="grid gap-8 lg:grid-cols-[1fr_1.5fr]"><div><span className="pill">RANKING</span><h2 className="mt-4 text-4xl font-black uppercase">{t.ratingTitle}</h2><p className="mt-3 text-zinc-500">{t.ratingText}</p></div><Ranking/></div></div>
       </section>
     </main>
-    <footer className="border-t border-white/5 py-8 text-center text-sm text-zinc-600">DUELPLAY · CS2 · <span data-no-i18n>1v1</span> · 2026</footer>
   </div>
 }
 

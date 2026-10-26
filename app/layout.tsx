@@ -7,9 +7,10 @@ import ScrollToTop from "../components/Common/ScrollToTop";
 import { ThemeProvider } from "../components/Common/ThemeProvider";
 import SiteAtmosphere from "../components/Common/SiteAtmosphere";
 import SupportWidget from "../components/Support/SupportWidget";
+import Footer from "../components/Footer/Footer";
 import MaintenanceGate from "../components/Common/MaintenanceGate";
 import LivePlatformSync from "@/components/Common/LivePlatformSync";
 import GlobalUiI18n from "../components/Common/GlobalUiI18n";
 import { DuelDialogProvider } from "../components/Common/DuelDialogProvider";
 export const metadata: Metadata = { title: "DuelPlay — Competitive Gaming", description: "CS2 competitive matchmaking platform", icons: { icon: "/branding/duelplay-logo-transparent.png" } };
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body><LanguageProvider><DuelDialogProvider><GlobalUiI18n/><AuthProvider><ThemeProvider><LivePlatformSync/><SiteAtmosphere/><Header/><SupportWidget/><MaintenanceGate>{children}</MaintenanceGate><ScrollToTop/></ThemeProvider></AuthProvider></DuelDialogProvider></LanguageProvider></body></html>}
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body><LanguageProvider><DuelDialogProvider><GlobalUiI18n/><AuthProvider><ThemeProvider><LivePlatformSync/><SiteAtmosphere/><Header/><SupportWidget/><MaintenanceGate>{children}</MaintenanceGate><Footer/><ScrollToTop/></ThemeProvider></AuthProvider></DuelDialogProvider></LanguageProvider></body></html>}
