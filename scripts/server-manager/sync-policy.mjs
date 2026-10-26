@@ -48,58 +48,79 @@ export function selectSyncMode({
 export function selectUpdateAction({
   latestBuildId,
   installedBuildId,
-  previousStatus,
-  state,
-  sharedIntegrityVerified,
-  instancesSynced,
-  forceDeep = false,
-  scheduledDeep = false,
+  instanceDrift = [],
 } = {}) {
   if (!latestBuildId || !installedBuildId) {
-    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: 'Steam or installed Build ID is unavailable' };
+    return { action: 'BLOCKED', runAppUpdate: false, runSync: false, deep: false, reason: 'Steam public or installed Build ID is unavailable' };
   }
-  if (latestBuildId !== installedBuildId) {
-    return { action: 'UPDATE', runSteamCmd: true, runSync: true, deep: true, reason: `Build ID changed (${installedBuildId} -> ${latestBuildId})` };
+  if (latestBuildId === installedBuildId) {
+    const changes = Array.isArray(instanceDrift) ? instanceDrift : [];
+    if (changes.length) {
+      return {
+        action: 'INSTANCE_DRIFT',
+        runAppUpdate: false,
+        runSync: false,
+        deep: false,
+        changes,
+        reason: `${changes.length} instance file difference(s) found while Steam Build ID is unchanged`,
+      };
+    }
+    return {
+      action: 'NO_UPDATE',
+      runAppUpdate: false,
+      runSync: false,
+      deep: false,
+      reason: `Steam public and installed Build ID both equal ${latestBuildId}`,
+    };
   }
 
-  const lastSuccessful = state?.lastSuccessful;
-  const lastAttempt = state?.lastAttempt?.result;
-  const validPriorSuccess = previousStatus === 'SUCCEEDED'
-    && lastSuccessful?.result === 'SUCCEEDED'
-    && lastSuccessful.buildId === latestBuildId
-    && ['SUCCEEDED', 'SKIPPED'].includes(lastAttempt);
-  if (!validPriorSuccess) {
-    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: `previous update state is ${previousStatus ?? 'unknown'} or unverified` };
+  return {
+    action: 'UPDATE',
+    runAppUpdate: true,
+    runSync: true,
+    deep: true,
+    reason: `Steam Build ID changed (${installedBuildId} -> ${latestBuildId})`,
+  };
+}
+
+export function assertManagersIdle(healthRecords) {
+  for (const { server, health } of healthRecords) {
+    if (!health || health.ok !== true || health.matchId || health.gameProcessStatus !== 'STOPPED' || health.gameProcessPid) {
+      throw new Error(`${server.name}: not idle (matchId=${health?.matchId ?? 'unknown'}, status=${health?.gameProcessStatus ?? 'unknown'}, pid=${health?.gameProcessPid ?? 'unknown'}); deferring update.`);
+    }
   }
-  if (!sharedIntegrityVerified) {
-    return { action: 'RECOVERY', runSteamCmd: true, runSync: true, deep: true, reason: 'shared installation integrity is not confirmed' };
+  return true;
+}
+
+export function assertSuccessfulProcessExit({ exitCode, signalCode }, label = 'process') {
+  if (signalCode || exitCode !== 0) {
+    throw new Error(`${label} did not exit cleanly (exit=${exitCode ?? 'null'}, signal=${signalCode ?? 'none'}).`);
   }
-  if (forceDeep || scheduledDeep) {
-    return { action: 'VERIFY', runSteamCmd: false, runSync: true, deep: true, reason: forceDeep ? 'forced deep verification' : 'scheduled deep verification' };
+}
+
+export function assertNoSmokeCrashOutput(output, label = 'smoke process') {
+  if (/segmentation fault|core dumped/i.test(String(output ?? ''))) {
+    throw new Error(`${label} reported a process crash in its output.`);
   }
-  if (!instancesSynced) {
-    return { action: 'SYNC', runSteamCmd: false, runSync: true, deep: false, reason: 'one or more instance roots differ from the confirmed shared build' };
-  }
-  return { action: 'SKIP', runSteamCmd: false, runSync: false, deep: false, reason: 'Steam Build ID, saved success state, shared hashes, and all three instance roots match' };
 }
 
 export async function syncInstances({ servers, deep, sync, verify, log = () => {} }) {
   let completed = 0;
   for (const server of servers) {
-    const mode = deep ? 'full checksum' : 'quick size+mtime';
-    log(`${server.name}: synchronizing game files with ${mode}.`);
+    const mode = deep ? 'checksum-based incremental' : 'quick metadata incremental';
+    log(`${server.name}: synchronizing changed game files with ${mode} mode.`);
     await sync(server, deep);
     try {
       await verify(server);
     } catch (error) {
       if (deep) throw error;
-      log(`${server.name}: quick synchronization did not verify (${error instanceof Error ? error.message : 'unknown error'}); retrying with full checksum.`);
+      log(`${server.name}: quick synchronization did not verify (${error instanceof Error ? error.message : 'unknown error'}); retrying with checksum-based incremental sync.`);
       await sync(server, true);
       try {
         await verify(server);
       } catch (fallbackError) {
         throw new Error(
-          `${server.name}: full checksum synchronization did not verify: ${fallbackError instanceof Error ? fallbackError.message : 'unknown error'}`,
+          `${server.name}: checksum-based incremental synchronization did not verify: ${fallbackError instanceof Error ? fallbackError.message : 'unknown error'}`,
           { cause: fallbackError },
         );
       }

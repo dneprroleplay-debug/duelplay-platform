@@ -8,6 +8,7 @@ const service = read('scripts/server-manager/duelplay-cs2-update.service');
 
 const canonical = 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll';
 const legacy = 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly.dll';
+const syncMutation = updater.slice(updater.indexOf('async function syncInstanceFromShared'), updater.indexOf('function verifyInstanceMatchesShared'));
 
 const checks = [
   // The plugin moved into its named subdirectory; the updater must check the path CS2
@@ -16,19 +17,25 @@ const checks = [
   ['pre-flight no longer checks the removed root-level DLL', !updater.includes(legacy)],
   ['smoke check uses the canonical plugin path', updater.includes(`['grenade plugin', '${canonical}']`)],
 
-  // Maintenance is a window around real changes, not a trap.
+  // No-update and drift runs are read-only with respect to the game installs.
+  ['same Build ID dry-runs all instances with checksums', updater.includes('rsyncDriftCheck(server)') && updater.includes("'-acni'")],
+  ['NO_UPDATE logs installed and public IDs, then returns before app_update, maintenance, markers, sync, and smoke tests', updater.includes('NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await setMaintenance(true);') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('beginSyncMarker();') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf("'+app_update'") && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await syncInstances({') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await smokeCheckServer(server)')],
+  ['INSTANCE_DRIFT is logged and never repaired automatically', updater.includes("observedPlan.action === 'INSTANCE_DRIFT'") && updater.includes('log(`INSTANCE_DRIFT server=') && updater.includes("persistAttempt('INSTANCE_DRIFT'")],
+  ['pre-existing source conflicts block a new Build ID update before maintenance', updater.indexOf('const preUpdateDrift = await inspectInstanceDrift();') < updater.indexOf('await setMaintenance(true);') && updater.includes('preExistingConflicts.length') && updater.includes('refusing to overwrite them during the official update')],
+  ['missing Build IDs cannot trigger recovery downloads', updater.includes("plan.action === 'BLOCKED'") && updater.includes('refusing to update or synchronize any files')],
+  ['SteamCMD app_update is invoked at exactly one call site', (updater.match(/\+app_update/g) ?? []).length === 1],
+  ['an update uses checksum-based rsync and never deletes destination files', syncMutation.includes("...(deep ? ['--checksum'] : [])") && !syncMutation.includes('--delete')],
+  ['drift inventory is checksum-based and read-only, including target-only paths', updater.includes("'-acni'") && updater.includes("'--delete'") && updater.includes('paired with -n only')],
+  ['per-instance configs, workshop maps and add-ons are excluded from mutation sync', ['--exclude=/csgo/addons', '--exclude=/csgo/cfg', '--exclude=/csgo/maps/workshop', '--exclude=/bin/linuxsteamrt64/steamapps/workshop', '--exclude=/csgo/gameinfo.gi'].every(value => updater.includes(value))],
+  ['protected plugins are only parity-checked, never copied or repaired', updater.includes('findProductionPluginDrift()') && !updater.includes('function ensurePerServerPlugins()') && !updater.includes('function copyFromWorkingServer(')],
   ['component verification happens before maintenance is enabled', updater.indexOf('verifyPerServerComponents();') < updater.indexOf('await setMaintenance(true);')],
-  ['the previous maintenance state is captured before enabling', updater.includes('previousMaintenance = before.maintenance === true')],
-  ['an interrupted previous run is detected', updater.includes("before.updateStatus?.status === 'RUNNING'")],
-  ['pre-flight failures restore the previous maintenance state', updater.includes('restoreMaintenanceIfSafe(') && updater.includes('maintenanceTouched')],
-  ['a mutation boundary is recorded before SteamCMD', updater.indexOf('mutationStarted = true;') > -1 && updater.indexOf('mutationStarted = true;') < updater.indexOf("await runProcess(STEAMCMD_BIN")],
-  ['production plugin parity is checked before maintenance and missing files are repaired only after the mutation boundary', updater.includes('function ensurePerServerPlugins()') && updater.indexOf('verifyPerServerComponents();') < updater.indexOf('await setMaintenance(true);') && updater.indexOf('mutationStarted = true;') < updater.indexOf('ensurePerServerPlugins();')],
-  ['server-changing failures keep maintenance enabled', updater.includes("mutationStarted) return false")],
-  ['success disables maintenance even if status recording fails', updater.includes('Could not record success status') && updater.includes('await disableMaintenance()')],
+  ['active matches/processes are rejected before any server mutation', updater.indexOf('await assertInstancesIdle();') < updater.indexOf('mutationStarted = true;') && updater.indexOf('mutationStarted = true;') < updater.indexOf('await runProcess(STEAMCMD_BIN')],
+  ['an already-running updater status blocks a second operation', updater.includes("previousStatus === 'RUNNING'") && updater.includes('refusing overlapping or uncertain maintenance')],
+  ['pre-mutation failures restore the previous maintenance state', updater.includes('restoreMaintenanceIfSafe(') && updater.includes('maintenanceTouched')],
+  ['server-changing failures keep maintenance enabled and the sync marker', updater.includes('mutationStarted) return false') && updater.includes('sync marker stay in place')],
+  ['a smoke process must exit cleanly and have no crash output before update success is recorded', updater.includes('assertSuccessfulProcessExit(child,') && updater.includes('assertNoSmokeCrashOutput(output,') && updater.indexOf('assertNoSmokeCrashOutput(output,') < updater.indexOf("await setUpdateStatus('SUCCEEDED')")],
   ['maintenance disable retries before giving up', updater.includes('async function disableMaintenance()') && updater.includes('attempt <= 3')],
   ['SIGTERM/SIGINT restore a pre-mutation window', updater.includes("process.on('SIGTERM'") && updater.includes('finishAndExit')],
-  ['the successful path still disables maintenance', updater.includes('maintenance was disabled and the site returned to service')],
-  ['the idempotent skip returns before app_update and full synchronization', updater.indexOf("if (plan.action === 'SKIP')") > -1 && updater.indexOf("if (plan.action === 'SKIP')") < updater.indexOf('if (plan.runSteamCmd)')],
   ['successful build state is persisted atomically', updater.includes('function persistUpdateState(state)') && updater.includes('renameSync(tempPath, STATE_FILE)') && updater.includes('createSuccessfulState(buildIdAfter, sharedBuildAfter)')],
 
   // The schedule itself must stay exact and timezone-aware.

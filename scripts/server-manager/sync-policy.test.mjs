@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CONTROL_FILES,
+  assertManagersIdle,
+  assertNoSmokeCrashOutput,
+  assertSuccessfulProcessExit,
   isDeepVerifyDay,
   parseSteamPublicBuildId,
   selectUpdateAction,
@@ -15,103 +18,150 @@ import {
 
 const MONDAY = new Date('2026-10-19T02:00:00.000Z');
 const SUNDAY = new Date('2026-10-18T02:00:00.000Z');
-const VALID_STATE = {
-  lastSuccessful: { result: 'SUCCEEDED', buildId: '26144732' },
-  lastAttempt: { result: 'SUCCEEDED' },
-};
-
 test('parses the current Build ID only from Steam app metadata public branch', () => {
   assert.equal(parseSteamPublicBuildId('"branches" { "public" { "buildid" "26144732" } }'), '26144732');
   assert.equal(parseSteamPublicBuildId('"branches" { "beta" { "buildid" "26144733" } }'), null);
   assert.equal(parseSteamPublicBuildId('unavailable'), null);
 });
 
-test('same current Build ID with confirmed successful state and synchronized instances skips update and sync', () => {
+test('same public and installed Build ID returns NO_UPDATE without app_update or sync, regardless of prior state', () => {
   const plan = selectUpdateAction({
     latestBuildId: '26144732',
     installedBuildId: '26144732',
-    previousStatus: 'SUCCEEDED',
-    state: VALID_STATE,
-    sharedIntegrityVerified: true,
-    instancesSynced: true,
-    now: MONDAY,
+    previousStatus: 'FAILED',
+    state: null,
+    forceDeep: true,
+    scheduledDeep: true,
   });
-  assert.equal(plan.action, 'SKIP');
-  assert.equal(plan.runSteamCmd, false);
+  assert.equal(plan.action, 'NO_UPDATE');
+  assert.equal(plan.runAppUpdate, false);
   assert.equal(plan.runSync, false);
+  assert.equal(plan.deep, false);
 });
 
-test('a changed Build ID starts SteamCMD validation and deep synchronization', () => {
+test('same Build ID with instance differences reports INSTANCE_DRIFT and never repairs automatically', () => {
+  const changes = [{ server: 'cs2-1', item: '>f+++++++++', path: 'csgo/maps/custom.vpk' }];
+  const plan = selectUpdateAction({
+    latestBuildId: '26144732',
+    installedBuildId: '26144732',
+    instanceDrift: changes,
+  });
+  assert.equal(plan.action, 'INSTANCE_DRIFT');
+  assert.equal(plan.runAppUpdate, false);
+  assert.equal(plan.runSync, false);
+  assert.deepEqual(plan.changes, changes);
+});
+
+test('a changed public Build ID requests one shared SteamCMD update and incremental instance sync', () => {
   const plan = selectUpdateAction({
     latestBuildId: '26144733',
     installedBuildId: '26144732',
-    previousStatus: 'SUCCEEDED',
-    state: VALID_STATE,
-    sharedIntegrityVerified: true,
-    instancesSynced: true,
   });
   assert.equal(plan.action, 'UPDATE');
-  assert.equal(plan.runSteamCmd, true);
+  assert.equal(plan.runAppUpdate, true);
   assert.equal(plan.runSync, true);
   assert.equal(plan.deep, true);
 });
 
-test('failed or unknown prior state requires full recovery and cannot skip', () => {
-  for (const previousStatus of ['FAILED', 'RUNNING', null, 'UNKNOWN']) {
-    const plan = selectUpdateAction({
-      latestBuildId: '26144732',
-      installedBuildId: '26144732',
-      previousStatus,
-      state: VALID_STATE,
-      sharedIntegrityVerified: true,
-      instancesSynced: true,
-    });
-    assert.equal(plan.action, 'RECOVERY', String(previousStatus));
-    assert.equal(plan.runSteamCmd, true);
-    assert.equal(plan.deep, true);
+test('missing public or installed Build ID blocks mutations instead of starting recovery', () => {
+  for (const input of [
+    { latestBuildId: null, installedBuildId: '26144732' },
+    { latestBuildId: '26144732', installedBuildId: null },
+  ]) {
+    const plan = selectUpdateAction(input);
+    assert.equal(plan.action, 'BLOCKED');
+    assert.equal(plan.runAppUpdate, false);
+    assert.equal(plan.runSync, false);
   }
 });
 
-test('one unsynchronized instance triggers group synchronization rather than success', () => {
+test('manager idle gate blocks an active match before any update action', () => {
+  assert.throws(
+    () => assertManagersIdle([
+      { server: { name: 'cs2-1' }, health: { ok: true, matchId: 'active-match', gameProcessStatus: 'READY', gameProcessPid: 42 } },
+      { server: { name: 'cs2-2' }, health: { ok: true, matchId: null, gameProcessStatus: 'STOPPED', gameProcessPid: null } },
+      { server: { name: 'cs2-3' }, health: { ok: true, matchId: null, gameProcessStatus: 'STOPPED', gameProcessPid: null } },
+    ]),
+    /cs2-1: not idle \(matchId=active-match/,
+  );
+});
+
+test('manager idle gate also blocks a live game process without a match ID', () => {
+  assert.throws(
+    () => assertManagersIdle([{ server: { name: 'cs2-2' }, health: { ok: true, matchId: null, gameProcessStatus: 'READY', gameProcessPid: 77 } }]),
+    /cs2-2: not idle/,
+  );
+});
+
+test('smoke process exit errors cannot be treated as successful readiness', () => {
+  assert.doesNotThrow(() => assertSuccessfulProcessExit({ exitCode: 0, signalCode: null }, 'cs2-1 smoke'));
+  assert.throws(() => assertSuccessfulProcessExit({ exitCode: 139, signalCode: null }, 'cs2-3 smoke'), /cs2-3 smoke did not exit cleanly/);
+  assert.throws(() => assertSuccessfulProcessExit({ exitCode: null, signalCode: 'SIGTERM' }, 'cs2-2 smoke'), /signal=SIGTERM/);
+  assert.throws(() => assertNoSmokeCrashOutput('cs2.sh: Segmentation fault (core dumped)', 'cs2-3 smoke'), /reported a process crash/);
+  assert.doesNotThrow(() => assertNoSmokeCrashOutput('CS2 opened its game port and plugins loaded.', 'cs2-1 smoke'));
+});
+
+test('sync failure stops the group before later instances can be modified', async () => {
+  const syncCalls = [];
+  const servers = [{ name: 'cs2-1' }, { name: 'cs2-2' }, { name: 'cs2-3' }];
+  await assert.rejects(
+    syncInstances({
+      servers,
+      deep: true,
+      sync: async server => {
+        syncCalls.push(server.name);
+        if (server.name === 'cs2-2') throw new Error('simulated rsync failure');
+      },
+      verify: async () => {},
+    }),
+    /simulated rsync failure/,
+  );
+  assert.deepEqual(syncCalls, ['cs2-1', 'cs2-2']);
+});
+
+test('one unsynchronized instance is not silently reported as a successful sync', () => {
   const plan = selectUpdateAction({
     latestBuildId: '26144732',
     installedBuildId: '26144732',
-    previousStatus: 'SUCCEEDED',
-    state: VALID_STATE,
-    sharedIntegrityVerified: true,
-    instancesSynced: false,
+    instanceDrift: [{ server: 'cs2-2', item: '.f..t......', path: 'bin/linuxsteamrt64/cs2' }],
   });
-  assert.equal(plan.action, 'SYNC');
-  assert.equal(plan.runSteamCmd, false);
+  assert.equal(plan.action, 'INSTANCE_DRIFT');
+  assert.equal(plan.runSync, false);
+});
+
+test('new Build ID update plan does not depend on stale previous-success metadata', () => {
+  const plan = selectUpdateAction({
+    latestBuildId: '26144733',
+    installedBuildId: '26144732',
+    previousStatus: 'FAILED',
+    state: null,
+  });
+  assert.equal(plan.action, 'UPDATE');
+  assert.equal(plan.runAppUpdate, true);
   assert.equal(plan.runSync, true);
 });
 
-test('forced or scheduled deep verification does not imply an app download', () => {
+test('deep-verification flags cannot turn an unchanged Steam Build ID into a sync', () => {
   const forcedPlan = selectUpdateAction({
     latestBuildId: '26144732',
     installedBuildId: '26144732',
-    previousStatus: 'SUCCEEDED',
-    state: VALID_STATE,
-    sharedIntegrityVerified: true,
-    instancesSynced: true,
+    instanceDrift: [],
     forceDeep: true,
   });
-  assert.equal(forcedPlan.action, 'VERIFY');
-  assert.equal(forcedPlan.runSteamCmd, false);
-  assert.equal(forcedPlan.deep, true);
+  assert.equal(forcedPlan.action, 'NO_UPDATE');
+  assert.equal(forcedPlan.runAppUpdate, false);
+  assert.equal(forcedPlan.runSync, false);
+  assert.equal(forcedPlan.deep, false);
 
   const scheduledPlan = selectUpdateAction({
     latestBuildId: '26144732',
     installedBuildId: '26144732',
-    previousStatus: 'SUCCEEDED',
-    state: VALID_STATE,
-    sharedIntegrityVerified: true,
-    instancesSynced: true,
+    instanceDrift: [],
     scheduledDeep: true,
   });
-  assert.equal(scheduledPlan.action, 'VERIFY');
-  assert.equal(scheduledPlan.runSteamCmd, false);
-  assert.equal(scheduledPlan.deep, true);
+  assert.equal(scheduledPlan.action, 'NO_UPDATE');
+  assert.equal(scheduledPlan.runAppUpdate, false);
+  assert.equal(scheduledPlan.runSync, false);
 });
 
 test('systemd nonblocking lock admits only one simultaneous updater invocation', { skip: process.platform !== 'linux' }, async () => {
@@ -261,7 +311,7 @@ test('fails the operation when the full fallback verification still fails', asyn
       sync: async () => {},
       verify: async () => { throw new Error('hash mismatch'); },
     }),
-    /full checksum synchronization did not verify: hash mismatch/,
+    /checksum-based incremental synchronization did not verify: hash mismatch/,
   );
 });
 
@@ -279,7 +329,7 @@ test('one mismatched instance cannot produce a successful overall result', async
         if (server.name === 'cs2-2') throw new Error('cs2-2 version mismatch');
       },
     }),
-    /cs2-2: full checksum synchronization did not verify/,
+    /cs2-2: checksum-based incremental synchronization did not verify/,
   );
   assert.deepEqual(fullSyncs, ['cs2-2']);
 });

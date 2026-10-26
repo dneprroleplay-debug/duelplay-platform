@@ -1,18 +1,17 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createSocket } from 'node:dgram';
 import { dirname, join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
-import { CONTROL_FILES, isDeepVerifyDay, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
+import { CONTROL_FILES, assertManagersIdle, assertNoSmokeCrashOutput, assertSuccessfulProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const SHARED_ENV = parseEnvFile(join(CONFIG_DIR, '.env'));
 const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
 const GAME_DIR = join(COMMON_DIR, 'game');
 const LOG_DIR = process.env.DUELPLAY_CS2_UPDATE_LOG_DIR || '/home/ubuntu/cs2/update-logs';
-const BACKUP_DIR = process.env.DUELPLAY_CS2_UPDATE_BACKUP_DIR || '/home/ubuntu/cs2/update-backups';
 const API_URL = String(process.env.DUELPLAY_API_URL || SHARED_ENV.DUELPLAY_API_URL || '').replace(/\/$/, '');
 const MANAGER_SECRET = process.env.DUELPLAY_SERVER_MANAGER_SECRET || SHARED_ENV.DUELPLAY_SERVER_MANAGER_SECRET || '';
 const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
@@ -30,8 +29,12 @@ const SYNC_EXCLUDES = [
   '--exclude=/csgo/logs',
   '--exclude=/csgo/replays',
   '--exclude=/csgo/screenshots',
+  '--exclude=/csgo/maps/workshop',
+  '--exclude=/bin/linuxsteamrt64/steamapps/workshop',
+  '--exclude=/csgo/gameinfo.gi',
   '--exclude=/bin/linuxsteamrt64/counterstrikesharp.log',
 ];
+const DRIFT_EXCLUDES = SYNC_EXCLUDES.filter(value => value !== '--exclude=/csgo/maps/workshop' && value !== '--exclude=/bin/linuxsteamrt64/steamapps/workshop');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const stamp = new Date().toISOString().replaceAll(':', '-');
 
@@ -242,13 +245,14 @@ function querySteamPublicBuildId() {
   });
 }
 
-function quickRsyncCheck(server) {
+function rsyncDriftCheck(server) {
   return new Promise((resolve, reject) => {
     const args = [
-      '-ani',
+      '-acni',
+      // --delete is paired with -n only, so target-only files are reported as drift and never removed.
+      '--delete',
       '--out-format=DUELPLAY_CHANGE:%i:%n',
-      ...SYNC_EXCLUDES,
-      '--exclude=/csgo/gameinfo.gi',
+      ...DRIFT_EXCLUDES,
       `${GAME_DIR}/`,
       `${server.root}/`,
     ];
@@ -293,10 +297,27 @@ function quickRsyncCheck(server) {
   });
 }
 
+async function inspectInstanceDrift() {
+  const differences = [];
+  for (const server of servers) {
+    const check = await rsyncDriftCheck(server);
+    for (const change of check.changes) differences.push({ server: server.name, ...change });
+  }
+  differences.push(...findProductionPluginDrift());
+  return differences;
+}
+
+function logInstanceDrift(differences, installedBuildId, publicBuildId) {
+  log(`INSTANCE_DRIFT installedBuildId=${installedBuildId} publicBuildId=${publicBuildId} differingFiles=${differences.length}; no automatic repair will be attempted.`);
+  for (const difference of differences) {
+    log(`INSTANCE_DRIFT server=${difference.server} item=${difference.item} path=${JSON.stringify(difference.path)}`);
+  }
+}
+
 async function verifyRecordedInstanceState(state, installedBuildId, sharedVersion) {
   const lastSuccessful = state?.lastSuccessful;
   if (!lastSuccessful || lastSuccessful.buildId !== installedBuildId || lastSuccessful.serverVersion !== sharedVersion) return false;
-  verifyProductionPluginParity({ allowMissingSecondary: false });
+  verifyProductionPluginParity();
   const sharedControlFiles = collectControlHashes(GAME_DIR);
   if (!sameHashMap(sharedControlFiles, lastSuccessful.controlFiles)) return false;
   const savedInstances = new Map((lastSuccessful.instances || []).map(instance => [instance.name, instance]));
@@ -308,9 +329,9 @@ async function verifyRecordedInstanceState(state, installedBuildId, sharedVersio
     if (!sameHashMap(instanceControlFiles, sharedControlFiles) || !sameHashMap(instanceControlFiles, saved.controlFiles)) return false;
     const gameInfo = join(server.root, 'csgo', 'gameinfo.gi');
     if (!existsSync(gameInfo) || normalizePerServerGameInfo(server, readFileSync(gameInfo, 'utf8')) !== readFileSync(gameInfo, 'utf8')) return false;
-    const quick = await quickRsyncCheck(server);
-    if (!quick.clean) {
-      log(`${server.name}: quick metadata check found ${quick.changes.length} differing path(s); the group will be synchronized.`);
+    const drift = await rsyncDriftCheck(server);
+    if (!drift.clean) {
+      log(`${server.name}: checksum dry-run found ${drift.changes.length} differing path(s); the saved state is not adoptable.`);
       return false;
     }
   }
@@ -343,6 +364,7 @@ function clearSyncMarker(reason) {
 }
 
 async function assertInstancesIdle() {
+  const healthRecords = [];
   for (const server of servers) {
     let health;
     try {
@@ -351,20 +373,18 @@ async function assertInstancesIdle() {
     } catch (error) {
       throw new Error(`${server.name}: manager health is unavailable; deferring update (${error instanceof Error ? error.message : 'unknown error'}).`);
     }
-    if (!health || health.ok !== true || health.matchId || health.gameProcessStatus !== 'STOPPED' || health.gameProcessPid) {
-      throw new Error(`${server.name}: not idle (matchId=${health?.matchId ?? 'unknown'}, status=${health?.gameProcessStatus ?? 'unknown'}, pid=${health?.gameProcessPid ?? 'unknown'}); deferring update.`);
-    }
+    healthRecords.push({ server, health });
   }
+  assertManagersIdle(healthRecords);
   if (cs2ProcessesRunning()) throw new Error('A CS2 process is running outside the manager idle state; deferring update.');
   log(`All ${servers.length} instances report STOPPED with no assigned match; safe to update.`);
 }
 
-async function syncInstanceFromShared(server, deep, preserveInstanceGameInfo = false) {
+async function syncInstanceFromShared(server, deep) {
   await runProcess('rsync', [
     '-a',
     ...(deep ? ['--checksum'] : []),
     ...SYNC_EXCLUDES,
-    ...(preserveInstanceGameInfo ? ['--exclude=/csgo/gameinfo.gi'] : []),
     `${GAME_DIR}/`, `${server.root}/`
   ], { cwd: COMMON_DIR });
 }
@@ -388,7 +408,7 @@ function verifyPerServerComponents() {
   validateComponentManifest(manifest);
   if (manifest.approval === 'UNVERIFIED' && manifest.compatibility === 'UNKNOWN') {
     verifyProductionPluginParity();
-    log(`Component bundle ${manifest.bundleVersion} is unverified; existing production plugin files were checked for parity and will be preserved. Missing secondary copies can only be restored from cs2-3 under maintenance.`);
+    log(`Component bundle ${manifest.bundleVersion} is unverified; all protected production plugin files were checked for parity and will be preserved unchanged.`);
     return;
   }
   if (manifest.approval !== 'APPROVED' || manifest.compatibility !== 'VERIFIED' || manifest.components.some(item => !item.sha256 || !item.version)) {
@@ -405,7 +425,7 @@ function verifyPerServerComponents() {
   log(`All ${servers.length} registered instances match approved component bundle ${manifest.bundleVersion}.`);
 }
 
-function verifyProductionPluginParity({ allowMissingSecondary = true } = {}) {
+function findProductionPluginDrift() {
   const referenceServer = servers.find(server => server.name === 'cs2-3');
   if (!referenceServer) throw new Error('Production plugin reference instance cs2-3 is missing.');
   const protectedFiles = [
@@ -414,47 +434,31 @@ function verifyProductionPluginParity({ allowMissingSecondary = true } = {}) {
     'csgo/addons/metamod/duelplayplayeravatar.vdf',
     'csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll',
   ];
+  const differences = [];
   for (const relativePath of protectedFiles) {
     const referencePath = join(referenceServer.root, relativePath);
-    if (!existsSync(referencePath)) throw new Error(`Protected production component is missing on cs2-3: ${relativePath}`);
+    if (!existsSync(referencePath)) {
+      differences.push({ server: referenceServer.name, item: 'MISSING_REFERENCE', path: relativePath });
+      continue;
+    }
     const referenceHash = hashFile(referencePath);
     for (const server of servers) {
       const componentPath = join(server.root, relativePath);
       if (!existsSync(componentPath)) {
-        if (server.name === referenceServer.name || !allowMissingSecondary) throw new Error(`Protected production component is missing on ${server.name}: ${relativePath}`);
-        log(`${server.name}: protected component ${relativePath} is missing; existing cs2-3 copy will be used only after maintenance begins.`);
+        differences.push({ server: server.name, item: 'MISSING', path: relativePath });
         continue;
       }
       const actualHash = hashFile(componentPath);
-      if (actualHash !== referenceHash) throw new Error(`Protected production component differs on ${server.name}: ${relativePath}; leaving all copies untouched.`);
+      if (actualHash !== referenceHash) differences.push({ server: server.name, item: 'HASH_MISMATCH', path: relativePath });
     }
   }
+  return differences;
 }
 
-function copyFromWorkingServer(source, target, label) {
-  if (!existsSync(source)) throw new Error(`Reference ${label} is missing on cs2-3: ${source}`);
-  mkdirSync(dirname(target), { recursive: true });
-  if (existsSync(target)) {
-    if (hashFile(source) !== hashFile(target)) throw new Error(`${label} differs on ${target}; leaving it untouched for review.`);
-    return;
-  }
-  copyFileSync(source, target);
-  log(`Installed missing ${label} into ${target} from the existing cs2-3 build.`);
-}
-
-function ensurePerServerPlugins() {
-  const reference = servers.find(server => server.name === 'cs2-3').root;
-  const requiredFiles = [
-    ['csgo/addons/counterstrikesharp/plugins/DuelPlayPlayerName/DuelPlayPlayerName.dll', 'nickname plugin'],
-    ['csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so', 'player avatar plugin'],
-    ['csgo/addons/metamod/duelplayplayeravatar.vdf', 'player avatar Metamod loader'],
-  ];
-  for (const server of servers) {
-    for (const [relativePath, label] of requiredFiles) {
-      copyFromWorkingServer(join(reference, relativePath), join(server.root, relativePath), `${label} (${server.name})`);
-    }
-    const grenadePlugin = join(server.root, 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll');
-    if (!existsSync(grenadePlugin)) throw new Error(`Grenade plugin is missing on ${server.name}: ${grenadePlugin}`);
+function verifyProductionPluginParity() {
+  const differences = findProductionPluginDrift();
+  if (differences.length) {
+    throw new Error(`Protected production plugin drift: ${differences.map(({ server, path, item }) => `${server}:${path}:${item}`).join(', ')}; leaving all copies untouched.`);
   }
 }
 
@@ -473,26 +477,6 @@ function normalizePerServerGameInfo(server, contents) {
     updated = updated.replace(/^\s*LayeredOnMod\s+csgo_imported\s*\r?\n/gm, '');
   }
   return updated;
-}
-
-function syncPerServerGameInfo() {
-  const backupRun = join(BACKUP_DIR, stamp);
-  for (const server of servers) {
-    const filePath = join(server.root, 'csgo/gameinfo.gi');
-    if (!existsSync(filePath)) throw new Error(`Instance ${server.name} gameinfo.gi is missing: ${filePath}`);
-    const previous = readFileSync(filePath, 'utf8');
-    const updated = normalizePerServerGameInfo(server, previous);
-    if (previous === updated) {
-      log(`${server.name}: instance gameinfo.gi already has the required Metamod search path.`);
-      continue;
-    }
-    mkdirSync(backupRun, { recursive: true, mode: 0o700 });
-    const backupPath = join(backupRun, `${server.name}.gameinfo.gi`);
-    writeFileSync(backupPath, previous, { mode: 0o600, flag: 'wx' });
-    const mode = statSync(filePath).mode & 0o777;
-    writeFileSync(filePath, updated, { mode });
-    log(`${server.name}: preserved instance gameinfo.gi and applied required loader fixes; previous file saved at ${backupPath}.`);
-  }
 }
 
 async function udpPortAvailable(port) {
@@ -536,6 +520,7 @@ async function smokeCheckServer(server) {
   log(`${server.name}: starting a private loopback CS2 smoke process on UDP ${server.port}.`);
   const child = spawn(script, args, { cwd: server.root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '';
+  let spawnError = null;
   const append = (tag, chunk) => {
     const text = chunk.toString();
     output = (output + text).slice(-250_000);
@@ -543,13 +528,16 @@ async function smokeCheckServer(server) {
   };
   child.stdout.on('data', chunk => append('CS2', chunk));
   child.stderr.on('data', chunk => append('CS2:ERR', chunk));
+  child.on('error', error => { spawnError = error; });
 
+  let smokeError = null;
   try {
     const deadline = Date.now() + SMOKE_TIMEOUT_MS;
-    while (Date.now() < deadline && child.exitCode === null) {
+    while (Date.now() < deadline && child.exitCode === null && !spawnError) {
       if (udpPortListening(child.pid, server.port)) break;
       await sleep(1000);
     }
+    if (spawnError) throw new Error(`${server.name}: CS2 smoke process failed to start: ${spawnError.message}`, { cause: spawnError });
     if (child.exitCode !== null) throw new Error(`${server.name}: CS2 exited before the readiness port opened (code=${child.exitCode}).`);
     if (!udpPortListening(child.pid, server.port)) throw new Error(`${server.name}: CS2 did not open UDP ${server.port} before the startup timeout.`);
 
@@ -573,8 +561,10 @@ async function smokeCheckServer(server) {
       ['avatar loader', 'csgo/addons/metamod/duelplayplayeravatar.vdf'],
     ]) if (!existsSync(join(server.root, path))) throw new Error(`${server.name}: ${label} file is missing after startup.`);
     log(`${server.name}: loopback game port and all DuelPlay plugin load checks passed.`);
+  } catch (error) {
+    smokeError = error;
   } finally {
-    if (child.exitCode === null) {
+    if (child.exitCode === null && !spawnError) {
       try { child.stdin.write('quit\n'); } catch {}
       await waitForExit(child, 15_000);
       if (child.exitCode === null) child.kill('SIGTERM');
@@ -583,6 +573,9 @@ async function smokeCheckServer(server) {
       await waitForExit(child, 5_000);
     }
   }
+  if (smokeError) throw smokeError;
+  assertSuccessfulProcessExit(child, `${server.name} CS2 smoke process`);
+  assertNoSmokeCrashOutput(output, `${server.name} CS2 smoke process`);
 }
 
 async function waitForManagers() {
@@ -664,18 +657,6 @@ async function finishAndExit(signal) {
 process.on('SIGTERM', () => { void finishAndExit('SIGTERM'); });
 process.on('SIGINT', () => { void finishAndExit('SIGINT'); });
 
-function sharedIntegrityMatchesState(state, installedBuildId) {
-  const lastSuccessful = state?.lastSuccessful;
-  if (!installedBuildId || lastSuccessful?.result !== 'SUCCEEDED' || lastSuccessful.buildId !== installedBuildId) return false;
-  const sharedVersion = readCs2Build(GAME_DIR);
-  if (!sharedVersion || lastSuccessful.serverVersion !== sharedVersion) return false;
-  try {
-    return sameHashMap(collectControlHashes(GAME_DIR), lastSuccessful.controlFiles);
-  } catch {
-    return false;
-  }
-}
-
 function maintenanceSnapshotReadyForAdoption(snapshot) {
   return snapshot?.maintenance === false
     && snapshot.activeMatches === 0
@@ -702,61 +683,61 @@ async function adoptCurrentSuccessfulState() {
   }
   const observed = createSuccessfulState(installedBuildId, serverVersion, snapshot.updateStatus.finishedAt, 'SUCCEEDED');
   if (!await verifyRecordedInstanceState(observed, installedBuildId, serverVersion)) {
-    throw new Error('Cannot adopt state: quick rsync dry-runs, per-instance gameinfo, build versions, or critical-file hashes do not confirm all three roots.');
+    throw new Error('Cannot adopt state: checksum rsync dry-runs, per-instance gameinfo, build versions, or critical-file hashes do not confirm all three roots.');
   }
   persistUpdateState(observed);
   log(`Verified state recorded for Build ID ${installedBuildId} / ServerVersion ${serverVersion}; no app_update or file synchronization was performed.`);
 }
 
 async function main() {
-  required(API_URL, 'DUELPLAY_API_URL');
-  required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
   log(`CS2 shared-install update started; persistent log: ${logPath}`);
   const buildIdBefore = readSharedBuildId();
   log(`Shared CS2 build before update: ${readCs2Build(GAME_DIR) ?? 'unknown'} (buildid ${buildIdBefore ?? 'unknown'}).`);
   for (const server of servers) log(`${server.name}: instance build before update: ${readCs2Build(server.root) ?? 'unknown'}.`);
+
+  const latestBuildId = await querySteamPublicBuildId();
+  if (!buildIdBefore) throw new Error('Installed shared Steam Build ID is unavailable; refusing to update or synchronize any files.');
+  const plan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore });
+  if (plan.action === 'BLOCKED') throw new Error(`${plan.reason}; refusing to update or synchronize any files.`);
+  log(`Build comparison: installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}.`);
+
+  if (plan.action === 'NO_UPDATE') {
+    log(`NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}; Steam has no newer official build.`);
+    log('Steam Build ID is unchanged; checking instance roots with read-only rsync checksum dry-runs.');
+    const instanceDrift = await inspectInstanceDrift();
+    const observedPlan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore, instanceDrift });
+    if (observedPlan.action === 'INSTANCE_DRIFT') {
+      logInstanceDrift(instanceDrift, buildIdBefore, latestBuildId);
+      persistAttempt('INSTANCE_DRIFT', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId, differingFiles: instanceDrift.length });
+      return;
+    }
+    log('NO_UPDATE: no instance drift; no app_update, maintenance marker, file sync, or CS2 smoke process is needed.');
+    persistAttempt('NO_UPDATE', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId });
+    return;
+  }
+
+  log(`Update decision: ${plan.action} (${plan.reason}).`);
+  if (plan.action !== 'UPDATE' || !plan.runAppUpdate || !plan.runSync) throw new Error(`Unexpected update plan ${plan.action}; refusing to mutate files.`);
+  const preUpdateDrift = await inspectInstanceDrift();
+  const preExistingConflicts = preUpdateDrift.filter(difference => !difference.item.startsWith('*deleting'));
+  const preExistingTargetOnly = preUpdateDrift.length - preExistingConflicts.length;
+  if (preUpdateDrift.length) logInstanceDrift(preUpdateDrift, buildIdBefore, latestBuildId);
+  if (preExistingConflicts.length) {
+    throw new Error(`A new Steam build is available, but ${preExistingConflicts.length} pre-existing source/instance conflict(s) were found; refusing to overwrite them during the official update.`);
+  }
+  if (preExistingTargetOnly) log(`${preExistingTargetOnly} target-only file(s) will remain untouched; mutation sync has no --delete.`);
+  log('Pre-update source/instance conflicts are clear; only checksum differences from the shared source are eligible for sync.');
   verifyPerServerComponents();
+  required(API_URL, 'DUELPLAY_API_URL');
+  required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
 
   const before = await getMaintenanceSnapshot();
   const previousStatus = before.updateStatus?.status ?? null;
   previousMaintenance = before.maintenance === true;
-  if (before.updateStatus?.status === 'RUNNING') {
-    log(`Previous update status is still RUNNING (started ${before.updateStatus.startedAt ?? 'unknown'}); treating it as interrupted by a crash or reboot.`);
+  if (previousStatus === 'RUNNING') {
+    throw new Error(`Previous updater status is still RUNNING (started ${before.updateStatus?.startedAt ?? 'unknown'}); refusing overlapping or uncertain maintenance.`);
   }
   log(`Previous maintenance state: ${previousMaintenance ? 'enabled' : 'disabled'}.`);
-
-  let latestBuildId = null;
-  try {
-    latestBuildId = await querySteamPublicBuildId();
-  } catch (error) {
-    log(`Steam public Build ID is unavailable; a skip is forbidden and the full recovery path will be used (${error instanceof Error ? error.message : 'unknown error'}).`);
-  }
-  const savedState = readUpdateState();
-  const sharedIntegrityVerified = !previousMaintenance && sharedIntegrityMatchesState(savedState, buildIdBefore);
-  let instancesSynced = false;
-  if (sharedIntegrityVerified && previousStatus === 'SUCCEEDED') {
-    try {
-      instancesSynced = await verifyRecordedInstanceState(savedState, buildIdBefore, readCs2Build(GAME_DIR));
-    } catch (error) {
-      log(`Quick three-instance state check failed; the group will not be skipped (${error instanceof Error ? error.message : 'unknown error'}).`);
-    }
-  }
-  const plan = selectUpdateAction({
-    latestBuildId,
-    installedBuildId: buildIdBefore,
-    previousStatus,
-    state: savedState,
-    sharedIntegrityVerified,
-    instancesSynced,
-    forceDeep: FORCE_DEEP_VERIFY,
-    scheduledDeep: isDeepVerifyDay(),
-  });
-  log(`Update decision: ${plan.action} (${plan.reason}).`);
-  if (plan.action === 'SKIP') {
-    persistAttempt('SKIPPED', { buildId: latestBuildId, reason: plan.reason });
-    log(`SKIPPED — already up to date: Steam Build ID ${latestBuildId} matches the last successful state; all three instance roots passed quick metadata and critical-file checks.`);
-    return;
-  }
 
   await setMaintenance(true);
   maintenanceTouched = true;
@@ -769,63 +750,40 @@ async function main() {
   // From here on the shared server files can change; maintenance must stay enabled even on
   // failure so players never join a half-updated server.
   mutationStarted = true;
-  ensurePerServerPlugins();
-  if (plan.runSteamCmd) {
-    await runProcess(STEAMCMD_BIN, [
-      '+force_install_dir', COMMON_DIR,
-      '+login', 'anonymous',
-      '+app_update', APP_ID, 'validate',
-      '+quit',
-    ], { cwd: GAME_DIR });
-    log('SteamCMD validated the single shared CS2 installation.');
-  } else {
-    log('SteamCMD app_update skipped; the current Steam Build ID is already verified and only instance synchronization is required.');
-  }
+  await runProcess(STEAMCMD_BIN, [
+    '+force_install_dir', COMMON_DIR,
+    '+login', 'anonymous',
+    '+app_update', APP_ID, 'validate',
+    '+quit',
+  ], { cwd: GAME_DIR });
+  log('SteamCMD app_update completed once against the shared CS2 installation.');
   const sharedBuildAfter = readCs2Build(GAME_DIR);
   const buildIdAfter = readSharedBuildId();
   log(`Shared CS2 build after SteamCMD: ${sharedBuildAfter ?? 'unknown'} (buildid ${buildIdAfter ?? 'unknown'}).`);
   if (!sharedBuildAfter || !buildIdAfter) throw new Error('Shared CS2 build or Build ID is unavailable; refusing to synchronize instances.');
-  if (!plan.runSteamCmd && latestBuildId !== buildIdAfter) throw new Error(`Steam Build ID changed after metadata check (${latestBuildId ?? 'unknown'} -> ${buildIdAfter}); refusing an instance-only sync.`);
-  if (plan.runSteamCmd && latestBuildId) {
-    let latestAfterUpdate;
-    try { latestAfterUpdate = await querySteamPublicBuildId(); }
-    catch (error) { log(`Post-update Steam metadata check is unavailable; SteamCMD validation is the only confirmed build source (${error instanceof Error ? error.message : 'unknown error'}).`); }
-    if (latestAfterUpdate && latestAfterUpdate !== buildIdAfter) {
-      throw new Error(`Steam public Build ID ${latestAfterUpdate} does not match the installed Build ID ${buildIdAfter} after validation.`);
-    }
-  }
+  if (buildIdAfter !== latestBuildId) throw new Error(`SteamCMD installed Build ID ${buildIdAfter}, expected public Build ID ${latestBuildId}; refusing to synchronize instances.`);
 
   const { deep, reasons } = selectSyncMode({
     buildIdBefore,
     buildIdAfter,
     previousStatus,
-    forceDeep: FORCE_DEEP_VERIFY || plan.deep || plan.runSteamCmd,
+    forceDeep: FORCE_DEEP_VERIFY || plan.deep || plan.runAppUpdate,
   });
-  log(`Synchronization mode: ${deep ? 'full checksum' : 'quick size+mtime'}${reasons.length ? ` (${reasons.join('; ')})` : ''}.`);
-  const preserveInstanceGameInfo = buildIdBefore === buildIdAfter;
+  log(`Synchronization mode: ${deep ? 'checksum-based incremental' : 'quick metadata incremental'}${reasons.length ? ` (${reasons.join('; ')})` : ''}.`);
+  if (!deep) throw new Error('A new Steam Build ID requires checksum-based incremental synchronization; refusing a metadata-only sync.');
 
   await syncInstances({
     servers,
     deep,
-    sync: (server, isDeep) => syncInstanceFromShared(server, isDeep, preserveInstanceGameInfo),
+    sync: (server, isDeep) => syncInstanceFromShared(server, isDeep),
     verify: server => verifyInstanceMatchesShared(server, sharedBuildAfter),
     log,
   });
   log(`All ${servers.length} instance roots are synchronized with the shared CS2 build.`);
 
-  syncPerServerGameInfo();
   for (const server of servers) await smokeCheckServer(server);
   await waitForManagers();
 
-  // Status recording must never keep the site closed after a successful update.
-  try {
-    await setUpdateStatus('SUCCEEDED');
-  } catch (statusError) {
-    log(`Could not record success status through the app API: ${statusError instanceof Error ? statusError.message : 'unknown API error'}`);
-  }
-  if (!(await disableMaintenance())) {
-    throw new Error('Update completed but maintenance could not be disabled through the app API; verify the site and lift it manually.');
-  }
   try {
     persistUpdateState(createSuccessfulState(buildIdAfter, sharedBuildAfter));
   } catch (stateError) {
@@ -837,6 +795,14 @@ async function main() {
       log(`Could not re-enable maintenance after state persistence failure: ${maintenanceError instanceof Error ? maintenanceError.message : 'unknown API error'}`);
     }
     throw new Error(`Update checks passed but Build ID state could not be saved: ${stateError instanceof Error ? stateError.message : 'unknown error'}`);
+  }
+
+  await setUpdateStatus('SUCCEEDED');
+  if (previousMaintenance) {
+    maintenanceTouched = false;
+    log('The site was already in maintenance before this run; preserving that state after update verification.');
+  } else if (!(await disableMaintenance())) {
+    throw new Error('Update completed but maintenance could not be disabled through the app API; verify the site and lift it manually.');
   }
   clearSyncMarker('update completed successfully');
   log('All smoke tests passed; maintenance was disabled and the site returned to service.');
