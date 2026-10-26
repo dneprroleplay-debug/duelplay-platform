@@ -1,0 +1,17 @@
+[Unit]
+Description=Poll the central DuelPlay CS2 update schedule and dispatch due runs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/duelplay-app
+EnvironmentFile=/home/ubuntu/duelplay-app/scripts/server-manager/.env
+RuntimeDirectory=duelplay-cs2-update-scheduler
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/flock --nonblock /home/ubuntu/cs2/.duelplay-cs2-scheduler.lock /usr/local/bin/node /home/ubuntu/duelplay-app/scripts/server-manager/update-schedule-check.mjs
+TimeoutStartSec=90min
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal

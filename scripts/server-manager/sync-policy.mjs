@@ -92,17 +92,43 @@ export function assertManagersIdle(healthRecords) {
   return true;
 }
 
-export function assertSuccessfulProcessExit({ exitCode, signalCode }, label = 'process') {
-  if (signalCode || exitCode !== 0) {
-    throw new Error(`${label} did not exit cleanly (exit=${exitCode ?? 'null'}, signal=${signalCode ?? 'none'}).`);
+export function classifySmokeProcessExit({ exitCode, signalCode, readinessChecksPassed, quitRequested, output } = {}) {
+  const text = String(output ?? '');
+  const crashOutput = /segmentation fault|core dumped/i.test(text);
+  if (readinessChecksPassed === true && quitRequested === true && !signalCode && exitCode === 0 && !crashOutput) return { status: 'READY', diagnostic: null };
+
+  const postReadinessQuitSegfault = readinessChecksPassed === true
+    && quitRequested === true
+    && crashOutput
+    && (exitCode === 139 || signalCode === 'SIGSEGV')
+    && /QueueNewRequest\(\s*Quitting/i.test(text)
+    && /Server shutting down:\s*NETWORK_DISCONNECT_EXITING/i.test(text);
+  if (postReadinessQuitSegfault) {
+    return {
+      status: 'READY_WITH_SHUTDOWN_DIAGNOSTIC',
+      diagnostic: {
+        code: 'POST_READINESS_SHUTDOWN_SIGSEGV',
+        exitCode: exitCode ?? null,
+        signal: signalCode ?? 'SIGSEGV',
+        readinessChecksPassed: true,
+        quitRequested: true,
+      },
+    };
   }
+
+  return {
+    status: 'FAILED',
+    diagnostic: {
+      code: crashOutput ? 'SMOKE_PROCESS_CRASH' : 'SMOKE_PROCESS_EXIT_UNEXPECTED',
+      exitCode: exitCode ?? null,
+      signal: signalCode ?? null,
+      readinessChecksPassed: readinessChecksPassed === true,
+      quitRequested: quitRequested === true,
+    },
+  };
 }
 
-export function assertNoSmokeCrashOutput(output, label = 'smoke process') {
-  if (/segmentation fault|core dumped/i.test(String(output ?? ''))) {
-    throw new Error(`${label} reported a process crash in its output.`);
-  }
-}
+
 
 export async function syncInstances({ servers, deep, sync, verify, log = () => {} }) {
   let completed = 0;

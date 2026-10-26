@@ -1,10 +1,11 @@
 [Unit]
-Description=Run the DuelPlay CS2 shared-install update daily at 05:00 Europe/Kyiv
+Description=Poll the central DuelPlay CS2 update schedule
 
 [Timer]
-OnCalendar=*-*-* 05:00:00 Europe/Kyiv
-Persistent=true
-Unit=duelplay-cs2-update.service
+OnCalendar=*-*-* *:*:00 Europe/Kyiv
+AccuracySec=1s
+Persistent=false
+Unit=duelplay-cs2-update-scheduler.service
 
 [Install]
 WantedBy=timers.target

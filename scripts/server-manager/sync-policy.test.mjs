@@ -7,8 +7,7 @@ import { join } from 'node:path';
 import {
   CONTROL_FILES,
   assertManagersIdle,
-  assertNoSmokeCrashOutput,
-  assertSuccessfulProcessExit,
+  classifySmokeProcessExit,
   isDeepVerifyDay,
   parseSteamPublicBuildId,
   selectUpdateAction,
@@ -93,12 +92,38 @@ test('manager idle gate also blocks a live game process without a match ID', () 
   );
 });
 
-test('smoke process exit errors cannot be treated as successful readiness', () => {
-  assert.doesNotThrow(() => assertSuccessfulProcessExit({ exitCode: 0, signalCode: null }, 'cs2-1 smoke'));
-  assert.throws(() => assertSuccessfulProcessExit({ exitCode: 139, signalCode: null }, 'cs2-3 smoke'), /cs2-3 smoke did not exit cleanly/);
-  assert.throws(() => assertSuccessfulProcessExit({ exitCode: null, signalCode: 'SIGTERM' }, 'cs2-2 smoke'), /signal=SIGTERM/);
-  assert.throws(() => assertNoSmokeCrashOutput('cs2.sh: Segmentation fault (core dumped)', 'cs2-3 smoke'), /reported a process crash/);
-  assert.doesNotThrow(() => assertNoSmokeCrashOutput('CS2 opened its game port and plugins loaded.', 'cs2-1 smoke'));
+test('smoke launch crash before readiness is a fatal failure', () => {
+  const result = classifySmokeProcessExit({ exitCode: 139, signalCode: null, readinessChecksPassed: false, quitRequested: false, output: 'Segmentation fault (core dumped)' });
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.diagnostic.code, 'SMOKE_PROCESS_CRASH');
+});
+
+test('SIGSEGV after complete readiness and controlled quit is explicit diagnostic, not clean success', () => {
+  const result = classifySmokeProcessExit({
+    exitCode: 139,
+    signalCode: null,
+    readinessChecksPassed: true,
+    quitRequested: true,
+    output: 'CHostStateMgr::QueueNewRequest( Quitting, 3 )\nSV: Server shutting down: NETWORK_DISCONNECT_EXITING\nSegmentation fault (core dumped)',
+  });
+  assert.equal(result.status, 'READY_WITH_SHUTDOWN_DIAGNOSTIC');
+  assert.equal(result.diagnostic.code, 'POST_READINESS_SHUTDOWN_SIGSEGV');
+});
+
+test('a crash without controlled shutdown evidence cannot use the diagnostic success path', () => {
+  const result = classifySmokeProcessExit({
+    exitCode: 139,
+    signalCode: null,
+    readinessChecksPassed: true,
+    quitRequested: true,
+    output: 'Segmentation fault (core dumped)',
+  });
+  assert.equal(result.status, 'FAILED');
+});
+
+test('a smoke process with clean zero exit is READY', () => {
+  assert.equal(classifySmokeProcessExit({ exitCode: 0, signalCode: null, readinessChecksPassed: true, quitRequested: true, output: 'All plugins loaded' }).status, 'READY');
+  assert.equal(classifySmokeProcessExit({ exitCode: 0, signalCode: null, readinessChecksPassed: true, quitRequested: false, output: 'All plugins loaded' }).status, 'FAILED');
 });
 
 test('sync failure stops the group before later instances can be modified', async () => {

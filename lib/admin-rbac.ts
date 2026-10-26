@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentAdminSession } from "@/lib/admin-auth";
+import { canManageCs2AutoUpdates } from "@/lib/cs2-update-access.mjs";
 
 const ADMIN_MFA_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 function isFresh(verifiedAt: Date | null | undefined) { return Boolean(verifiedAt && Date.now() - verifiedAt.getTime() <= ADMIN_MFA_MAX_AGE_MS); }
@@ -213,6 +214,14 @@ export function hasGameModeAdminRole(roleCode: unknown): roleCode is "FOUNDER" |
 export async function requireGameModeAdmin() {
   const access = await requireAdminAccess();
   if (!hasGameModeAdminRole(access.roleCode)) throw new Error("FORBIDDEN");
+  return access;
+}
+
+export { canManageCs2AutoUpdates };
+
+export async function requireCs2AutoUpdateAdmin() {
+  const access = await requireAdminAccess();
+  if (!canManageCs2AutoUpdates(access)) throw new Error("FORBIDDEN");
   return access;
 }
 

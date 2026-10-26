@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const startedAt = (updateStatus as Record<string, unknown>).startedAt;
     const finishedAt = (updateStatus as Record<string, unknown>).finishedAt;
     const error = (updateStatus as Record<string, unknown>).error;
-    if (!["RUNNING", "SUCCEEDED", "FAILED"].includes(String(status)) || typeof startedAt !== "string" || (finishedAt !== undefined && typeof finishedAt !== "string") || (error !== undefined && (typeof error !== "string" || error.length > 1000))) {
+    if (!["RUNNING", "SUCCEEDED", "SUCCEEDED_WITH_DIAGNOSTICS", "NO_UPDATE", "INSTANCE_DRIFT", "BLOCKED", "FAILED"].includes(String(status)) || typeof startedAt !== "string" || (finishedAt !== undefined && typeof finishedAt !== "string") || (error !== undefined && (typeof error !== "string" || error.length > 1000))) {
       return NextResponse.json({ error: "INVALID_UPDATE_STATUS" }, { status: 400 });
     }
   }

@@ -227,6 +227,8 @@ export default function AdminAccessPage(){
         </div>
       </div>
 
+      {(data.me.roleCode==="SUPERADMIN"||data.me.level===999)&&<section className="mt-5 rounded-3xl border border-[var(--theme-accent)]/20 bg-[var(--theme-accent-bg)]/40 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[.2em] text-[var(--theme-accent)]">CS2 · ОБСЛУЖИВАНИЕ</div><h2 className="mt-1 text-lg font-black">Автообновление CS2</h2><p className="mt-1 text-xs text-zinc-500">Расписание Europe/Kyiv, здоровье трёх серверов и история запусков.</p></div><a href="/admin/cs2-auto-update" className="rounded-xl bg-[var(--theme-accent)] px-4 py-2.5 text-sm font-black text-black">Открыть настройки →</a></div></section>}
+
       <section className="mt-6">
         <div className="flex items-end justify-between"><div><div className="text-xs font-black uppercase tracking-[.22em] text-pink-400">УРОВНИ ДОСТУПА</div><h2 className="mt-2 text-2xl font-black">10 уровней + 👑 Founder 999</h2></div><div className="text-xs text-zinc-600">Доступные для просмотра уровни</div></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

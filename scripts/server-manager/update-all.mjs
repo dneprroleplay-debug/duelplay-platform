@@ -5,7 +5,8 @@ import { createSocket } from 'node:dgram';
 import { dirname, join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
-import { CONTROL_FILES, assertManagersIdle, assertNoSmokeCrashOutput, assertSuccessfulProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
+import { CONTROL_FILES, assertManagersIdle, classifySmokeProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
+import { createUpdateScheduleClient } from './update-schedule-client.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const SHARED_ENV = parseEnvFile(join(CONFIG_DIR, '.env'));
@@ -22,6 +23,9 @@ const SMOKE_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_SMOKE_TIMEOUT_MS || 
 const SYNC_MARKER = process.env.DUELPLAY_CS2_SYNC_MARKER || join(COMMON_DIR, '.duelplay-sync-in-progress');
 const STATE_FILE = process.env.DUELPLAY_CS2_UPDATE_STATE_FILE || join(COMMON_DIR, '.duelplay-cs2-update-state.json');
 const FORCE_DEEP_VERIFY = parseBooleanFlag(process.env.DUELPLAY_CS2_DEEP_VERIFY) || process.argv.includes('--force');
+const RUN_ID_ARG_INDEX = process.argv.indexOf('--run-id');
+const UPDATE_RUN_ID = process.env.DUELPLAY_CS2_UPDATE_RUN_ID || (RUN_ID_ARG_INDEX >= 0 ? process.argv[RUN_ID_ARG_INDEX + 1] : '') || '';
+let updateScheduleApi;
 const SYNC_EXCLUDES = [
   '--exclude=/steamapps',
   '--exclude=/csgo/addons',
@@ -89,8 +93,33 @@ async function setMaintenance(enabled) {
 }
 
 async function setUpdateStatus(status, error = undefined) {
-  const updateStatus = { status, startedAt: runStartedAt.toISOString(), ...(status === 'RUNNING' ? {} : { finishedAt: new Date().toISOString() }), ...(error ? { error: String(error).slice(0, 1000) } : {}) };
+  const updateStatus = { status, startedAt: runStartedAt.toISOString(), ...(UPDATE_RUN_ID ? { runId: UPDATE_RUN_ID } : {}), ...(status === 'RUNNING' ? {} : { finishedAt: new Date().toISOString() }), ...(error ? { error: String(error).slice(0, 1000) } : {}) };
   await managerApi('/api/server-manager/maintenance', { method: 'POST', body: JSON.stringify({ updateStatus }) });
+}
+
+let currentStage = 'BOOT';
+const checkedInstances = [];
+const updateDiagnostics = [];
+
+function updateRunApi() {
+  if (!updateScheduleApi) updateScheduleApi = createUpdateScheduleClient({ apiUrl: API_URL, secret: MANAGER_SECRET });
+  return updateScheduleApi;
+}
+
+async function reportUpdateRun(patch) {
+  if (!UPDATE_RUN_ID) throw new Error('SCHEDULED_UPDATE_RUN_ID_REQUIRED');
+  return updateRunApi()('/api/server-manager/update-runs', { method: 'PATCH', body: { runId: UPDATE_RUN_ID, stage: currentStage, ...patch } });
+}
+
+async function setUpdateStage(stage, patch = {}) {
+  currentStage = stage;
+  await reportUpdateRun(patch);
+}
+
+function recordInstanceCheck(result) {
+  const index = checkedInstances.findIndex(item => item.serverName === result.serverName);
+  if (index >= 0) checkedInstances[index] = { ...checkedInstances[index], ...result };
+  else checkedInstances.push(result);
 }
 
 async function getMaintenanceSnapshot() {
@@ -184,7 +213,7 @@ function sameHashMap(left, right) {
   return Boolean(left && right) && CONTROL_FILES.every(relativePath => left[relativePath] && left[relativePath] === right[relativePath]);
 }
 
-function createSuccessfulState(buildId, serverVersion, completedAt = new Date().toISOString(), lastAttemptResult = 'SUCCEEDED') {
+function createSuccessfulState(buildId, serverVersion, completedAt = new Date().toISOString(), result = 'SUCCEEDED') {
   const sharedControlFiles = collectControlHashes(GAME_DIR);
   const instances = servers.map(server => ({
     name: server.name,
@@ -195,14 +224,14 @@ function createSuccessfulState(buildId, serverVersion, completedAt = new Date().
   return {
     schemaVersion: 1,
     lastSuccessful: {
-      result: 'SUCCEEDED',
+      result,
       buildId,
       serverVersion,
       completedAt,
       controlFiles: sharedControlFiles,
       instances,
     },
-    lastAttempt: { result: lastAttemptResult, buildId, finishedAt: new Date().toISOString() },
+    lastAttempt: { result, buildId, finishedAt: new Date().toISOString() },
   };
 }
 
@@ -297,14 +326,25 @@ function rsyncDriftCheck(server) {
   });
 }
 
-async function inspectInstanceDrift() {
+async function inspectInstanceDrift(sharedBuildId) {
   const differences = [];
+  const checks = [];
   for (const server of servers) {
     const check = await rsyncDriftCheck(server);
-    for (const change of check.changes) differences.push({ server: server.name, ...change });
+    const serverDifferences = check.changes.map(change => ({ server: server.name, ...change }));
+    differences.push(...serverDifferences);
+    checks.push({ serverName: server.name, status: serverDifferences.length ? 'INSTANCE_DRIFT' : 'MATCH', buildId: sharedBuildId, serverVersion: readCs2Build(server.root), differingFiles: serverDifferences.length, controlFilesVerified: false });
   }
-  differences.push(...findProductionPluginDrift());
-  return differences;
+  const pluginDifferences = findProductionPluginDrift();
+  differences.push(...pluginDifferences);
+  for (const check of checks) {
+    const pluginDiffCount = pluginDifferences.filter(difference => difference.server === check.serverName).length;
+    if (pluginDiffCount) {
+      check.status = 'INSTANCE_DRIFT';
+      check.differingFiles += pluginDiffCount;
+    }
+  }
+  return { differences, checks };
 }
 
 function logInstanceDrift(differences, installedBuildId, publicBuildId) {
@@ -312,6 +352,17 @@ function logInstanceDrift(differences, installedBuildId, publicBuildId) {
   for (const difference of differences) {
     log(`INSTANCE_DRIFT server=${difference.server} item=${difference.item} path=${JSON.stringify(difference.path)}`);
   }
+}
+
+function instanceDriftDiagnostics(differences) {
+  const occurredAt = new Date().toISOString();
+  return differences.map(difference => ({
+    code: difference.item === 'HASH_MISMATCH' || difference.item === 'MISSING' || difference.item === 'MISSING_REFERENCE' ? 'PROTECTED_PLUGIN_DRIFT' : 'INSTANCE_DRIFT',
+    serverName: difference.server,
+    message: String(difference.item ?? 'DIFFERING_FILE'),
+    path: difference.path,
+    occurredAt,
+  }));
 }
 
 async function verifyRecordedInstanceState(state, installedBuildId, sharedVersion) {
@@ -358,8 +409,10 @@ function clearSyncMarker(reason) {
       unlinkSync(SYNC_MARKER);
       log(`Sync marker removed (${reason}).`);
     }
+    return true;
   } catch (error) {
     log(`Could not remove sync marker (${reason}): ${error instanceof Error ? error.message : 'unknown error'}`);
+    return false;
   }
 }
 
@@ -502,10 +555,10 @@ function udpPortListening(pid, port) {
 }
 
 function waitForExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if (child.closed) return Promise.resolve();
   return new Promise(resolve => {
     const timer = setTimeout(resolve, timeoutMs);
-    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.once('close', () => { clearTimeout(timer); resolve(); });
   });
 }
 
@@ -521,6 +574,8 @@ async function smokeCheckServer(server) {
   const child = spawn(script, args, { cwd: server.root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '';
   let spawnError = null;
+  let readinessChecksPassed = false;
+  let quitRequested = false;
   const append = (tag, chunk) => {
     const text = chunk.toString();
     output = (output + text).slice(-250_000);
@@ -560,12 +615,13 @@ async function smokeCheckServer(server) {
       ['avatar plugin', 'csgo/addons/duelplayplayeravatar/bin/linuxsteamrt64/DuelPlayPlayerAvatar.so'],
       ['avatar loader', 'csgo/addons/metamod/duelplayplayeravatar.vdf'],
     ]) if (!existsSync(join(server.root, path))) throw new Error(`${server.name}: ${label} file is missing after startup.`);
+    readinessChecksPassed = true;
     log(`${server.name}: loopback game port and all DuelPlay plugin load checks passed.`);
   } catch (error) {
     smokeError = error;
   } finally {
     if (child.exitCode === null && !spawnError) {
-      try { child.stdin.write('quit\n'); } catch {}
+      try { child.stdin.write('quit\n'); quitRequested = true; } catch {}
       await waitForExit(child, 15_000);
       if (child.exitCode === null) child.kill('SIGTERM');
       await waitForExit(child, 5_000);
@@ -574,8 +630,13 @@ async function smokeCheckServer(server) {
     }
   }
   if (smokeError) throw smokeError;
-  assertSuccessfulProcessExit(child, `${server.name} CS2 smoke process`);
-  assertNoSmokeCrashOutput(output, `${server.name} CS2 smoke process`);
+  const outcome = classifySmokeProcessExit({ exitCode: child.exitCode, signalCode: child.signalCode, readinessChecksPassed, quitRequested, output });
+  if (outcome.status === 'FAILED') throw new Error(`${server.name}: smoke readiness did not finish safely (${JSON.stringify(outcome.diagnostic)}).`);
+  if (outcome.status === 'READY_WITH_SHUTDOWN_DIAGNOSTIC') {
+    log(`${server.name}: READY_WITH_SHUTDOWN_DIAGNOSTIC ${JSON.stringify(outcome.diagnostic)}; readiness passed before controlled quit, but shutdown was not clean.`);
+    return { serverName: server.name, status: outcome.status, diagnostics: [outcome.diagnostic] };
+  }
+  return { serverName: server.name, status: outcome.status, diagnostics: [] };
 }
 
 async function waitForManagers() {
@@ -584,19 +645,19 @@ async function waitForManagers() {
     const state = await getMaintenanceSnapshot();
     const allReady = servers.every(server => {
       const entry = state.servers.find(item => item.name === server.name);
-      return entry?.status === 'READY' && entry.managerReady === true && Number(entry.port) === server.port && Number(entry.managerPort) === server.managerPort && !entry.matchId && entry.heartbeatFresh;
+      return entry?.status === 'READY' && entry.managerReady === true && Number(entry.port) === server.port && Number(entry.managerPort) === server.managerPort && !entry.matchId && entry.heartbeatFresh && entry.gameProcessReady === false && entry.gameProcessStatus === 'STOPPED' && !entry.gameProcessPid && !entry.processId;
     });
     let allHealthEndpoints = true;
     for (const server of servers) {
       try {
         const response = await fetch(`http://127.0.0.1:${server.managerPort}/health`, { signal: AbortSignal.timeout(2000) });
         const data = await response.json();
-        if (!response.ok || data.ok !== true || data.matchId) allHealthEndpoints = false;
+        if (!response.ok || data.ok !== true || data.managerReady !== true || data.matchId || data.gameProcessReady !== false || data.gameProcessStatus !== 'STOPPED' || data.gameProcessPid) allHealthEndpoints = false;
       } catch { allHealthEndpoints = false; }
     }
     if (allReady && allHealthEndpoints) {
       log(`All ${servers.length} manager health endpoints and fresh database readiness records passed.`);
-      return;
+      return state.servers;
     }
     log('Waiting for all three manager processes and readiness heartbeats.');
     await sleep(5000);
@@ -624,20 +685,6 @@ async function restoreMaintenanceIfSafe(reason) {
     log(`Could not restore the previous maintenance state after ${reason}: ${error instanceof Error ? error.message : 'unknown API error'}`);
     return false;
   }
-}
-
-async function disableMaintenance() {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      await setMaintenance(false);
-      maintenanceTouched = false;
-      return true;
-    } catch (error) {
-      log(`Could not disable maintenance (attempt ${attempt}/3): ${error instanceof Error ? error.message : 'unknown API error'}`);
-      if (attempt < 3) await sleep(5_000);
-    }
-  }
-  return false;
 }
 
 async function finishAndExit(signal) {
@@ -689,13 +736,25 @@ async function adoptCurrentSuccessfulState() {
   log(`Verified state recorded for Build ID ${installedBuildId} / ServerVersion ${serverVersion}; no app_update or file synchronization was performed.`);
 }
 
+const isAdoptingCurrentState = process.argv.includes('--adopt-current-success');
+const isScheduledRun = process.argv.includes('--scheduled');
+
 async function main() {
+  if (!isScheduledRun || !/^[0-9a-f-]{36}$/i.test(UPDATE_RUN_ID)) throw new Error('SCHEDULED_UPDATE_RUN_CLAIM_REQUIRED; refusing to query Steam or modify any files.');
+  required(API_URL, 'DUELPLAY_API_URL');
+  required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
   log(`CS2 shared-install update started; persistent log: ${logPath}`);
+  currentStage = 'SCHEDULE_CLAIMED';
+  await updateRunApi()(`/api/server-manager/update-runs/active?runId=${encodeURIComponent(UPDATE_RUN_ID)}`);
+  await reportUpdateRun({ status: 'RUNNING', stage: currentStage, maintenanceEnabled: false, syncMarkerActive: false });
+
+  currentStage = 'BUILD_ID_CHECK';
   const buildIdBefore = readSharedBuildId();
   log(`Shared CS2 build before update: ${readCs2Build(GAME_DIR) ?? 'unknown'} (buildid ${buildIdBefore ?? 'unknown'}).`);
   for (const server of servers) log(`${server.name}: instance build before update: ${readCs2Build(server.root) ?? 'unknown'}.`);
-
   const latestBuildId = await querySteamPublicBuildId();
+  await reportUpdateRun({ stage: currentStage, publicBuildId: latestBuildId, installedBuildIdBefore: buildIdBefore });
+
   if (!buildIdBefore) throw new Error('Installed shared Steam Build ID is unavailable; refusing to update or synchronize any files.');
   const plan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore });
   if (plan.action === 'BLOCKED') throw new Error(`${plan.reason}; refusing to update or synchronize any files.`);
@@ -704,39 +763,59 @@ async function main() {
   if (plan.action === 'NO_UPDATE') {
     log(`NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}; Steam has no newer official build.`);
     log('Steam Build ID is unchanged; checking instance roots with read-only rsync checksum dry-runs.');
-    const instanceDrift = await inspectInstanceDrift();
-    const observedPlan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore, instanceDrift });
+    currentStage = 'INSTANCE_DRIFT_CHECK';
+    const inspection = await inspectInstanceDrift();
+    checkedInstances.splice(0, checkedInstances.length, ...inspection.checks);
+    updateDiagnostics.splice(0, updateDiagnostics.length, ...instanceDriftDiagnostics(inspection.differences));
+    await reportUpdateRun({ stage: currentStage, checkedInstances, publicBuildId: latestBuildId, installedBuildIdBefore: buildIdBefore, diagnostics: updateDiagnostics });
+    const observedPlan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore, instanceDrift: inspection.differences });
     if (observedPlan.action === 'INSTANCE_DRIFT') {
-      logInstanceDrift(instanceDrift, buildIdBefore, latestBuildId);
-      persistAttempt('INSTANCE_DRIFT', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId, differingFiles: instanceDrift.length });
+      logInstanceDrift(inspection.differences, buildIdBefore, latestBuildId);
+      persistAttempt('INSTANCE_DRIFT', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId, differingFiles: inspection.differences.length });
+      await setUpdateStatus('INSTANCE_DRIFT');
+      currentStage = 'INSTANCE_DRIFT';
+      await reportUpdateRun({ status: 'INSTANCE_DRIFT', stage: currentStage, interventionRequired: true, maintenanceEnabled: false, syncMarkerActive: false, checkedInstances, diagnostics: updateDiagnostics });
       return;
     }
     log('NO_UPDATE: no instance drift; no app_update, maintenance marker, file sync, or CS2 smoke process is needed.');
     persistAttempt('NO_UPDATE', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId });
+    await setUpdateStatus('NO_UPDATE');
+    currentStage = 'NO_UPDATE';
+    await reportUpdateRun({ status: 'NO_UPDATE', stage: currentStage, interventionRequired: false, maintenanceEnabled: false, syncMarkerActive: false, checkedInstances, diagnostics: [] });
     return;
   }
 
   log(`Update decision: ${plan.action} (${plan.reason}).`);
   if (plan.action !== 'UPDATE' || !plan.runAppUpdate || !plan.runSync) throw new Error(`Unexpected update plan ${plan.action}; refusing to mutate files.`);
-  const preUpdateDrift = await inspectInstanceDrift();
-  const preExistingConflicts = preUpdateDrift.filter(difference => !difference.item.startsWith('*deleting'));
-  const preExistingTargetOnly = preUpdateDrift.length - preExistingConflicts.length;
-  if (preUpdateDrift.length) logInstanceDrift(preUpdateDrift, buildIdBefore, latestBuildId);
+  currentStage = 'INSTANCE_DRIFT_CHECK';
+  const preUpdateInspection = await inspectInstanceDrift();
+  checkedInstances.splice(0, checkedInstances.length, ...preUpdateInspection.checks);
+  updateDiagnostics.splice(0, updateDiagnostics.length, ...instanceDriftDiagnostics(preUpdateInspection.differences));
+  await reportUpdateRun({ stage: currentStage, checkedInstances, diagnostics: updateDiagnostics, publicBuildId: latestBuildId, installedBuildIdBefore: buildIdBefore });
+  const preExistingConflicts = preUpdateInspection.differences.filter(difference => !difference.item.startsWith('*deleting'));
+  const preExistingTargetOnly = preUpdateInspection.differences.length - preExistingConflicts.length;
+  if (preUpdateInspection.differences.length) logInstanceDrift(preUpdateInspection.differences, buildIdBefore, latestBuildId);
   if (preExistingConflicts.length) {
-    throw new Error(`A new Steam build is available, but ${preExistingConflicts.length} pre-existing source/instance conflict(s) were found; refusing to overwrite them during the official update.`);
+    log(`UPDATE_BLOCKED_BY_INSTANCE_DRIFT conflictingFiles=${preExistingConflicts.length}; no files were changed.`);
+    persistAttempt('INSTANCE_DRIFT', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId, differingFiles: preExistingConflicts.length });
+    currentStage = 'BLOCKED';
+    await setUpdateStatus('BLOCKED', 'Pre-existing source/instance drift requires review before updating.');
+    await reportUpdateRun({ status: 'BLOCKED', stage: currentStage, errorCode: 'PRE_EXISTING_INSTANCE_DRIFT', errorMessage: 'Pre-existing source/instance drift requires review before updating.', interventionRequired: true, maintenanceEnabled: false, syncMarkerActive: false, checkedInstances, diagnostics: updateDiagnostics });
+    return;
   }
   if (preExistingTargetOnly) log(`${preExistingTargetOnly} target-only file(s) will remain untouched; mutation sync has no --delete.`);
   log('Pre-update source/instance conflicts are clear; only checksum differences from the shared source are eligible for sync.');
+  currentStage = 'PREFLIGHT';
+  await reportUpdateRun({ stage: currentStage, checkedInstances, publicBuildId: latestBuildId, installedBuildIdBefore: buildIdBefore, diagnostics: updateDiagnostics });
   verifyPerServerComponents();
-  required(API_URL, 'DUELPLAY_API_URL');
-  required(MANAGER_SECRET, 'DUELPLAY_SERVER_MANAGER_SECRET');
 
   const before = await getMaintenanceSnapshot();
   const previousStatus = before.updateStatus?.status ?? null;
   previousMaintenance = before.maintenance === true;
-  if (previousStatus === 'RUNNING') {
+  if (previousStatus === 'RUNNING' && before.updateStatus?.runId !== UPDATE_RUN_ID) {
     throw new Error(`Previous updater status is still RUNNING (started ${before.updateStatus?.startedAt ?? 'unknown'}); refusing overlapping or uncertain maintenance.`);
   }
+  await reportUpdateRun({ stage: currentStage, maintenanceWasEnabled: previousMaintenance, maintenanceEnabled: previousMaintenance, syncMarkerActive: false });
   log(`Previous maintenance state: ${previousMaintenance ? 'enabled' : 'disabled'}.`);
 
   await setMaintenance(true);
@@ -744,12 +823,15 @@ async function main() {
   await setUpdateStatus('RUNNING');
   log('Website maintenance is enabled.');
   beginSyncMarker();
+  await setUpdateStage('WAITING_FOR_MATCHES', { maintenanceWasEnabled: previousMaintenance, maintenanceEnabled: true, syncMarkerActive: true, checkedInstances });
   await waitForMatchDrain();
+  await setUpdateStage('IDLE_CHECK', { maintenanceWasEnabled: previousMaintenance, maintenanceEnabled: true, syncMarkerActive: true, checkedInstances });
   await assertInstancesIdle();
 
   // From here on the shared server files can change; maintenance must stay enabled even on
   // failure so players never join a half-updated server.
   mutationStarted = true;
+  await setUpdateStage('STEAMCMD_UPDATE', { maintenanceEnabled: true, syncMarkerActive: true });
   await runProcess(STEAMCMD_BIN, [
     '+force_install_dir', COMMON_DIR,
     '+login', 'anonymous',
@@ -762,6 +844,7 @@ async function main() {
   log(`Shared CS2 build after SteamCMD: ${sharedBuildAfter ?? 'unknown'} (buildid ${buildIdAfter ?? 'unknown'}).`);
   if (!sharedBuildAfter || !buildIdAfter) throw new Error('Shared CS2 build or Build ID is unavailable; refusing to synchronize instances.');
   if (buildIdAfter !== latestBuildId) throw new Error(`SteamCMD installed Build ID ${buildIdAfter}, expected public Build ID ${latestBuildId}; refusing to synchronize instances.`);
+  await setUpdateStage('VERIFY_SHARED_BUILD', { installedBuildIdAfter: buildIdAfter, serverVersionAfter: sharedBuildAfter, publicBuildId: latestBuildId, maintenanceEnabled: true, syncMarkerActive: true });
 
   const { deep, reasons } = selectSyncMode({
     buildIdBefore,
@@ -775,17 +858,39 @@ async function main() {
   await syncInstances({
     servers,
     deep,
-    sync: (server, isDeep) => syncInstanceFromShared(server, isDeep),
-    verify: server => verifyInstanceMatchesShared(server, sharedBuildAfter),
+    sync: async (server, isDeep) => {
+      currentStage = 'SYNCING_INSTANCES';
+      recordInstanceCheck({ serverName: server.name, status: 'SYNCING', buildId: buildIdAfter, controlFilesVerified: false, smokeStatus: 'PENDING', checkedAt: new Date().toISOString() });
+      await reportUpdateRun({ stage: currentStage, installedBuildIdAfter: buildIdAfter, checkedInstances, maintenanceEnabled: true, syncMarkerActive: true });
+      await syncInstanceFromShared(server, isDeep);
+    },
+    verify: async server => {
+      verifyInstanceMatchesShared(server, sharedBuildAfter);
+      recordInstanceCheck({ serverName: server.name, status: 'READY', buildId: buildIdAfter, serverVersion: readCs2Build(server.root), controlFilesVerified: true, smokeStatus: 'PENDING', checkedAt: new Date().toISOString() });
+      await reportUpdateRun({ stage: 'SYNCING_INSTANCES', installedBuildIdAfter: buildIdAfter, serverVersionAfter: sharedBuildAfter, checkedInstances, maintenanceEnabled: true, syncMarkerActive: true });
+    },
     log,
   });
   log(`All ${servers.length} instance roots are synchronized with the shared CS2 build.`);
 
-  for (const server of servers) await smokeCheckServer(server);
-  await waitForManagers();
+  currentStage = 'SMOKE_CHECK';
+  for (const server of servers) {
+    const result = await smokeCheckServer(server);
+    recordInstanceCheck({ serverName: server.name, status: 'READY', buildId: buildIdAfter, serverVersion: readCs2Build(server.root), controlFilesVerified: true, smokeStatus: result.status, managerReady: false, gameProcessReady: false, gameProcessPid: null, gameProcessStatus: 'STOPPED', checkedAt: new Date().toISOString() });
+    if (result.diagnostics.length) updateDiagnostics.push(...result.diagnostics.map(diagnostic => ({ ...diagnostic, serverName: server.name, message: 'Smoke process passed readiness checks but exited with SIGSEGV after controlled quit.', occurredAt: new Date().toISOString() })));
+    await reportUpdateRun({ stage: currentStage, installedBuildIdAfter: buildIdAfter, serverVersionAfter: sharedBuildAfter, checkedInstances, diagnostics: updateDiagnostics, maintenanceEnabled: true, syncMarkerActive: true });
+  }
+  currentStage = 'VERIFYING_CLUSTER';
+  const managerState = await waitForManagers();
+  for (const server of servers) {
+    const state = managerState.find(item => item.name === server.name);
+    recordInstanceCheck({ serverName: server.name, status: 'READY', buildId: buildIdAfter, serverVersion: readCs2Build(server.root), controlFilesVerified: true, smokeStatus: checkedInstances.find(item => item.serverName === server.name)?.smokeStatus, managerReady: state?.managerReady === true, gameProcessReady: state?.gameProcessReady === true, gameProcessPid: state?.gameProcessPid ?? null, gameProcessStatus: state?.gameProcessStatus ?? 'UNKNOWN', checkedAt: new Date().toISOString() });
+  }
+  await reportUpdateRun({ stage: 'FINALIZING', installedBuildIdAfter: buildIdAfter, serverVersionAfter: sharedBuildAfter, checkedInstances, diagnostics: updateDiagnostics, maintenanceEnabled: true, syncMarkerActive: true, interventionRequired: false });
+  const finalStatus = updateDiagnostics.length ? 'UPDATED_WITH_DIAGNOSTICS' : 'UPDATED';
 
   try {
-    persistUpdateState(createSuccessfulState(buildIdAfter, sharedBuildAfter));
+    persistUpdateState(createSuccessfulState(buildIdAfter, sharedBuildAfter, new Date().toISOString(), finalStatus));
   } catch (stateError) {
     try {
       await setMaintenance(true);
@@ -797,18 +902,15 @@ async function main() {
     throw new Error(`Update checks passed but Build ID state could not be saved: ${stateError instanceof Error ? stateError.message : 'unknown error'}`);
   }
 
-  await setUpdateStatus('SUCCEEDED');
-  if (previousMaintenance) {
-    maintenanceTouched = false;
-    log('The site was already in maintenance before this run; preserving that state after update verification.');
-  } else if (!(await disableMaintenance())) {
-    throw new Error('Update completed but maintenance could not be disabled through the app API; verify the site and lift it manually.');
-  }
-  clearSyncMarker('update completed successfully');
-  log('All smoke tests passed; maintenance was disabled and the site returned to service.');
+  if (!clearSyncMarker('all three instances passed readiness before maintenance release')) throw new Error('SYNC_MARKER_CLEANUP_FAILED');
+  const finalization = await updateRunApi()('/api/server-manager/update-runs/finalize', { method: 'POST', body: { runId: UPDATE_RUN_ID, status: finalStatus } });
+  maintenanceTouched = false;
+  log(finalStatus === 'UPDATED_WITH_DIAGNOSTICS'
+    ? 'All three servers passed build, file, manager, port and plugin readiness; post-quit shutdown SIGSEGV was recorded as a diagnostic. Maintenance released after all checks.'
+    : 'All three servers passed build, file, manager, port and plugin readiness. Maintenance released after all checks.');
+  if (finalization.maintenanceEnabled === true) log('Maintenance was already enabled before this run and remains enabled.');
 }
 
-const isAdoptingCurrentState = process.argv.includes('--adopt-current-success');
 try {
   if (isAdoptingCurrentState) await adoptCurrentSuccessfulState();
   else await main();
@@ -824,16 +926,38 @@ try {
     log(`ERROR: ${message}`);
     try { persistAttempt('FAILED', { buildId: readSharedBuildId(), error: message.slice(0, 1000) }); }
     catch (stateError) { log(`Could not persist failed-attempt state: ${stateError instanceof Error ? stateError.message : 'unknown error'}`); }
-    if (mutationStarted && !maintenanceTouched) {
+    if (mutationStarted) {
       try {
-        await setMaintenance(true);
-        maintenanceTouched = true;
-        log('Maintenance was re-enabled after a post-check failure; the sync marker remains active.');
+        if (!maintenanceTouched) {
+          await setMaintenance(true);
+          maintenanceTouched = true;
+        }
+        if (!existsSync(SYNC_MARKER)) beginSyncMarker();
+        log('Maintenance and the sync marker remain active after a post-mutation failure.');
       } catch (maintenanceError) {
-        log(`Could not re-enable maintenance after failure: ${maintenanceError instanceof Error ? maintenanceError.message : 'unknown API error'}`);
+        log(`Could not confirm safety gates after failure: ${maintenanceError instanceof Error ? maintenanceError.message : 'unknown API error'}`);
       }
     }
     const restored = await restoreMaintenanceIfSafe('pre-flight failure');
+    if (UPDATE_RUN_ID) {
+      currentStage = 'FAILED';
+      try {
+        await reportUpdateRun({
+          status: 'FAILED',
+          stage: currentStage,
+          errorCode: 'CS2_UPDATE_FAILED',
+          errorMessage: message,
+          interventionRequired: mutationStarted || !restored && previousMaintenance,
+          maintenanceEnabled: mutationStarted ? true : previousMaintenance,
+          syncMarkerActive: mutationStarted && existsSync(SYNC_MARKER),
+          checkedInstances,
+          diagnostics: updateDiagnostics,
+          installedBuildIdBefore: readSharedBuildId(),
+        });
+      } catch (runStatusError) {
+        log(`Could not persist terminal run status: ${runStatusError instanceof Error ? runStatusError.message : 'unknown API error'}`);
+      }
+    }
     try {
       await setUpdateStatus('FAILED', message);
       log(restored ? 'Failure status was recorded and the previous maintenance state was restored.' : 'Failure status was recorded. Maintenance remains enabled.');

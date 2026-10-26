@@ -1175,6 +1175,39 @@ model SiteSettings {
   updatedBy          String?
   updatedAt          DateTime @updatedAt
 }
+
+model Cs2UpdateRun {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  localDate                String   @unique @db.VarChar(10)
+  scheduledAt              DateTime
+  scheduledLocalTime       String   @db.VarChar(5)
+  timeZone                 String   @default("Europe/Kyiv") @db.VarChar(64)
+  scheduleRevision         Int
+  source                   String   @default("SCHEDULED") @db.VarChar(24)
+  status                   String   @db.VarChar(40)
+  stage                    String   @db.VarChar(80)
+  startedAt                DateTime @default(now())
+  finishedAt               DateTime?
+  durationMs               Int?
+  publicBuildId            String?  @db.VarChar(32)
+  installedBuildIdBefore   String?  @db.VarChar(32)
+  installedBuildIdAfter    String?  @db.VarChar(32)
+  serverVersionAfter       String?  @db.VarChar(32)
+  checkedInstances         Json?
+  diagnostics              Json?
+  errorCode                String?  @db.VarChar(80)
+  errorMessage             String?  @db.VarChar(1000)
+  interventionRequired     Boolean  @default(false)
+  maintenanceWasEnabled    Boolean  @default(false)
+  maintenanceEnabled       Boolean  @default(false)
+  syncMarkerActive         Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+}
+
 model GameServer {
   id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String           @unique
