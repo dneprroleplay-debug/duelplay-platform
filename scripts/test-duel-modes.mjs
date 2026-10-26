@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../lib/duel-modes.ts', import.meta.url), 'utf8');
 assert.match(source, /SOLO_1V1/);
-for (const mode of ['AWP_ONLY','DEAGLE_ONLY','KNIFE_ONLY','HEADSHOT_ONLY','RANDOM_WEAPON','FIRST_TO_10','GRENADE_ONLY']) assert.match(source, new RegExp(mode));
+for (const mode of ['AWP_ONLY','DEAGLE_ONLY','KNIFE_ONLY','HEADSHOT_ONLY','RANDOM_WEAPON','FIRST_TO_10','GRENADE_ONLY','LOW_GRAVITY','SPEED_DUEL']) assert.match(source, new RegExp(mode));
 assert.match(source, /MODE_MODIFIER_CONFLICT/);
 assert.match(source, /DUEL_FORMATS/);
+assert.equal((source.match(/\{ id: "[A-Z0-9_]+"/g) || []).length, 10, 'the user-facing duel mode catalog must contain exactly ten modes');
 console.log('duel modes policy: PASS');
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');

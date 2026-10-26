@@ -72,6 +72,8 @@ const MODE_DESCRIPTIONS: Record<DescriptionLanguage, Record<DuelModeId, string>>
     RANDOM_WEAPON: "Случайное оружие: перед стартом случайно выдаётся один тип оружия и категория.",
     FIRST_TO_10: "Дуэль до 10 фрагов: побеждает первый, кто набирает 10 убийств.",
     GRENADE_ONLY: "Только гранаты: 12 гранат (3 HE, 3 флеш, 3 дым, 3 молотов) выдаются в начале раунда. После смерти и респавна сохраняется точный остаток каждого типа в текущем раунде, без пополнения; набор сбрасывается только с началом нового раунда. Нож выдаётся после расхода всех гранат.",
+    LOW_GRAVITY: "Пониженная гравитация. Режим доступен только на картах с подтверждённым профилем безопасности.",
+    SPEED_DUEL: "Повышенная скорость передвижения игрока. Настройки активируются после подтверждения конфигурации всеми тремя серверами.",
   },
   UA: {
     SOLO_1V1: "Класичний двобій 1v1 зі стандартним набором зброї та повним уроном.",
@@ -82,6 +84,8 @@ const MODE_DESCRIPTIONS: Record<DescriptionLanguage, Record<DuelModeId, string>>
     RANDOM_WEAPON: "Випадкова зброя: перед стартом випадково видається один тип зброї та категорія.",
     FIRST_TO_10: "Двобій до 10 фрагів: перемагає перший, хто набирає 10 вбивств.",
     GRENADE_ONLY: "Лише гранати: 12 гранат (3 HE, 3 флеш, 3 дім, 3 молотов) видаються на початку раунду. Після смерті та респавну зберігається точний залишок кожного типу в поточному раунді, без поповнення; набір скидається лише з початком нового раунду. Ніж видається після витрати всіх гранат.",
+    LOW_GRAVITY: "Знижена гравітація. Режим доступний лише на мапах із підтвердженим профілем безпеки.",
+    SPEED_DUEL: "Підвищена швидкість пересування гравця. Налаштування активуються після підтвердження конфігурації всіма трьома серверами.",
   },
   EN: {
     SOLO_1V1: "Classic 1v1 duel with the standard arsenal and full damage.",
@@ -92,6 +96,8 @@ const MODE_DESCRIPTIONS: Record<DescriptionLanguage, Record<DuelModeId, string>>
     RANDOM_WEAPON: "Random weapon: one weapon type and category are drawn before the start.",
     FIRST_TO_10: "Duel to 10 frags: the first player to reach 10 kills wins.",
     GRENADE_ONLY: "Grenades only: 12 grenades (3 HE, 3 flash, 3 smoke, 3 molotov) are granted at the start of a round. After a death and respawn the exact remainder of every type is kept for the current round without a refill; only a new round resets the kit. The knife is granted once every grenade is spent.",
+    LOW_GRAVITY: "Reduced gravity. Available only on maps with a verified safety profile.",
+    SPEED_DUEL: "Increased player movement speed. Settings activate only after all three servers confirm the configuration.",
   },
   PL: {
     SOLO_1V1: "Klasyczny pojedynek 1v1 ze standardowym arsenałem i pełnymi obrażeniami.",
@@ -102,6 +108,8 @@ const MODE_DESCRIPTIONS: Record<DescriptionLanguage, Record<DuelModeId, string>>
     RANDOM_WEAPON: "Losowa broń: przed startem losowo przydzielany jest jeden rodzaj broni i kategoria.",
     FIRST_TO_10: "Pojedynek do 10 fragów: wygrywa pierwszy gracz, który zdobędzie 10 killi.",
     GRENADE_ONLY: "Tylko granaty: 12 granatów (3 HE, 3 flash, 3 smoke, 3 molotov) jest przyznawanych na początku rundy. Po śmierci i respawnie pozostaje dokładna reszta każdego typu w bieżącej rundzie, bez uzupełniania; zestaw resetuje się dopiero z początkiem nowej rundy. Nóż jest przyznawany po zużyciu wszystkich granatów.",
+    LOW_GRAVITY: "Obniżona grawitacja. Tryb jest dostępny wyłącznie na mapach ze zweryfikowanym profilem bezpieczeństwa.",
+    SPEED_DUEL: "Zwiększona prędkość poruszania gracza. Ustawienia aktywują się po potwierdzeniu konfiguracji przez wszystkie trzy serwery.",
   },
 };
 
@@ -115,6 +123,8 @@ const MODE_LABELS: Record<DescriptionLanguage, Record<DuelModeId, string>> = {
     RANDOM_WEAPON: "Случайное оружие",
     FIRST_TO_10: "До 10 убийств",
     GRENADE_ONLY: "Только гранаты",
+    LOW_GRAVITY: "Low Gravity",
+    SPEED_DUEL: "Speed Duel",
   },
   UA: {
     SOLO_1V1: "Classic",
@@ -125,6 +135,8 @@ const MODE_LABELS: Record<DescriptionLanguage, Record<DuelModeId, string>> = {
     RANDOM_WEAPON: "Випадкова зброя",
     FIRST_TO_10: "До 10 вбивств",
     GRENADE_ONLY: "Лише гранати",
+    LOW_GRAVITY: "Low Gravity",
+    SPEED_DUEL: "Speed Duel",
   },
   EN: {
     SOLO_1V1: "Classic",
@@ -135,6 +147,8 @@ const MODE_LABELS: Record<DescriptionLanguage, Record<DuelModeId, string>> = {
     RANDOM_WEAPON: "Random Weapon",
     FIRST_TO_10: "First to 10",
     GRENADE_ONLY: "Grenade Only",
+    LOW_GRAVITY: "Low Gravity",
+    SPEED_DUEL: "Speed Duel",
   },
   PL: {
     SOLO_1V1: "Classic",
@@ -145,6 +159,8 @@ const MODE_LABELS: Record<DescriptionLanguage, Record<DuelModeId, string>> = {
     RANDOM_WEAPON: "Losowa broń",
     FIRST_TO_10: "Do 10 fragów",
     GRENADE_ONLY: "Tylko granaty",
+    LOW_GRAVITY: "Low Gravity",
+    SPEED_DUEL: "Speed Duel",
   },
 };
 

@@ -7,6 +7,8 @@ import { DUEL_MAPS, getDuelMap } from "@/lib/duel-maps";
 import { DUEL_MODES, type DuelModeId } from "@/lib/duel-modes";
 import { formatMatchAmount } from "@/lib/match-currency";
 import { mapDescription, modeDescription } from "@/lib/duel-descriptions";
+import { advancedModeAvailabilityHint, isDuelModeAvailable, loadPublicGameModeAvailability, type PublicModeAvailabilityByMap } from "@/lib/duel-mode-availability.mjs";
+import { deferEffectTask } from "@/lib/effect-defer";
 
 type DemoWalletView = { balance: string; lockedBalance: string; debtBalance: string };
 
@@ -15,6 +17,8 @@ export default function DemoCreateMatch() {
   const [wallet, setWallet] = useState<DemoWalletView | null>(null);
   const [mapName, setMapName] = useState(DUEL_MAPS[0].serverMapName);
   const [mode, setMode] = useState<DuelModeId>("SOLO_1V1");
+  const [modeAvailability, setModeAvailability] = useState<PublicModeAvailabilityByMap | null>(null);
+  const [modeAvailabilityLoaded, setModeAvailabilityLoaded] = useState(false);
   const [stake, setStake] = useState("100");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -22,6 +26,8 @@ export default function DemoCreateMatch() {
   const [activeMatch, setActiveMatch] = useState<{ id: string; mapName?: string | null; economyMode?: string; betAmount?: string | number } | null>(null);
   const mapConfig = getDuelMap(mapName) || DUEL_MAPS[0];
   const modeConfig = DUEL_MODES.find(item => item.id === mode) || DUEL_MODES[0];
+  const currentModeAvailable = isDuelModeAvailable(modeAvailability, mapConfig.id, mode, mapConfig.supportedModes[mode]);
+  const modeAvailabilityHint = advancedModeAvailabilityHint(language, modeAvailability?.[mapConfig.id] ?? null, modeAvailabilityLoaded);
   const copy = language === "RU"
     ? { title: "ДЕМО-практика", subtitle: "Виртуальные кредиты без денежной стоимости и вывода.", balance: "Баланс DC", stake: "Ставка DC", map: "Карта", mode: "Режим", create: "Создать DEMO-матч", loading: "Загружаем DEMO-кошелёк…", back: "К REAL-матчам", error: "Не удалось создать DEMO-матч.", insufficient: "Недостаточно виртуальных кредитов DC для этой ставки.", disabled: "DEMO-режим временно отключён.", activeTitle: "У вас уже есть активная дуэль.", activeOpen: "Открыть матч →" }
     : language === "UA"
@@ -36,6 +42,25 @@ export default function DemoCreateMatch() {
   // initialisation on a language switch.
   const copyErrorRef = useRef(copy.error);
   useEffect(() => { copyErrorRef.current = copy.error; }, [copy.error]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPublicGameModeAvailability().then(value => {
+      if (!cancelled) {
+        setModeAvailability(value);
+        setModeAvailabilityLoaded(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    deferEffectTask(() => {
+      if (isDuelModeAvailable(modeAvailability, mapConfig.id, mode, mapConfig.supportedModes[mode])) return;
+      const fallback = DUEL_MODES.find(item => isDuelModeAvailable(modeAvailability, mapConfig.id, item.id, mapConfig.supportedModes[item.id]));
+      if (fallback) setMode(fallback.id);
+    });
+  }, [mapConfig, mode, modeAvailability]);
 
   useEffect(() => {
     async function loadWallet() {
@@ -95,10 +120,10 @@ export default function DemoCreateMatch() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <label className="text-xs font-bold text-zinc-500">{copy.stake}<input className="input mt-2" type="number" min="3" max="10000" step="0.01" value={stake} onChange={event => setStake(event.target.value)} /></label>
         <label className="text-xs font-bold text-zinc-500">{copy.map}<select className="input mt-2" value={mapName} onChange={event => setMapName(event.target.value)}>{DUEL_MAPS.map(item => <option key={item.id} value={item.serverMapName}>{item.displayName}</option>)}</select><span className="mt-2 block text-xs font-normal leading-5 text-zinc-500">{mapDescription(language,mapConfig.id,mapConfig.description)}</span></label>
-        <label className="text-xs font-bold text-zinc-500 sm:col-span-2">{copy.mode}<select className="input mt-2" value={mode} onChange={event => setMode(event.target.value as DuelModeId)}>{DUEL_MODES.map(item => <option data-no-i18n key={item.id} value={item.id}>{item.label}</option>)}</select><span className="mt-2 block text-xs font-normal leading-5 text-zinc-500">{modeDescription(language,mode,modeConfig.description)}</span></label>
+        <label className="text-xs font-bold text-zinc-500 sm:col-span-2">{copy.mode}<select className="input mt-2" value={mode} onChange={event => setMode(event.target.value as DuelModeId)}>{DUEL_MODES.map(item => { const available = isDuelModeAvailable(modeAvailability, mapConfig.id, item.id, mapConfig.supportedModes[item.id]); const reason = modeAvailability?.[mapConfig.id]?.[item.id]?.reason; return <option data-no-i18n key={item.id} value={item.id} disabled={!available} title={available ? undefined : (reason || "Mode is not currently available.")}>{item.label}{available ? "" : " · unavailable"}</option>; })}</select><span className="mt-2 block text-xs font-normal leading-5 text-zinc-500">{modeDescription(language,mode,modeConfig.description)}</span>{modeAvailabilityLoaded && modeAvailabilityHint && <span className="mt-2 block text-xs font-normal leading-5 text-amber-300/80">{modeAvailabilityHint}</span>}</label>
       </div>
       {message && <p data-no-i18n role="alert" className="mt-4 text-sm text-red-300">{message}</p>}
-      <button disabled={!wallet || busy || Boolean(activeMatch) || Number(stake) > Number(wallet.balance)} onClick={create} className="mt-6 w-full rounded-xl bg-pink-400 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-40">{busy ? "…" : copy.create}</button>
+      <button disabled={!wallet || busy || Boolean(activeMatch) || !currentModeAvailable || Number(stake) > Number(wallet.balance)} onClick={create} className="mt-6 w-full rounded-xl bg-pink-400 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-40">{busy ? "…" : copy.create}</button>
       </>}
     </section>
   </main>;

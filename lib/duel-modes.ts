@@ -7,6 +7,8 @@ export const DUEL_MODES = [
   { id: "RANDOM_WEAPON", label: "Random Weapon", description: "Random weapon modifier.", weaponModifier: "RANDOM_WEAPON" },
   { id: "FIRST_TO_10", label: "First to 10", description: "First player to 10 kills.", weaponModifier: null },
   { id: "GRENADE_ONLY", label: "Grenade Only", description: "Grenades only.", weaponModifier: "GRENADE_ONLY" },
+  { id: "LOW_GRAVITY", label: "Low Gravity", description: "Reduced gravity; available only on maps with a verified safety profile.", weaponModifier: null },
+  { id: "SPEED_DUEL", label: "Speed Duel", description: "Increased player movement speed with settings synchronized across all three servers.", weaponModifier: null },
 ] as const;
 
 export type DuelModeId = (typeof DUEL_MODES)[number]["id"];

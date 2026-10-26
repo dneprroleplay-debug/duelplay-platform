@@ -82,4 +82,10 @@ test('server manager uses the shared validator, writes configs before process st
   assert.match(manager, /writeModeConfigFiles\(mode, modeSettings\);\s*const child = spawn\(CS2_SCRIPT/);
   assert.match(manager, /function resetModeConfigs\(\)/);
   assert.match(manager, /resetModeConfigs\(\);/);
+  assert.match(manager, /const speed = Math\.round\(320 \* speedPercent \/ 100\)/);
+  assert.match(manager, /sv_maxspeed \$\{speed\}/);
+  assert.match(manager, /command\('sv_maxspeed 320'\)/);
+  assert.match(manager, /sv_accelerate_use_weapon_speed \$\{weaponSpeedScale\}/);
+  assert.match(manager, /command\('sv_accelerate_use_weapon_speed 1'\)/);
+  assert.doesNotMatch(manager, /mp_walkspeed|mp_maxspeed/, 'Speed Duel must use the CS2 sv_maxspeed convar, not legacy/unknown convars');
 });

@@ -396,17 +396,18 @@ function writeModeConfigFiles(mode = null, settings = {}) {
   }
 
   const gravity = Math.round(800 * gravityPercent / 100);
-  const speed = Math.round(250 * speedPercent / 100);
+  const speed = Math.round(320 * speedPercent / 100);
   writeIfChanged(join(cfgDir, 'duelplay_low_gravity.cfg'), `// DuelPlay LOW_GRAVITY config\nsv_gravity ${gravity}\n`);
-  writeIfChanged(join(cfgDir, 'duelplay_speed_duel.cfg'), `// DuelPlay SPEED_DUEL config\nmp_walkspeed ${speed}\nmp_maxspeed ${speed}\n`);
+  const weaponSpeedScale = mode === 'SPEED_DUEL' ? 0 : 1;
+  writeIfChanged(join(cfgDir, 'duelplay_speed_duel.cfg'), `// DuelPlay SPEED_DUEL config\nsv_maxspeed ${speed}\nsv_accelerate_use_weapon_speed ${weaponSpeedScale}\n`);
 }
 
 function resetModeConfigs() {
   // Reset live cvars where the process still exists and always restore neutral
   // files for the next match. No server update or restart is initiated here.
   command('sv_gravity 800');
-  command('mp_walkspeed 250');
-  command('mp_maxspeed 250');
+  command('sv_maxspeed 320');
+  command('sv_accelerate_use_weapon_speed 1');
   writeModeConfigFiles(null, {});
 }
 

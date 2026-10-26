@@ -19,7 +19,7 @@ for (const [id, label, serverName] of requiredMaps) {
   assert.match(catalog, new RegExp(`displayName: "${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   assert.match(catalog, new RegExp(`serverMapName: "${serverName}"`));
 }
-for (const mode of ["SOLO_1V1", "AWP_ONLY", "DEAGLE_ONLY", "KNIFE_ONLY", "HEADSHOT_ONLY", "RANDOM_WEAPON", "FIRST_TO_10", "GRENADE_ONLY"]) {
+for (const mode of ["SOLO_1V1", "AWP_ONLY", "DEAGLE_ONLY", "KNIFE_ONLY", "HEADSHOT_ONLY", "RANDOM_WEAPON", "FIRST_TO_10", "GRENADE_ONLY", "LOW_GRAVITY", "SPEED_DUEL"]) {
   assert.match(catalog, new RegExp(`\\b${mode}: boolean;`));
 }
 const integrations = {
@@ -32,9 +32,11 @@ const integrations = {
   live: fs.readFileSync("components/Live/Live.tsx", "utf8"),
 };
 assert.match(integrations.create, /DUEL_MAPS/);
-assert.match(integrations.create, /isMapModeSupported/);
+assert.match(integrations.create, /isDuelModeAvailable/);
+assert.match(integrations.create, /loadPublicGameModeAvailability/);
 assert.match(integrations.matchmaking, /DUEL_MAPS/);
-assert.match(integrations.matchmaking, /isMapModeSupported/);
+assert.match(integrations.matchmaking, /isDuelModeAvailable/);
+assert.match(integrations.matchmaking, /loadPublicGameModeAvailability/);
 assert.match(integrations.matchApi, /getDuelMap/);
 assert.match(integrations.matchApi, /MODE_NOT_SUPPORTED_FOR_MAP/);
 assert.match(integrations.matchmakingApi, /isMapModeSupported/);

@@ -5,7 +5,9 @@ import { debitWallet, lockWallet } from "@/lib/wallet";
 import { getFeatureFlag, getPlatformNumber } from "@/lib/platform-settings";
 import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { DUEL_MODE_IDS, isDuelMode, type DuelModeId } from "@/lib/duel-modes";
-import { getDuelMap, isMapModeSupported } from "@/lib/duel-maps";
+import { DUEL_MAPS, getDuelMap, isMapModeSupported } from "@/lib/duel-maps";
+import { buildGameModeAvailability } from "@/lib/game-mode-config.mjs";
+import { getActiveGameModeConfig } from "@/lib/game-mode-config-store";
 import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
 
 const DEFAULT_STAKE = 3;
@@ -67,6 +69,7 @@ async function findCandidates({
   ratingWindow,
   mapName,
   economyMode,
+  availableMapIds,
 }: {
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
   meId: string;
@@ -76,6 +79,7 @@ async function findCandidates({
   ratingWindow: number;
   mapName: string | null;
   economyMode: "REAL" | "DEMO";
+  availableMapIds: Set<string>;
 }) {
   const stakeMin = requestedStake * (1 - STAKE_TOLERANCE);
   const stakeMax = requestedStake * (1 + STAKE_TOLERANCE);
@@ -113,6 +117,7 @@ async function findCandidates({
   });
 
   return rows
+    .filter((x) => { const map = getDuelMap(x.mapName); return Boolean(map && availableMapIds.has(map.id)); })
     .filter((x) => x.playerOne.status === "ACTIVE")
     .filter((x) => Math.abs(Number(x.playerOne.playerStats?.rating ?? 0) - rating) <= ratingWindow)
     .sort((a, b) => {
@@ -145,9 +150,14 @@ export async function GET(request: NextRequest) {
   const mapName = requestedMapName ? getDuelMap(requestedMapName)?.serverMapName || null : null;
   if (requestedMapName && !mapName) return NextResponse.json({ error: "Invalid map", errorCode: "INVALID_MAP" }, { status: 400 });
   if (mapName && !isMapModeSupported(mapName, modeValue)) return NextResponse.json({ error: "Mode is not supported on this map", errorCode: "MODE_NOT_SUPPORTED_FOR_MAP" }, { status: 400 });
+  const activeModeConfig = await getActiveGameModeConfig();
+  const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, {}).filter(item => item.modes[modeValue].available).map(item => item.mapId));
+  if ((mapName && !availableMapIds.has(getDuelMap(mapName)?.id ?? "")) || (!mapName && availableMapIds.size === 0)) {
+    return NextResponse.json({ error: "This mode is not currently available in the published configuration", errorCode: "MODE_CONFIG_NOT_AVAILABLE" }, { status: 409 });
+  }
   const ownStats = await prisma.playerStats.findUnique({ where: { userId: me.id }, select: { rating: true } });
   const rating = Number(ownStats?.rating ?? 0);
-  const candidates = await prisma.$transaction((tx) => findCandidates({ tx, meId: me.id, mode: modeValue as AllowedMode, requestedStake, rating, ratingWindow, mapName, economyMode }));
+  const candidates = await prisma.$transaction((tx) => findCandidates({ tx, meId: me.id, mode: modeValue as AllowedMode, requestedStake, rating, ratingWindow, mapName, economyMode, availableMapIds }));
 
   return NextResponse.json({
     mode: modeValue,
@@ -196,9 +206,15 @@ export async function POST(request: NextRequest) {
       });
       if (busy) throw new Error("PLAYER_BUSY");
 
+      // Read the published policy after taking the user lock, matching the lock
+      // order used by regular match creation and avoiding a config/user deadlock.
+      const activeModeConfig = await getActiveGameModeConfig(tx);
+      const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, {}).filter(item => item.modes[mode].available).map(item => item.mapId));
+      if ((mapName && !availableMapIds.has(getDuelMap(mapName)?.id ?? "")) || (!mapName && availableMapIds.size === 0)) throw new Error("MODE_CONFIG_NOT_AVAILABLE");
+
       const ownStats = await tx.playerStats.findUnique({ where: { userId: me.id }, select: { rating: true } });
       const rating = Number(ownStats?.rating ?? 0);
-      const candidates = await findCandidates({ tx, meId: me.id, mode, requestedStake, rating, ratingWindow, mapName, economyMode });
+      const candidates = await findCandidates({ tx, meId: me.id, mode, requestedStake, rating, ratingWindow, mapName, economyMode, availableMapIds });
 
       for (const candidate of candidates) {
         const candidateBusy = await tx.match.findFirst({
@@ -264,6 +280,7 @@ export async function POST(request: NextRequest) {
     if (code === "INSUFFICIENT_DEMO_BALANCE") return NextResponse.json({ error: "Not enough virtual DC credits for DEMO matchmaking", errorCode: code }, { status: 400 });
     if (code === "DEMO_USER_BLOCKED") return NextResponse.json({ error: "DEMO matchmaking is unavailable for this account", errorCode: code }, { status: 403 });
     if (code === "DEMO_DISABLED") return NextResponse.json({ error: "DEMO mode is currently disabled", errorCode: code }, { status: 409 });
+    if (code === "MODE_CONFIG_NOT_AVAILABLE") return NextResponse.json({ error: "This mode is not currently available in the published configuration", errorCode: code }, { status: 409 });
     if (code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "Idempotency key conflict", errorCode: code }, { status: 409 });
     if (code === "WALLET_NOT_FOUND") return NextResponse.json({ error: "Wallet not found", errorCode: "WALLET_NOT_FOUND" }, { status: 409 });
     console.error("matchmaking failed", error);

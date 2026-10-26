@@ -7,6 +7,8 @@ export type DuelMapModeSupport = {
   RANDOM_WEAPON: boolean;
   FIRST_TO_10: boolean;
   GRENADE_ONLY: boolean;
+  LOW_GRAVITY: boolean;
+  SPEED_DUEL: boolean;
 };
 
 export type DuelMapConfig = {
@@ -30,6 +32,8 @@ const ALL_GAMEPLAY = {
   RANDOM_WEAPON: true,
   FIRST_TO_10: true,
   GRENADE_ONLY: true,
+  LOW_GRAVITY: true,
+  SPEED_DUEL: true,
 } as const;
 
 export const DUEL_MAPS: readonly DuelMapConfig[] = [
