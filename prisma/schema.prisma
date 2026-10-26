@@ -380,6 +380,8 @@ model User {
   steamId              String?           @unique
   email                String?           @unique
   passwordHash         String?
+  emailVerifiedAt      DateTime?
+  nicknameNormalized   String?   @unique
   nickname             String            @unique
   avatarUrl            String?
   steamAvatarUrl       String?
@@ -416,6 +418,8 @@ model User {
   devices              UserDevice[]
   auditLogs            AuditLog[]
   securityEvents       SecurityEvent[]
+  emailVerificationCodes EmailVerificationCode[]
+  passwordResetTokens  PasswordResetToken[]
   acknowledgedServerIncidents ServerIncident[] @relation("ServerIncidentAcknowledgedBy")
   fraudCases           FraudCase[]
   supportTickets       SupportTicket[]   @relation("UserTickets")
@@ -953,6 +957,34 @@ model UserSession {
 
   @@index([userId])
   @@index([token])
+}
+
+model EmailVerificationCode {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String?  @db.Uuid
+  email       String
+  codeHash    String
+  purpose     String   @default("REGISTER")
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int      @default(0)
+  createdAt   DateTime @default(now())
+  ipAddress   String?
+  user        User?    @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@index([email])
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  ipAddress String?
+  user      User     @relation(fields:[userId], references:[id], onDelete: Cascade)
+  @@index([userId])
 }
 
 model UserDevice {

@@ -1,2 +1,2 @@
-import { redirect } from "next/navigation";
-export default function RegisterPage(){redirect("/login");}
+import RegisterPage from "@/components/Auth/RegisterPage";
+export default function Page(){return <RegisterPage/>;}

@@ -1,2 +1,68 @@
-import { NextResponse } from "next/server";
-export async function POST() { return NextResponse.json({ error: "Steam is the only supported registration method." }, { status: 410 }); }
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { hashPassword, newSessionToken, sessionCookieOptions } from "@/lib/auth";
+import { hashCode, generateVerificationCode, sendEmail } from "@/lib/email";
+import { normalizeNickname, validateNickname } from "@/lib/nickname";
+import { enforceIpRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-meta";
+
+export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+  try {
+    await prisma.$transaction((tx) => enforceIpRateLimit(tx, ip, "REGISTER", 10, 10 * 60_000));
+  } catch (e) {
+    if (e instanceof Error && e.message === "RATE_LIMITED") return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    throw e;
+  }
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+
+  const email = String(body.email || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  const nickname = String(body.nickname || "").trim();
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+  if (password.length < 8) return NextResponse.json({ error: "Password too short" }, { status: 400 });
+  if (!validateNickname(nickname)) return NextResponse.json({ error: "Invalid nickname" }, { status: 400 });
+
+  const normalized = normalizeNickname(nickname);
+
+  try {
+    const user = await prisma.$transaction(async (tx) => {
+      const existingEmail = await tx.user.findUnique({ where: { email } });
+      if (existingEmail) throw new Error("EMAIL_TAKEN");
+      const existingNick = await tx.user.findFirst({ where: { OR: [{ nicknameNormalized: normalized }, { nickname: { equals: nickname, mode: "insensitive" } }] } });
+      if (existingNick) throw new Error("NICKNAME_TAKEN");
+
+      const passwordHash = hashPassword(password);
+      const referralCode = `DP${newSessionToken().slice(0, 8).toUpperCase()}`;
+      const u = await tx.user.create({
+        data: { email, passwordHash, nickname, nicknameNormalized: normalized, referralCode, wallet: { create: {} } },
+      });
+
+      // invalidate previous codes
+      await tx.emailVerificationCode.updateMany({ where: { email, usedAt: null }, data: { usedAt: new Date() } });
+      const code = generateVerificationCode();
+      await tx.emailVerificationCode.create({
+        data: { userId: u.id, email, codeHash: hashCode(code), purpose: "REGISTER", expiresAt: new Date(Date.now() + 10 * 60_000), ipAddress: ip },
+      });
+      return { user: u, code };
+    });
+
+    // send email (best effort)
+    try {
+      const html = `<div style="background:#0a0a0f;color:#fff;padding:24px;font-family:sans-serif"><h1>Привет, ${nickname}!</h1><p>Твой код подтверждения: <strong>${user.code}</strong></p><p>Код действует 10 минут.</p></div>`;
+      await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Подтверждение email DuelPlay", html, text: `Привет, ${nickname}! Код: ${user.code}` });
+    } catch (e) {
+      console.error("email send failed", e);
+    }
+
+    return NextResponse.json({ ok: true, userId: user.user.id });
+  } catch (e) {
+    if (e instanceof Error && e.message === "EMAIL_TAKEN") return NextResponse.json({ error: "Email already registered" }, { status: 409 });
+    if (e instanceof Error && e.message === "NICKNAME_TAKEN") return NextResponse.json({ error: "Nickname already taken" }, { status: 409 });
+    console.error(e);
+    return NextResponse.json({ error: "Registration failed" }, { status: 500 });
+  }
+}
