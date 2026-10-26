@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     if (e instanceof Error && e.message === "RATE_LIMITED") return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     throw e;
   }
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = String(body.email || "").trim().toLowerCase();
 

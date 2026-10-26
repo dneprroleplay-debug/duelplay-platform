@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     throw e;
   }
 
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");

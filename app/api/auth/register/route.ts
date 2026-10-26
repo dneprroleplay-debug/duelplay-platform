@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, newSessionToken, sessionCookieOptions } from "@/lib/auth";
+import { hashPassword, newSessionToken } from "@/lib/auth";
 import { hashCode, generateVerificationCode, sendEmail } from "@/lib/email";
 import { normalizeNickname, validateNickname } from "@/lib/nickname";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     throw e;
   }
 
-  let body: any;
+  let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const email = String(body.email || "").trim().toLowerCase();
@@ -50,15 +50,15 @@ export async function POST(request: NextRequest) {
       return { user: u, code };
     });
 
-    // send email (best effort)
     try {
       const html = `<div style="background:#0a0a0f;color:#fff;padding:24px;font-family:sans-serif"><h1>Привет, ${nickname}!</h1><p>Твой код подтверждения: <strong>${user.code}</strong></p><p>Код действует 10 минут.</p></div>`;
       await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Подтверждение email DuelPlay", html, text: `Привет, ${nickname}! Код: ${user.code}` });
     } catch (e) {
       console.error("email send failed", e);
+      return NextResponse.json({ ok: false, emailSent: false, userId: user.user.id, error: "Email delivery failed" }, { status: 502 });
     }
 
-    return NextResponse.json({ ok: true, userId: user.user.id });
+    return NextResponse.json({ ok: true, emailSent: true, userId: user.user.id });
   } catch (e) {
     if (e instanceof Error && e.message === "EMAIL_TAKEN") return NextResponse.json({ error: "Email already registered" }, { status: 409 });
     if (e instanceof Error && e.message === "NICKNAME_TAKEN") return NextResponse.json({ error: "Nickname already taken" }, { status: 409 });

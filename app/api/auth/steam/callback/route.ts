@@ -14,7 +14,12 @@ if (sessionToken) {
 }
 if (sessionUser && !sessionUser.user.steamId) {
   const taken = await prisma.user.findUnique({ where: { steamId } });
-  if (!taken) {
+  if (taken) {
+    const response = NextResponse.redirect(new URL('/profile?error=steam_conflict', getBaseUrl(request)));
+    response.cookies.set({ name: STATE_COOKIE, value: '', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 0 });
+    return response;
+  }
+  if (true) {
     await prisma.user.update({ where: { id: sessionUser.user.id }, data: { steamId, steamAvatarUrl: profile.avatarUrl ?? sessionUser.user.steamAvatarUrl } });
     const response = NextResponse.redirect(new URL('/profile', getBaseUrl(request)));
     response.cookies.set({ name: STATE_COOKIE, value: '', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 0 });
