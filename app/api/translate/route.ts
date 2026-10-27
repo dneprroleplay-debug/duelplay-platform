@@ -18,9 +18,18 @@ const MAX_CONCURRENT_BATCHES = 2;
 const MAX_TEXT_LENGTH = 500;
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
   try {
-    const ip = getClientIp(request);
     await prisma.$transaction(tx => enforceIpRateLimit(tx, ip, "TRANSLATE_API", 30, 10 * 60_000));
+  } catch (error) {
+    if (error instanceof Error && error.message === "RATE_LIMITED") {
+      return NextResponse.json({ error: "Translation rate limit exceeded" }, { status: 429, headers: { "Cache-Control": "no-store" } });
+    }
+    console.error("[i18n] translation rate-limit persistence failed", error);
+    return NextResponse.json({ error: "Translation service temporarily unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+
+  try {
     const body = await request.json().catch(() => null);
 
     const target = LANGUAGE_MAP[String(body?.target || "").toUpperCase()];
@@ -76,7 +85,7 @@ export async function POST(request: NextRequest) {
       { headers: { "Cache-Control": "private, max-age=300" } }
     );
   } catch (error) {
-    console.error("[i18n] translation error", error);
+    console.error("[i18n] translation request failed after rate-limit check", error);
 
     return NextResponse.json(
       { error: "Translation service unavailable" },

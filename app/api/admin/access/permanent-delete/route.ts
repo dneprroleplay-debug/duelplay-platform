@@ -7,6 +7,7 @@ import { getAuditContext } from "@/lib/request-meta";
 import { withDemoTransaction } from "@/lib/demo-wallet";
 import { secureWalletForAccountRecovery } from "@/lib/wallet";
 import { recoveryHmac } from "@/lib/account-recovery";
+import { isAllowedPublicOrigin } from "@/lib/security/public-origin.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,8 +20,9 @@ const DELETE_ACTION = "USER_ACCOUNT_PERMANENTLY_DELETED";
 
 function jsonError(error: string, status: number) { return NextResponse.json({ ok: false, error }, { status, headers: { "Cache-Control": "no-store" } }); }
 function requireSameOrigin(request: NextRequest) {
-  const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(request.url).origin) throw new Error("CSRF_ORIGIN_REJECTED");
+  // Coolify may expose the internal container origin in request.url. Trust only
+  // DuelPlay's configured public origin; never derive trust from Host or forwarded headers.
+  if (!isAllowedPublicOrigin(request.headers.get("origin"), process.env, request.url)) throw new Error("CSRF_ORIGIN_REJECTED");
 }
 async function requireFounder() {
   const access = await requireAdminAccess();

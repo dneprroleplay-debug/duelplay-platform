@@ -25,7 +25,7 @@ check(!/email\s+String\s+@unique/.test(schema), 'no other mandatory unique email
 
 has(route, /requireAdminAccess\(\)/, 'server-side authenticated admin check exists');
 has(route, /access\.roleCode !== "FOUNDER" \|\| access\.level !== 999/, 'only level-999 Founder may execute deletion');
-has(route, /origin !== new URL\(request\.url\)\.origin/, 'same-origin CSRF check exists');
+has(route, /isAllowedPublicOrigin\(request\.headers\.get\("origin"\), process\.env, request\.url\)/, 'same-origin CSRF check uses configured public origin behind reverse proxy');
 has(route, /confirmNickname/, 'nickname re-entry confirmation is required');
 has(route, /reason\.trim\(\)/, 'reason is mandatory');
 has(route, /target\.id === actorId/, 'self-deletion is blocked');
