@@ -34,7 +34,8 @@
     "test:steam-email-account-integration": "node scripts/test-steam-email-account-integration.mjs",
     "test:steam-link-security": "node --experimental-strip-types scripts/test-steam-link-security.mjs",
     "test:permanent-account-deletion": "node scripts/test-permanent-account-deletion.mjs",
-    "test:account-balance-recovery": "node --experimental-strip-types scripts/test-account-balance-recovery.mjs"
+    "test:account-balance-recovery": "node --experimental-strip-types scripts/test-account-balance-recovery.mjs",
+    "test:admin-access-user-email": "node scripts/test-admin-access-user-email.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
