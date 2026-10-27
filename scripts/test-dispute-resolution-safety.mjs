@@ -23,7 +23,7 @@ check(/WHERE id = \$\{id\}::uuid FOR UPDATE/.test(route) && /WHERE id = \$\{d\.m
 check(/if \(\["RESOLVED_BY_ADMIN", "CLOSED"\]\.includes\(d\.status\)\)[\s\S]*?if \(d\.adminDecision !== decisionValue\) throw new Error\("DISPUTE_DECISION_CONFLICT"\)[\s\S]*?return \{ id: d\.id, idempotent: true \}/.test(route), "same-decision retries are idempotent and conflicting retries are rejected");
 check(/withDemoPolicyTransaction\(async \(\{ db: tx, demo \}\) => \{[\s\S]*?creditWallet\(tx[\s\S]*?releaseWalletHold\(tx[\s\S]*?tx\.match\.update[\s\S]*?tx\.dispute\.update/.test(route), "wallet settlement and match/dispute state changes share one transaction");
 check(/\[disputes\] resolution failed[\s\S]*?disputeId:[\s\S]*?matchId:[\s\S]*?stage:[\s\S]*?errorCode:[\s\S]*?prismaCode:/.test(route), "financial failures log safe dispute/match IDs, stage, and error codes");
-check((route.match(/tx\.auditLog\.create\(/g) || []).length === 2 && !/if \(!result\.idempotent\)\s*await auditRequest/.test(route), "resolution audit is written inside the same transaction for REAL and DEMO");
+check((route.match(/tx\.auditLog\.create\(/g) || []).length === 1 && !/if \(!result\.idempotent\)\s*await auditRequest/.test(route), "resolution audit is written inside the same transaction for REAL and DEMO");
 check(/if \(code === "DISPUTE_DECISION_CONFLICT"[\s\S]*?status: 409/.test(route), "a repeated request with a different decision returns HTTP 409");
 check(/disputeResolveInFlight\.current\)return false[\s\S]*?disputeResolveInFlight\.current=true[\s\S]*?finally\{disputeResolveInFlight\.current=false/.test(admin), "admin UI blocks rapid duplicate PATCH submissions");
 

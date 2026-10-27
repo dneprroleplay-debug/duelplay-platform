@@ -39,7 +39,8 @@
     "test:admin-access-user-email": "node scripts/test-admin-access-user-email.mjs",
     "test:translate-service-fallback": "node scripts/test-translate-service-fallback.mjs",
     "test:dispute-resolution-safety": "node scripts/test-dispute-resolution-safety.mjs",
-    "test:admin-user-archive": "node scripts/test-admin-user-archive.mjs"
+    "test:admin-user-archive": "node scripts/test-admin-user-archive.mjs",
+    "test:dispute-financial-settlement": "node --experimental-strip-types scripts/test-dispute-financial-settlement.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
