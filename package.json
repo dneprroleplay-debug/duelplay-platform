@@ -37,7 +37,8 @@
     "test:permanent-delete-origin": "node scripts/test-permanent-delete-origin.mjs",
     "test:account-balance-recovery": "node --experimental-strip-types scripts/test-account-balance-recovery.mjs",
     "test:admin-access-user-email": "node scripts/test-admin-access-user-email.mjs",
-    "test:translate-service-fallback": "node scripts/test-translate-service-fallback.mjs"
+    "test:translate-service-fallback": "node scripts/test-translate-service-fallback.mjs",
+    "test:admin-user-archive": "node scripts/test-admin-user-archive.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

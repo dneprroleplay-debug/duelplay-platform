@@ -61,7 +61,7 @@ export async function GET(request:NextRequest){
     const permissions=access.permissions;
     const can=(permission:string)=>hasPermission(permissions,permission);
     const [users,matches,transactions,disputes,fraud,tickets,settings,topSkins,servers,logs,avatarPresets,platformSettings,featureFlags,creatorPayouts,withdrawals,deposits,onlineSessions]=await Promise.all([
-      prisma.user.findMany({orderBy:{createdAt:"desc"},take:100,select:{id:true,nickname:true,email:true,role:true,status:true,createdAt:true,steamId:true,wallet:{select:{balance:true,lockedBalance:true}}}}),
+      prisma.user.findMany({where:{deletedAt:null},orderBy:{createdAt:"desc"},take:100,select:{id:true,nickname:true,email:true,role:true,status:true,createdAt:true,steamId:true,wallet:{select:{balance:true,lockedBalance:true}}}}),
       prisma.match.findMany({orderBy:{createdAt:"desc"},take:100,include:{playerOne:{select:{nickname:true}},playerTwo:{select:{nickname:true}},game:{select:{title:true}}}}),
       prisma.transaction.findMany({orderBy:{createdAt:"desc"},take:100,include:{wallet:{include:{user:{select:{nickname:true}}}}}}),
       prisma.dispute.findMany({orderBy:{createdAt:"desc"},take:50,include:{match:{select:{id:true,status:true,mapName:true,economyMode:true,betAmount:true,playerOneId:true,playerTwoId:true,playerOne:{select:{nickname:true}},playerTwo:{select:{nickname:true}}}},reporter:{select:{nickname:true}},evidences:{orderBy:{createdAt:"desc"}}}}),
