@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { siteConfig } from "@/lib/config/site";
+import { getSiteSocialLinks } from "@/lib/site-social-links";
 
 const legalLinks = [
   { href: "/terms", label: "Terms of Service" },
@@ -8,7 +8,7 @@ const legalLinks = [
   { href: "/fair-play", label: "Fair Play & Anti-Cheat" },
 ];
 
-export function LegalDocument({
+export async function LegalDocument({
   title,
   summary,
   updated,
@@ -19,6 +19,7 @@ export function LegalDocument({
   updated: string;
   children: ReactNode;
 }) {
+  const socialLinks = await getSiteSocialLinks();
   return (
     <main className="mx-auto min-h-screen max-w-4xl px-4 pb-20 pt-28 sm:px-6">
       <article className="panel overflow-hidden rounded-3xl p-6 sm:p-10">
@@ -33,11 +34,11 @@ export function LegalDocument({
           <h2 className="text-lg font-black text-white sm:text-xl">Questions and support</h2>
           <p className="mt-3 text-sm leading-7 text-zinc-400">
             Contact us at{" "}
-            <a href={`mailto:${siteConfig.socialLinks.supportEmail}`} className="text-[var(--theme-accent)] hover:underline">
-              {siteConfig.socialLinks.supportEmail}
+            <a href={`mailto:${socialLinks.supportEmail}`} className="text-[var(--theme-accent)] hover:underline">
+              {socialLinks.supportEmail}
             </a>
             , through the in-app Support widget, or in the{" "}
-            <a href={siteConfig.support.ticketUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--theme-accent)] hover:underline">
+            <a href={socialLinks.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--theme-accent)] hover:underline">
               DuelPlay Discord community
             </a>
             .

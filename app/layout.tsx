@@ -10,5 +10,6 @@ import LivePlatformSync from "@/components/Common/LivePlatformSync";
 import GlobalUiI18n from "../components/Common/GlobalUiI18n";
 import { DuelDialogProvider } from "../components/Common/DuelDialogProvider";
 import SiteChrome from "@/components/Common/SiteChrome";
+import SiteFooter from "@/components/Common/SiteFooter";
 export const metadata: Metadata = { title: "DuelPlay — Competitive Gaming", description: "CS2 competitive matchmaking platform", icons: { icon: "/branding/duelplay-logo-transparent.png" } };
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body><LanguageProvider><DuelDialogProvider><GlobalUiI18n/><AuthProvider><ThemeProvider><LivePlatformSync/><SiteAtmosphere/><SiteChrome/><MaintenanceGate>{children}</MaintenanceGate><ScrollToTop/></ThemeProvider></AuthProvider></DuelDialogProvider></LanguageProvider></body></html>}
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body><LanguageProvider><DuelDialogProvider><GlobalUiI18n/><AuthProvider><ThemeProvider><LivePlatformSync/><SiteAtmosphere/><SiteChrome/><MaintenanceGate>{children}</MaintenanceGate><SiteFooter/><ScrollToTop/></ThemeProvider></AuthProvider></DuelDialogProvider></LanguageProvider></body></html>}

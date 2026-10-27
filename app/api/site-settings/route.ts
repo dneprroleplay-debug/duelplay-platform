@@ -4,6 +4,7 @@ import { themeById, isThemeId, isThemeBackgroundId, isThemeHeroId } from "@/lib/
 import { audit } from "@/lib/admin";
 import { requirePermission } from "@/lib/admin-rbac";
 import { getPlatformNumber } from "@/lib/platform-settings";
+import { getSiteSocialLinks } from "@/lib/site-social-links";
 
 const allowed = new Set(["standardTheme", "backgroundTheme", "heroBackground"]);
 const DEFAULT_COMMISSION_RATE = 10;
@@ -17,12 +18,14 @@ export async function GET(){
   // The platform commission is a single source of truth: the admin changes
   // COMMISSION_RATE, the server charges that rate and the whole site shows it.
   const commissionRate=await getPlatformNumber("COMMISSION_RATE", DEFAULT_COMMISSION_RATE);
+  const socialLinks=await getSiteSocialLinks();
   return NextResponse.json({
     theme:themeById(read("standardTheme","STANDARD")).id,
     accent:themeById(read("standardTheme","STANDARD")).accent,
     background:read("backgroundTheme","stars"),
     heroBackground:read("heroBackground","hero-01"),
-    commissionRate
+    commissionRate,
+    socialLinks
   },{headers:{"Cache-Control":"no-store"}});
 }
 

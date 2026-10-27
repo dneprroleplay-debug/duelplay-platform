@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import Header from "@/components/Header/Header";
-import Footer from "@/components/Footer/Footer";
 import SupportWidget from "@/components/Support/SupportWidget";
 
 const AUTH_PATHS = new Set([
@@ -21,6 +20,5 @@ export default function SiteChrome() {
   return <>
     <Header />
     <SupportWidget />
-    <Footer />
   </>;
 }

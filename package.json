@@ -28,7 +28,8 @@
     "prod:validate-env": "node scripts/validate-production-env.mjs",
     "qa:api-security": "node scripts/test-api-security.mjs",
     "test:server-events:integration": "node scripts/test-server-technical-events-postgres.mjs",
-    "test:advanced-modes": "node scripts/test-advanced-mode-availability.mjs && node scripts/test-low-gravity-speed-duel.mjs && node scripts/test-duel-modes.mjs"
+    "test:advanced-modes": "node scripts/test-advanced-mode-availability.mjs && node scripts/test-low-gravity-speed-duel.mjs && node scripts/test-duel-modes.mjs",
+    "test:site-social-links": "node --experimental-strip-types scripts/test-site-social-links.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

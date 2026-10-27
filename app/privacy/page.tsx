@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { LegalDocument, LegalList, LegalSection } from "@/components/Legal/LegalDocument";
-import { siteConfig } from "@/lib/config/site";
+import { getSiteSocialLinks } from "@/lib/site-social-links";
 
 export const metadata: Metadata = {
   title: "Privacy Policy - DuelPlay",
   description: "How DuelPlay collects, uses, shares and protects personal data.",
 };
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const socialLinks = await getSiteSocialLinks();
   return (
     <LegalDocument
       title="Privacy Policy"
@@ -140,8 +141,8 @@ export default function PrivacyPage() {
         </p>
         <p>
           To make a request, contact{" "}
-          <a href={`mailto:${siteConfig.socialLinks.supportEmail}`} className="text-[var(--theme-accent)] hover:underline">
-            {siteConfig.socialLinks.supportEmail}
+          <a href={`mailto:${socialLinks.supportEmail}`} className="text-[var(--theme-accent)] hover:underline">
+            {socialLinks.supportEmail}
           </a>
           . We may need to verify that you control the Steam account before acting.
         </p>

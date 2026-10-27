@@ -17,21 +17,22 @@ export default function AuthFrame({
   wide?: boolean;
 }) {
   return (
-    <main className="relative isolate flex min-h-[calc(100vh-5rem)] items-center justify-center overflow-hidden bg-[#07070b] px-4 pb-12 pt-28 text-white sm:px-6">
+    <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-[#07070b] px-4 py-8 text-white sm:px-6 sm:py-10">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-40 top-16 h-96 w-96 rounded-full bg-pink-500/[.12] blur-[120px]" />
         <div className="absolute -right-32 bottom-0 h-96 w-96 rounded-full bg-emerald-400/[.06] blur-[120px]" />
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.018)_1px,transparent_1px)] bg-[size:42px_42px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
       </div>
       <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"}`}>
-        <div className="mb-6 flex items-center justify-center">
-          <Link href="/" aria-label="DuelPlay — главная" className="inline-flex items-center gap-3 rounded-2xl px-3 py-2 transition hover:bg-white/[.035]">
-            <img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-11 w-auto max-w-[190px] object-contain" />
-          </Link>
-        </div>
-        <section className="relative overflow-hidden rounded-[28px] border border-white/[.09] bg-[#0d0d13]/95 p-5 shadow-[0_28px_100px_rgba(0,0,0,.55)] backdrop-blur-xl sm:p-8">
+        <section className="relative overflow-hidden rounded-[24px] border border-white/[.09] bg-[#0d0d13]/95 p-5 shadow-[0_28px_100px_rgba(0,0,0,.55)] backdrop-blur-xl sm:p-7">
           <div aria-hidden className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-pink-400/80 to-transparent" />
-          <div className="mb-7 text-center">
+          <div className="mb-5 flex items-center justify-start">
+            <Link href="/" aria-label="DuelPlay — главная" className="inline-flex items-center gap-2 rounded-xl px-1 py-1 transition hover:opacity-80">
+              <img src="/branding/duelplay-logo-transparent.png" alt="DuelPlay" className="h-7 w-7 object-contain" />
+              <span className="text-sm font-black tracking-[-.03em]">DUEL<span className="text-pink-400">PLAY</span></span>
+            </Link>
+          </div>
+          <div className="mb-5 text-center">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-pink-400/20 bg-pink-400/[.07] px-3 py-1.5 text-[10px] font-black uppercase tracking-[.22em] text-pink-300">
               <span className="h-1.5 w-1.5 rounded-full bg-pink-400 shadow-[0_0_12px_rgba(255,47,145,.8)]" />{eyebrow}
             </div>
