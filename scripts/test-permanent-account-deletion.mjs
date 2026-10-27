@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
+const route = readFileSync(new URL('../app/api/admin/access/permanent-delete/route.ts', import.meta.url), 'utf8');
+const ui = readFileSync(new URL('../components/Admin/PermanentAccountDeletion.tsx', import.meta.url), 'utf8');
+const page = readFileSync(new URL('../app/admin/access/page.tsx', import.meta.url), 'utf8');
+const auth = readFileSync(new URL('../app/api/auth/steam/callback/route.ts', import.meta.url), 'utf8');
+const recovery = readFileSync(new URL('../lib/account-recovery.ts', import.meta.url), 'utf8');
+const verify = readFileSync(new URL('../app/api/auth/verify-email/route.ts', import.meta.url), 'utf8');
+const verifyUi = readFileSync(new URL('../app/verify-email/page.tsx', import.meta.url), 'utf8');
+const migration = readFileSync(new URL('../prisma/migrations/20261027130000_account_balance_recovery/migration.sql', import.meta.url), 'utf8');
+
+let checks = 0;
+function check(condition, message) { assert.ok(condition, message); checks += 1; }
+function has(source, pattern, message) { check(pattern.test(source), message); }
+
+const userModel = schema.match(/model User \{([\s\S]*?)\n\}/)?.[1] ?? '';
+has(userModel, /steamId\s+String\?\s+@unique/, 'Steam ID nullable and unique in User');
+has(userModel, /email\s+String\?\s+@unique/, 'email nullable and unique in User');
+has(userModel, /nicknameNormalized\s+String\?\s+@unique/, 'normalized nickname can be released');
+has(userModel, /nickname\s+String\s+@unique/, 'nickname uniqueness is maintained');
+check(!/steamId\s+String\s+@unique/.test(schema), 'no other mandatory unique Steam ID reserves old IDs');
+check(!/email\s+String\s+@unique/.test(schema), 'no other mandatory unique email reserves old emails');
+
+has(route, /requireAdminAccess\(\)/, 'server-side authenticated admin check exists');
+has(route, /access\.roleCode !== "FOUNDER" \|\| access\.level !== 999/, 'only level-999 Founder may execute deletion');
+has(route, /origin !== new URL\(request\.url\)\.origin/, 'same-origin CSRF check exists');
+has(route, /confirmNickname/, 'nickname re-entry confirmation is required');
+has(route, /reason\.trim\(\)/, 'reason is mandatory');
+has(route, /target\.id === actorId/, 'self-deletion is blocked');
+has(route, /target\.role !== "USER" \|\| target\.adminRoleAssignment/, 'admin roles and assignments are blocked');
+has(route, /ACTIVE_MATCH_STATUSES/, 'active matches block deletion');
+has(route, /ACTIVE_DISPUTE_STATUSES/, 'active disputes block deletion');
+has(route, /realLocked\.gt\(0\).*activeRealHolds/s, 'locked REAL funds and holds block deletion');
+has(route, /demoLocked\.gt\(0\).*activeDemoHolds/s, 'locked DEMO funds and holds block deletion');
+has(route, /pendingDeposits/, 'pending deposits are counted');
+has(route, /pendingWithdrawals/, 'pending withdrawals are counted');
+has(route, /pendingCreatorPayouts/, 'pending creator payouts are counted');
+has(route, /if \(!realBonus\.eq\(0\)\) reasonCodes\.push\("BONUS_BALANCE_UNRESOLVED"\)/, 'bonus balance is handled separately and not equated to REAL');
+has(route, /if \(beforeReal\.gt\(0\)\)/, 'positive REAL balance is secured instead of blocking deletion');
+has(route, /recoveryHmac\(target\.email, "email"\)/, 'recovery requires a stable HMAC of verified email');
+has(route, /recoveryHmac\(target\.steamId, "steam"\)/, 'recovery requires a stable HMAC of the old Steam ID');
+has(route, /secureWalletForAccountRecovery/, 'old REAL balance is quarantined through the wallet ledger helper');
+has(route, /tx\.accountRecovery\.create/, 'recovery record is created in deletion transaction');
+has(readFileSync(new URL('../lib/wallet.ts', import.meta.url), 'utf8'), /data:\{balance:after\}/, 'old wallet spendable REAL balance is zeroed through wallet ledger helper');
+has(route, /beforeDemo\.gt\(0\)\) \{\s*if \(!target\.isTestAccount\)/, 'DEMO annulment requires confirmed test account');
+has(route, /demo\.adjustDemoCredits\(targetId, beforeDemo\.negated\(\)/, 'DEMO source balance is annulled through the existing ledger mechanism');
+check(!/demo\.adjustDemoCredits\(actorId/.test(route), 'DEMO funds are never transferred to admin');
+has(route, /demo\.adjustDemoCredits\(targetId, beforeDemo\.negated\(\)/, 'DEMO balance is annulled through existing ledger');
+has(route, /account-delete:\$\{transferOperationId\}:demo-annul/, 'DEMO annulment has an operation-scoped idempotency key');
+has(route, /Prisma\.TransactionIsolationLevel\.Serializable/, 'deletion is transactional with serializable isolation');
+has(route, /FOR UPDATE/, 'target user row is locked during deletion');
+has(route, /tx\.userSession\.deleteMany/, 'all sessions are revoked by deletion');
+has(route, /tx\.passwordResetToken\.deleteMany/, 'password reset tokens are removed');
+has(route, /tx\.emailVerificationCode\.deleteMany/, 'email verification tokens are removed');
+has(route, /tx\.kycVerification\.deleteMany/, 'KYC data is removed');
+has(route, /tx\.creatorProfile\.updateMany/, 'creator profile personal fields are anonymized while payout history remains');
+has(route, /tx\.notification\.deleteMany/, 'account notifications are removed');
+has(route, /email: null, emailVerifiedAt: null, passwordHash: null, steamId: null/, 'email, Steam ID and password credentials are cleared');
+has(route, /nickname: tombstoneNickname, nicknameNormalized: null/, 'old nickname is released without deleting history owner row');
+has(route, /status: "DEACTIVATED", deletedAt: now/, 'account is permanently marked inactive');
+check(!/tx\.user\.delete\(/.test(route), 'historical foreign keys are preserved via anonymization instead of unsafe physical deletion');
+check(!/tx\.(?:wallet|transaction|demoTransaction|match|dispute)\.deleteMany/.test(route), 'financial and game history is not deleted');
+has(route, /action: DELETE_ACTION/, 'audit action uses USER_ACCOUNT_PERMANENTLY_DELETED constant');
+has(route, /realBalanceBefore: beforeReal\.toFixed\(4\)/, 'REAL balance snapshot is audited');
+has(route, /realBonusBalanceBefore: snapshot\.balances\.realBonus\.toFixed\(4\)/, 'REAL bonus balance snapshot is audited');
+has(route, /demoBalanceBefore: beforeDemo\.toFixed\(4\)/, 'DEMO balance snapshot is audited');
+has(route, /adminNickname: actor\.nickname/, 'actor identity is audited');
+has(route, /demoLedgerTransactionId: demoAnnulment\.sourceTransactionId/, 'DEMO ledger transaction ID is audited');
+has(route, /recoveryHoldTransactionId, sourceLastTransactionId/, 'REAL recovery ledger references are audited');
+has(route, /result: "FAILURE"/, 'failed attempts are audited without success events');
+has(route, /failedSnapshot = \{/, 'failed attempts capture available REAL/DEMO balance snapshots');
+
+has(ui, /Причина удаления \(обязательно\)/, 'UI requires a deletion reason');
+has(ui, /confirmNickname !== preview\.user\.nickname/, 'UI requires exact nickname confirmation');
+has(ui, /REAL-средства администратору не переводятся/, 'UI explains real-money restrictions');
+has(ui, /DEMO не переводится администратору/, 'UI makes clear DEMO is annulled rather than transferred');
+has(ui, /blockedReasons/, 'UI displays blocking conditions');
+has(page, /data\.me\.roleCode==="FOUNDER"&&data\.me\.level===999/, 'delete action is visible only to level-999 Founder');
+has(page, /Удалить аккаунт навсегда/, 'user table has permanent deletion button');
+
+// Steam OAuth protections remain in place while the existing link flow gains recovery handling.
+has(auth, /consumeLinkState\(expectedState, linkSession\.userId, linkSession\.id, ipAddress\)/, 'single-use Steam link state remains enforced');
+has(auth, /isBoundToSameSession\(linkSession\.userId, linkSession\.id, currentSession\.userId, currentSession\.id\)/, 'callback remains bound to the exact session');
+has(auth, /restoreAvailableRecovery\(tx,/, 'recovery is integrated into the existing Steam link transaction');
+has(schema, /model AccountRecovery \{/, 'dedicated account recovery model exists');
+has(schema, /emailHmac\s+String\s+@db\.Char\(64\)/, 'only HMAC email index is persisted');
+has(schema, /steamHmac\s+String\s+@db\.Char\(64\)/, 'only HMAC Steam index is persisted');
+has(recovery, /createHmac\("sha256"/, 'identity lookup uses HMAC-SHA256');
+has(recovery, /Buffer\.byteLength\(secret, "utf8"\) < 32/, 'short/missing HMAC secret is rejected');
+has(recovery, /status: ACCOUNT_RECOVERY_AVAILABLE, realBalance: \{ gt: new Prisma\.Decimal\(0\) \}/, 'notification requires available positive REAL recovery');
+has(recovery, /Ambiguous historical identities fail closed/, 'ambiguous recovery identities fail closed');
+has(recovery, /FOR UPDATE/, 'recovery row is locked for one-time restore');
+has(recovery, /creditWallet\(tx, input\.userId, recovery\.realBalance/, 'recovery uses existing REAL wallet ledger credit');
+has(recovery, /updateMany\(\{ where: \{ id: recovery\.id, status: ACCOUNT_RECOVERY_AVAILABLE \}/, 'status changes atomically from AVAILABLE');
+has(recovery, /ACCOUNT_BALANCE_RECOVERED/, 'successful recovery is audited in same transaction');
+has(verify, /findAvailableRecoveryForEmail\(prisma, email\)/, 'verification endpoint checks recovery only after email code consumption');
+has(verify, /recoveryAvailable,/, 'verification response includes only eligibility boolean');
+has(verifyUi, /data\.recoveryAvailable === true/, 'UI only shows recovery notice when server confirms eligibility');
+has(verify, /привяжите тот же Steam/, 'server message asks user to link the previous Steam');
+has(migration, /CREATE TABLE "AccountRecovery"/, 'migration creates recovery table');
+has(migration, /CHECK \(\"realBalance\" > 0\)/, 'database rejects non-positive recovery amounts');
+has(migration, /ACCOUNT_DELETION_RECOVERY_CREDIT/, 'migration adds dedicated recovery credit ledger type');
+console.log(`Permanent account deletion source-contract checks: PASS (${checks} assertions).`);
+console.log('Note: these are source-contract checks, not a live PostgreSQL deletion/re-registration integration test.');

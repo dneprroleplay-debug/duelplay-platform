@@ -30,8 +30,8 @@ function Content() {
       const res = await fetch("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), code: code.trim().toUpperCase() }) });
       const data = await res.json();
       if (!res.ok) { setMsgType("error"); setMsg(data.error === "Invalid code" ? "Код не подошёл. Проверь письмо и попробуй ещё раз." : data.error === "Code expired or not found" || data.error === "Code expired" ? "Срок действия кода истёк или код уже использован. Запроси новый." : data.error === "Too many attempts" || data.error === "Too many requests" ? "Слишком много попыток. Подожди немного и запроси новый код." : data.error || "Не удалось подтвердить email."); return; }
-      setMsgType("success"); setMsg("Email подтверждён! Сейчас перенаправим тебя ко входу.");
-      window.setTimeout(() => { window.location.href = "/login"; }, 900);
+      setMsgType("success"); setMsg(data.recoveryAvailable === true && typeof data.recoveryMessage === "string" ? data.recoveryMessage : "Email подтверждён! Сейчас перенаправим тебя ко входу.");
+      window.setTimeout(() => { window.location.href = data.recoveryAvailable === true ? "/profile" : "/login"; }, data.recoveryAvailable === true ? 2600 : 900);
     } catch { setMsgType("error"); setMsg("Не удалось подключиться к серверу. Попробуй ещё раз."); }
     finally { setLoading(false); }
   }

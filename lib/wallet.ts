@@ -3,7 +3,7 @@ import { Prisma, TransactionType } from "@prisma/client";
 type Tx = Prisma.TransactionClient;
 type MoneyInput = number | string | Prisma.Decimal;
 type WalletDebitType = "MATCH_BET" | "TOURNAMENT_ENTRY" | "CASE_OPEN" | "BONUS" | "WITHDRAW" | "COMMISSION" | "COSMETIC_PURCHASE" | "PRIME_PURCHASE" | "DUELPASS_PURCHASE" | "EVENTPASS_PURCHASE" | "XP_BOOSTER_PURCHASE" | "TOURNAMENT_PRIZE" | "REFERRAL_RACE_PRIZE" | "INVENTORY_SALE";
-type WalletCreditType = "MATCH_WIN" | "REFUND" | "BONUS" | "REFERRAL" | "DEPOSIT" | "TOURNAMENT_PRIZE" | "REFERRAL_RACE_PRIZE" | "INVENTORY_SALE";
+type WalletCreditType = "MATCH_WIN" | "REFUND" | "BONUS" | "REFERRAL" | "DEPOSIT" | "TOURNAMENT_PRIZE" | "REFERRAL_RACE_PRIZE" | "INVENTORY_SALE" | "ACCOUNT_DELETION_RECOVERY_CREDIT";
 type HoldType = "MATCH_STAKE" | "WITHDRAWAL";
 type HoldFinalStatus = "RELEASED" | "CONSUMED";
 
@@ -13,6 +13,7 @@ function money(value: MoneyInput) {
   return decimal.toDecimalPlaces(4);
 }
 function referenceTypeFor(type: string) {
+  if (type.includes("RECOVERY")) return "ACCOUNT_RECOVERY";
   if (type.includes("WITHDRAW")) return "WITHDRAWAL";
   if (type.includes("MATCH") || type.includes("REFUND")) return "MATCH";
   if (type.includes("TOURNAMENT")) return "TOURNAMENT";
@@ -41,6 +42,17 @@ export async function creditWallet(tx:Tx,userId:string,amount:MoneyInput,idempot
   const wallet=await lockedWallet(tx,userId); const before=wallet.balance; const after=before.plus(value).toDecimalPlaces(4);
   await tx.wallet.update({where:{id:wallet.id},data:{balance:after}});
   const transaction=await appendTransaction(tx,{walletId:wallet.id,type,amount:value,balanceBefore:before,balanceAfter:after,lockedBalanceBefore:wallet.lockedBalance,lockedBalanceAfter:wallet.lockedBalance,idempotencyKey,referenceId,description});
+  return{idempotent:false,transaction};
+}
+export async function secureWalletForAccountRecovery(tx:Tx,userId:string,amount:MoneyInput,idempotencyKey:string,referenceId:string,description:string,metadata:Prisma.InputJsonValue){
+  if(!idempotencyKey)throw new Error("IDEMPOTENCY_REQUIRED"); const value=money(amount);
+  const existing=await tx.transaction.findUnique({where:{idempotencyKey},include:{wallet:{select:{userId:true}}}});
+  if(existing){if(existing.wallet.userId!==userId)throw new Error("IDEMPOTENCY_CONFLICT");return{idempotent:true,transaction:existing};}
+  const wallet=await lockedWallet(tx,userId);
+  if(!wallet.balance.eq(value)||wallet.lockedBalance.gt(0))throw new Error("ACCOUNT_RECOVERY_BALANCE_CHANGED");
+  const after=new Prisma.Decimal(0);
+  await tx.wallet.update({where:{id:wallet.id},data:{balance:after}});
+  const transaction=await appendTransaction(tx,{walletId:wallet.id,type:"ACCOUNT_DELETION_RECOVERY_HOLD",amount:value.negated(),balanceBefore:wallet.balance,balanceAfter:after,lockedBalanceBefore:wallet.lockedBalance,lockedBalanceAfter:wallet.lockedBalance,idempotencyKey,referenceId,description,metadata});
   return{idempotent:false,transaction};
 }
 export async function lockWallet(tx:Tx,userId:string,amount:MoneyInput,idempotencyKey:string,type:HoldType,referenceId?:string,description?:string){

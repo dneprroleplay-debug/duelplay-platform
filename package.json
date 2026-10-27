@@ -32,7 +32,9 @@
     "test:site-social-links": "node --experimental-strip-types scripts/test-site-social-links.mjs",
     "test:auth-final-polish": "node --experimental-strip-types scripts/test-auth-final-polish.mjs",
     "test:steam-email-account-integration": "node scripts/test-steam-email-account-integration.mjs",
-    "test:steam-link-security": "node --experimental-strip-types scripts/test-steam-link-security.mjs"
+    "test:steam-link-security": "node --experimental-strip-types scripts/test-steam-link-security.mjs",
+    "test:permanent-account-deletion": "node scripts/test-permanent-account-deletion.mjs",
+    "test:account-balance-recovery": "node --experimental-strip-types scripts/test-account-balance-recovery.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

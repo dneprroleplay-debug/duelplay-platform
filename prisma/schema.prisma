@@ -132,6 +132,8 @@ enum TransactionType {
   TOURNAMENT_PRIZE
   REFERRAL_RACE_PRIZE
   INVENTORY_SALE
+  ACCOUNT_DELETION_RECOVERY_HOLD
+  ACCOUNT_DELETION_RECOVERY_CREDIT
 }
 
 enum TransactionStatus {
@@ -2129,4 +2131,27 @@ model TranslationCache {
 
   @@unique([target, sourceHash])
   @@index([target])
+}
+
+
+/// Protected, one-time recovery of a verified REAL balance after account anonymization.
+/// Identity values are HMACs only; no raw email or Steam ID is stored here.
+model AccountRecovery {
+  id                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  oldUserId                  String   @unique @db.Uuid
+  emailHmac                  String   @db.Char(64)
+  steamHmac                  String   @db.Char(64)
+  realBalance                Decimal  @db.Decimal(20, 4)
+  currency                   String   @default("USD") @db.Char(3)
+  status                     String   @default("AVAILABLE") @db.VarChar(24)
+  sourceLastTransactionId    String   @db.Uuid
+  recoveryHoldTransactionId  String   @unique @db.Uuid
+  restoreTransactionId       String?  @unique @db.Uuid
+  restoredUserId             String?  @db.Uuid
+  createdAt                  DateTime @default(now())
+  restoredAt                 DateTime?
+
+  @@index([emailHmac, status])
+  @@index([emailHmac, steamHmac, status])
+  @@index([status, createdAt])
 }

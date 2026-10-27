@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { hashCode } from "@/lib/email";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
+import { findAvailableRecoveryForEmail } from "@/lib/account-recovery";
 
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request);
@@ -49,5 +50,17 @@ export async function POST(request: NextRequest) {
     await prisma.user.updateMany({ where: { email }, data: { emailVerifiedAt: new Date() } });
   }
 
-  return NextResponse.json({ ok: true });
+  // Only report a recovery opportunity after the email code was successfully consumed,
+  // and only when the protected positive REAL balance is still backed by its hold ledger.
+  let recoveryAvailable = false;
+  try { recoveryAvailable = Boolean(await findAvailableRecoveryForEmail(prisma, email)); }
+  catch (error) {
+    // Missing recovery HMAC configuration must never leak identity or break ordinary email verification.
+    if (!(error instanceof Error) || !error.message.includes("ACCOUNT_RECOVERY_SECRET_REQUIRED")) throw error;
+  }
+  return NextResponse.json({
+    ok: true,
+    recoveryAvailable,
+    recoveryMessage: recoveryAvailable ? "У вас есть удалённый аккаунт DuelPlay с доступным для восстановления балансом. Чтобы подтвердить владение прежним аккаунтом, привяжите тот же Steam, который использовался ранее." : undefined,
+  }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { hashToken, newSessionToken, sessionCookieOptions, SESSION_COOKIE } from "@/lib/auth";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { isBoundToSameSession } from "@/lib/steam-link-security";
+import { restoreAvailableRecovery } from "@/lib/account-recovery";
 
 const STATE_COOKIE = "duelplay_steam_state";
 const OPENID_NS = "http://specs.openid.net/auth/2.0";
@@ -95,21 +96,29 @@ async function getSessionUser(request: Request) {
   }
 }
 
-async function linkSteam(userId: string, steamId: string, avatarUrl: string | null, sessionId: string) {
+async function linkSteam(userId: string, steamId: string, avatarUrl: string | null, sessionId: string, actorIp: string, actorUserAgent: string) {
   try {
     return await prisma.$transaction(async (tx) => {
       const activeSession = await tx.userSession.findFirst({ where: { id: sessionId, userId, isRevoked: false, expiresAt: { gt: new Date() } }, select: { id: true } });
       if (!activeSession) throw new Error("STEAM_LINK_SESSION_CHANGED");
-      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, steamId: true, steamAvatarUrl: true, status: true, deletedAt: true } });
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, steamId: true, steamAvatarUrl: true, status: true, deletedAt: true, email: true, emailVerifiedAt: true } });
       if (!user || user.status !== "ACTIVE" || user.deletedAt) throw new Error("ACCOUNT_DISABLED");
-      if (user.steamId === steamId) return "already-linked" as const;
+      const restoreIfEligible = async () => {
+        if (!user.email || !user.emailVerifiedAt) return false;
+        const restored = await restoreAvailableRecovery(tx, {
+          userId, email: user.email, steamId,
+          actorIp, actorUserAgent,
+        });
+        return restored.restored;
+      };
+      if (user.steamId === steamId) return (await restoreIfEligible()) ? "recovery-restored" as const : "already-linked" as const;
       if (user.steamId && user.steamId !== steamId) throw new Error("STEAM_ALREADY_LINKED");
       const owner = await tx.user.findUnique({ where: { steamId }, select: { id: true } });
       if (owner && owner.id !== userId) throw new Error("STEAM_CONFLICT");
       const updated = await tx.user.updateMany({ where: { id: userId, steamId: null }, data: { steamId, steamAvatarUrl: avatarUrl ?? user.steamAvatarUrl } });
-      if (updated.count === 1) return "linked" as const;
+      if (updated.count === 1) return (await restoreIfEligible()) ? "recovery-restored" as const : "linked" as const;
       const current = await tx.user.findUnique({ where: { id: userId }, select: { steamId: true } });
-      if (current?.steamId === steamId) return "already-linked" as const;
+      if (current?.steamId === steamId) return (await restoreIfEligible()) ? "recovery-restored" as const : "already-linked" as const;
       const currentOwner = await tx.user.findUnique({ where: { steamId }, select: { id: true } });
       if (currentOwner && currentOwner.id !== userId) throw new Error("STEAM_CONFLICT");
       throw new Error("STEAM_ALREADY_LINKED");
@@ -240,7 +249,7 @@ export async function GET(request: Request) {
         return clearStateCookie(popupResultHtml(origin, intent, "/profile?error=steam_state", "steam_state", isPopup));
       }
       try {
-        await linkSteam(linkSession.user.id, steamId, profile.avatarUrl, linkSession.id);
+        await linkSteam(linkSession.user.id, steamId, profile.avatarUrl, linkSession.id, ip, request.headers.get("user-agent") ?? "unknown");
       } catch (error) {
         const code = error instanceof Error ? error.message : "";
         const errorCode = code === "STEAM_CONFLICT" ? "steam_conflict" : code === "STEAM_ALREADY_LINKED" ? "steam_already_linked" : code === "STEAM_LINK_SESSION_CHANGED" ? "steam_state" : code === "ACCOUNT_DISABLED" ? "account_disabled" : "steam_error";
