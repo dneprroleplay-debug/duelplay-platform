@@ -26,13 +26,18 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Недостаточно прав", errorCode: "FORBIDDEN" }, { status: 403 });
       }
 
+      const archiveSearchOr: Prisma.UserWhereInput[] = search
+        ? [{ nickname: { contains: search, mode: "insensitive" } }]
+        : [];
+      // User.id is a UUID: Prisma supports exact equality, not substring matching.
+      // Only add the ID predicate when the complete search value is a valid UUID.
+      const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
+      if (search && isFullUuid) archiveSearchOr.push({ id: search });
+
       const where: Prisma.UserWhereInput = {
         deletedAt: { not: null },
         status: "DEACTIVATED",
-        ...(search ? { OR: [
-          { nickname: { contains: search, mode: "insensitive" as const } },
-          { id: { contains: search } },
-        ] } : {}),
+        ...(search ? { OR: archiveSearchOr } : {}),
       };
       const [total, archived] = await Promise.all([
         prisma.user.count({ where }),

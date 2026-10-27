@@ -15,6 +15,17 @@ check('active users is the default view', () => {
 check('anonymized deleted accounts are excluded from the active API list', () => {
   assert.match(adminApi, /prisma\.user\.findMany\(\{where:\{deletedAt:null\},orderBy/);
 });
+check('archive search uses partial nickname and exact full UUID only', () => {
+  assert.match(archiveApi, /nickname:\s*\{\s*contains:\s*search,\s*mode:\s*"insensitive"\s*\}/);
+  assert.match(archiveApi, /const isFullUuid = \/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{12\}\$\/i\.test\(search\)/);
+  assert.match(archiveApi, /if \(search && isFullUuid\) archiveSearchOr\.push\(\{ id: search \}\)/);
+  assert.doesNotMatch(archiveApi, /id:\s*\{\s*contains:\s*search\s*\}/);
+
+  const isFullUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  assert.equal(isFullUuid('player'), false, 'nickname fragment is not a UUID');
+  assert.equal(isFullUuid('abc123'), false, 'arbitrary partial string is not a UUID');
+  assert.equal(isFullUuid('550e8400-e29b-41d4-a716-446655440000'), true, 'full UUID is accepted for exact ID matching');
+});
 check('archive includes only deletedAt records with DEACTIVATED status', () => {
   assert.match(archiveApi, /view === "deleted"/);
   assert.match(archiveApi, /deletedAt:\s*\{\s*not:\s*null\s*\}/);
