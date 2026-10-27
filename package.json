@@ -30,7 +30,9 @@
     "test:server-events:integration": "node scripts/test-server-technical-events-postgres.mjs",
     "test:advanced-modes": "node scripts/test-advanced-mode-availability.mjs && node scripts/test-low-gravity-speed-duel.mjs && node scripts/test-duel-modes.mjs",
     "test:site-social-links": "node --experimental-strip-types scripts/test-site-social-links.mjs",
-    "test:auth-final-polish": "node --experimental-strip-types scripts/test-auth-final-polish.mjs"
+    "test:auth-final-polish": "node --experimental-strip-types scripts/test-auth-final-polish.mjs",
+    "test:steam-email-account-integration": "node scripts/test-steam-email-account-integration.mjs",
+    "test:steam-link-security": "node --experimental-strip-types scripts/test-steam-link-security.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

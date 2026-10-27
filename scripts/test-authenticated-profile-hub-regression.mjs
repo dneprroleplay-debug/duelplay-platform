@@ -17,6 +17,6 @@ assert.match(profilePage, /if\(r\.status===401\)\{[\s\S]*?window\.location\.href
 assert.match(hubPage, /const user = await getCurrentUser\(\)/);
 assert.match(hubPage, /if \(!user\) redirect\("\/login"\)/);
 assert.match(header, /\{user&&<><Link className=\{navClass\} href="\/profile"/);
-assert.match(steam, /avatarUrl:null,steamAvatarUrl:profile\.avatarUrl/);
+assert.match(steam, /avatarUrl: null, steamAvatarUrl: profile\.avatarUrl/);
 assert.match(reset, /avatarUrl: null,/);
 console.log("authenticated profile/hub + avatar semantics: PASS");

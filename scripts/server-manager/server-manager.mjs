@@ -1066,6 +1066,8 @@ async function claimAndStart(match) {
   current = {
     id: match.id,
     serverId: claimed.serverId,
+    playerOneUserId: claimed.playerOneUserId,
+    playerTwoUserId: claimed.playerTwoUserId,
     playerOneSteamId: claimed.playerOneSteamId,
     playerTwoSteamId: claimed.playerTwoSteamId,
     playerOneNickname: claimed.playerOneNickname,

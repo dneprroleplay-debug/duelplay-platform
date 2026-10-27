@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AuthFrame, { AuthField, authInputClass, authPrimaryClass, authSecondaryClass } from "./AuthFrame";
+import { useAuth } from "@/components/Common/AuthContext";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -12,7 +13,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [referralCode, setReferralCode] = useState("");
   const router = useRouter();
+  const { refresh } = useAuth();
   const steamPopupRef = useRef<Window | null>(null);
+  const steamChannelRef = useRef<BroadcastChannel | null>(null);
+  const steamTimeoutRef = useRef<number | null>(null);
+  const steamHandledRef = useRef(false);
+
+  const clearSteamWait = useCallback(() => {
+    if (steamTimeoutRef.current !== null) window.clearTimeout(steamTimeoutRef.current);
+    steamTimeoutRef.current = null;
+    steamChannelRef.current?.close();
+    steamChannelRef.current = null;
+    steamPopupRef.current = null;
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -24,40 +37,69 @@ export default function LoginPage() {
 
   const steamHref = useMemo(() => referralCode ? `/api/auth/steam?ref=${encodeURIComponent(referralCode)}` : "/api/auth/steam", [referralCode]);
 
+  const handleSteamResult = useCallback((payload: unknown) => {
+    if (!payload || typeof payload !== "object") return;
+    const result = payload as { type?: unknown; intent?: unknown; code?: unknown };
+    if (result.intent !== "login" || (result.type !== "duelplay:steam-auth-complete" && result.type !== "duelplay:steam-auth-error")) return;
+    if (steamHandledRef.current) return;
+    steamHandledRef.current = true;
+    clearSteamWait();
+
+    if (result.type === "duelplay:steam-auth-error") {
+      const code = String(result.code || "");
+      setError(code === "steam_conflict" ? "Этот Steam уже привязан к другому аккаунту DuelPlay." : code === "steam_already_linked" ? "К этому аккаунту уже привязан другой Steam." : code === "steam_link_auth_required" ? "Войди в DuelPlay перед привязкой Steam." : code === "steam_state" ? "Сессия Steam устарела. Запусти вход ещё раз." : code === "steam_verify" ? "Не удалось проверить авторизацию Steam. Попробуй ещё раз." : code === "account_disabled" ? "Этот аккаунт временно отключён." : "Не удалось завершить вход через Steam. Попробуй ещё раз.");
+      return;
+    }
+
+    void (async () => {
+      const user = await refresh();
+      if (!user) {
+        setError("Steam завершил авторизацию, но сервер не подтвердил сессию. Попробуй войти ещё раз.");
+        return;
+      }
+      router.replace("/");
+    })();
+  }, [clearSteamWait, refresh, router]);
+
   useEffect(() => {
     const onSteamAuthMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (!steamPopupRef.current || event.source !== steamPopupRef.current) return;
-      if (!event.data || event.data.type !== "duelplay:steam-auth-complete") return;
-      steamPopupRef.current = null;
-      void (async () => {
-        try {
-          const response = await fetch("/api/auth/me", { cache: "no-store" });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data.user) {
-            setError("Steam вернул управление, но сессию подтвердить не удалось. Попробуй войти ещё раз.");
-            return;
-          }
-          window.dispatchEvent(new Event("duelplay:auth-changed"));
-          router.replace("/");
-        } catch {
-          setError("Не удалось обновить состояние входа. Обнови страницу и проверь авторизацию.");
-        }
-      })();
+      handleSteamResult(event.data);
     };
     window.addEventListener("message", onSteamAuthMessage);
-    return () => window.removeEventListener("message", onSteamAuthMessage);
-  }, [router]);
+    return () => {
+      window.removeEventListener("message", onSteamAuthMessage);
+      clearSteamWait();
+    };
+  }, [clearSteamWait, handleSteamResult]);
 
   function openSteamLogin(event: React.MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
-    const popup = window.open(steamHref, "_blank", "popup,width=520,height=720,resizable=yes,scrollbars=yes");
+    steamHandledRef.current = false;
+    try {
+      const channel = new BroadcastChannel("duelplay-steam-oauth-v1");
+      channel.onmessage = (message) => handleSteamResult(message.data);
+      steamChannelRef.current = channel;
+    } catch {
+      steamChannelRef.current = null;
+    }
+
+    const popupUrl = new URL(steamHref, window.location.origin);
+    popupUrl.searchParams.set("popup", "1");
+    const popup = window.open(popupUrl.toString(), "_blank", "popup,width=520,height=720,resizable=yes,scrollbars=yes");
     if (!popup) {
-      // Preserve the original same-tab OAuth flow when popups are blocked.
+      clearSteamWait();
+      // Preserve the existing same-tab flow when the browser blocks popups.
       window.location.href = steamHref;
       return;
     }
     steamPopupRef.current = popup;
+    steamTimeoutRef.current = window.setTimeout(() => {
+      if (steamHandledRef.current) return;
+      clearSteamWait();
+      setError("Ожидание Steam заняло слишком много времени. Если вход не завершился, попробуй ещё раз.");
+    }, 120_000);
     try { popup.focus(); } catch {}
   }
 

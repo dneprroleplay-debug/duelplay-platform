@@ -23,7 +23,7 @@ export type HeaderUser = {
 type AuthContextValue = {
   user: HeaderUser | null;
   loading: boolean;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<HeaderUser | null>;
   logout: () => Promise<void>;
 };
 
@@ -88,13 +88,13 @@ export function AuthProvider({
       });
 
       const d = await r.json().catch(() => ({}));
-      const nextUser = d.user ?? null;
+      const nextUser = (d.user ?? null) as HeaderUser | null;
 
       setUser(nextUser);
       storeUser(nextUser);
+      return nextUser;
     } catch {
-      // ?? ?????????? ??? ??????????? ???????????? ??-??
-      // ????????? ??????? ??????.
+      return null;
     } finally {
       deferEffectTask(() => setLoading(false));
     }

@@ -39,11 +39,12 @@ assert.match(footer, /href=\{social\.telegram\}/);
 assert.match(login, /event\.origin !== window\.location\.origin/);
 assert.match(login, /event\.source !== steamPopupRef\.current/);
 assert.match(login, /duelplay:steam-auth-complete/);
-assert.match(login, /fetch\("\/api\/auth\/me", \{ cache: "no-store" \}\)/);
+assert.match(login, /await refresh\(\)/, "AuthContext refresh confirms the real server session");
 assert.match(login, /window\.location\.href = steamHref/, "popup-blocked fallback retains old same-tab OAuth");
-assert.match(callback, /window\.opener\.postMessage\(\{type:"duelplay:steam-auth-complete"\},targetOrigin\)/);
-assert.match(callback, /response\.cookies\.set\(\{\.\.\.sessionCookieOptions\(\),value:token\}\)/);
-assert.ok(callback.indexOf("response.cookies.set({...sessionCookieOptions(),value:token})") < callback.indexOf("return response;", callback.indexOf("response.cookies.set({...sessionCookieOptions(),value:token})")), "session cookie is set before successful callback response is returned");
-assert.match(callback, /window\.location\.replace\(targetOrigin\+"\/"\)/, "direct callback navigation falls back to the existing home-page flow");
+assert.match(callback, /window\.opener\.postMessage\(payload,targetOrigin\)/);
+assert.match(callback, /new BroadcastChannel/);
+assert.match(callback, /response\.cookies\.set\(\{ \.\.\.sessionCookieOptions\(\), value: token \}\)/);
+assert.ok(callback.indexOf("response.cookies.set({ ...sessionCookieOptions(), value: token })") < callback.indexOf("return clearStateCookie(response)", callback.indexOf("response.cookies.set({ ...sessionCookieOptions(), value: token })")), "session cookie is set before successful callback response is returned");
+assert.match(callback, /window\.location\.replace\(targetOrigin\+fallback\)/, "direct callback navigation falls back to the appropriate page");
 
-console.log("Auth final polish: PASS (24 assertions)");
+console.log("Auth final polish: PASS (updated callback contracts)");
