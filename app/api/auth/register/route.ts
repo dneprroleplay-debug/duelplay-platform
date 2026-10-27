@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, newSessionToken } from "@/lib/auth";
 import { hashCode, generateVerificationCode, sendEmail } from "@/lib/email";
+import { verificationEmailHtml } from "@/lib/auth-email-templates";
 import { normalizeNickname, validateNickname } from "@/lib/nickname";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
@@ -51,8 +52,8 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      const html = `<div style="background:#0a0a0f;color:#fff;padding:24px;font-family:sans-serif"><h1>Привет, ${nickname}!</h1><p>Твой код подтверждения: <strong>${user.code}</strong></p><p>Код действует 10 минут.</p></div>`;
-      await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Подтверждение email DuelPlay", html, text: `Привет, ${nickname}! Код: ${user.code}` });
+      const html = verificationEmailHtml(nickname, user.code);
+      await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Твой код подтверждения DuelPlay", html, text: `Привет, ${nickname}! Твой код подтверждения: ${user.code}. Код действует 10 минут. Если ты не создавал аккаунт, проигнорируй это письмо.` });
     } catch (e) {
       console.error("email send failed", e);
       return NextResponse.json({ ok: false, emailSent: false, userId: user.user.id, error: "Email delivery failed" }, { status: 502 });

@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { assertAbuseGuard } from "@/lib/anti-fraud";
 
-const PERSON_SELECT = { id: true, nickname: true, avatarUrl: true } as const;
+const PERSON_SELECT = { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true } as const;
 
 export async function GET(r: NextRequest) {
   const me = await getCurrentUser();

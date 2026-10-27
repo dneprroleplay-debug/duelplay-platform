@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import {useLanguage} from "@/components/Common/LanguageContext";
-const FALLBACK="/avatars/premium/01-cyan.svg";
+const FALLBACK="/images/avatar-placeholder.svg";
 const DEFAULTS=[
  {id:"cyan",name:"Cyan",src:"/avatars/premium/01-cyan.svg"},{id:"violet",name:"Violet",src:"/avatars/premium/02-violet.svg"},{id:"red",name:"Red",src:"/avatars/premium/03-red.svg"},{id:"amber",name:"Amber",src:"/avatars/premium/04-amber.svg"},{id:"emerald",name:"Emerald",src:"/avatars/premium/05-emerald.svg"},{id:"blue",name:"Blue",src:"/avatars/premium/06-blue.svg"},{id:"pink",name:"Pink",src:"/avatars/premium/07-pink.svg"},{id:"orange",name:"Orange",src:"/avatars/premium/08-orange.svg"}
 ];

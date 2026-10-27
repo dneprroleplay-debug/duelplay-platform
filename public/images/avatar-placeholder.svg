@@ -1,13 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DuelPlay avatar placeholder">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="DuelPlay default player avatar">
   <defs>
-    <linearGradient id="dp-avatar-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b1024"/>
-      <stop offset="1" stop-color="#0a0b10"/>
+    <linearGradient id="dp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#211020"/>
+      <stop offset=".52" stop-color="#111019"/>
+      <stop offset="1" stop-color="#08090e"/>
     </linearGradient>
+    <linearGradient id="dp-silhouette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5c435d"/>
+      <stop offset="1" stop-color="#292634"/>
+    </linearGradient>
+    <linearGradient id="dp-edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff75b5"/>
+      <stop offset="1" stop-color="#ff2f91"/>
+    </linearGradient>
+    <radialGradient id="dp-glow" cx=".5" cy=".1" r=".9">
+      <stop offset="0" stop-color="#ff2f91" stop-opacity=".23"/>
+      <stop offset="1" stop-color="#ff2f91" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#dp-avatar-bg)"/>
-  <circle cx="32" cy="25" r="10" fill="#2a2a35"/>
-  <path d="M12 58c2-11 9-17 20-17s18 6 20 17z" fill="#2a2a35"/>
-  <circle cx="32" cy="25" r="10" fill="none" stroke="#ff2f91" stroke-width="1.5" opacity=".55"/>
-  <path d="M12 58c2-11 9-17 20-17s18 6 20 17" fill="none" stroke="#ff2f91" stroke-width="1.5" opacity=".55"/>
+  <rect width="128" height="128" rx="28" fill="url(#dp-bg)"/>
+  <rect width="128" height="128" rx="28" fill="url(#dp-glow)"/>
+  <rect x="4" y="4" width="120" height="120" rx="25" fill="none" stroke="url(#dp-edge)" stroke-opacity=".7" stroke-width="2"/>
+  <path d="M15 42V18h24M89 18h24v24M113 86v24H89M39 110H15V86" fill="none" stroke="#ff2f91" stroke-opacity=".32" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="64" cy="48" r="20" fill="url(#dp-silhouette)" stroke="#ff75b5" stroke-opacity=".48" stroke-width="1.5"/>
+  <path d="M25 108c2.5-22 16.5-35 39-35s36.5 13 39 35c.2 2-1.5 4-3.5 4h-71c-2 0-3.7-2-3.5-4Z" fill="url(#dp-silhouette)" stroke="#ff75b5" stroke-opacity=".48" stroke-width="1.5"/>
+  <path d="M49 39c4-5 10-8 15-8 7 0 13 4 16 10" fill="none" stroke="#ffb2d5" stroke-opacity=".3" stroke-width="2" stroke-linecap="round"/>
+  <g transform="translate(88 88)">
+    <circle r="17" fill="#0b0a10" stroke="#ff2f91" stroke-width="1.5"/>
+    <path d="M-7-9H1c6 0 10 4 10 9S7 9 1 9h-8V-9Zm5 4V5H1c3 0 5-2 5-5S4-5 1-5h-3Z" fill="#ff75b5"/>
+  </g>
 </svg>

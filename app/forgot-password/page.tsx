@@ -1,32 +1,27 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
+import AuthFrame, { AuthField, authInputClass, authPrimaryClass, authSecondaryClass } from "@/components/Auth/AuthFrame";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
-
+  const [sent, setSent] = useState(false);
   async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true); setMsg("");
+    e.preventDefault(); setLoading(true); setMsg("");
     try {
-      await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
-      setMsg("Если email существует, ссылка отправлена");
-    } catch { setMsg("Network error"); }
+      const res = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim() }) });
+      if (res.status === 429) { setMsg("Слишком много запросов. Подожди немного и попробуй снова."); return; }
+      setSent(true); setMsg("Запрос обработан. Проверь входящие сообщения и папку «Спам». Если письмо не пришло, проверь адрес и попробуй ещё раз.");
+    } catch { setMsg("Не удалось подключиться к серверу. Попробуй ещё раз."); }
     finally { setLoading(false); }
   }
-
-  return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center px-4 pt-24">
-      <div className="w-full max-w-md panel rounded-3xl p-8">
-        <h1 className="text-3xl font-black mb-6">Восстановить доступ</h1>
-        <form onSubmit={submit} className="space-y-4">
-          <input className="input w-full" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
-          <button disabled={loading} className="w-full rounded-2xl bg-purple-600 py-3 font-black">{loading?"...":"Отправить ссылку для сброса"}</button>
-        </form>
-        {msg && <div className="mt-4 text-sm">{msg}</div>}
-        <div className="mt-6 text-center text-sm"><a href="/login" className="text-purple-400">Ко входу</a></div>
-      </div>
-    </main>
-  );
+  return <AuthFrame eyebrow="Восстановление доступа" title={sent ? "Проверь свою почту" : "Забыл пароль?"} description={sent ? "Осталось проверить входящие сообщения." : "Ничего страшного — поможем безопасно вернуть доступ к аккаунту."}>
+    <div className="mx-auto mb-6 grid h-14 w-14 place-items-center rounded-2xl border border-pink-400/20 bg-pink-400/[.07] text-2xl">{sent ? "✉" : "⌁"}</div>
+    {!sent && <form onSubmit={submit} className="space-y-4"><AuthField label="EMAIL АККАУНТА"><input className={authInputClass} type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required /></AuthField><button disabled={loading} className={authPrimaryClass}>{loading ? "Отправляем…" : "Отправить ссылку"}<span>→</span></button></form>}
+    {msg && <div role="status" className="mt-4 rounded-xl border border-emerald-400/15 bg-emerald-400/[.05] p-4 text-sm leading-6 text-zinc-300">{msg}</div>}
+    {sent && <button onClick={() => { setSent(false); setMsg(""); }} className={authSecondaryClass + " mt-4"}>Использовать другой email</button>}
+    <Link href="/login" className={authSecondaryClass + " mt-4"}>← Вернуться ко входу</Link>
+  </AuthFrame>;
 }

@@ -161,7 +161,7 @@ async function localFinish(winnerId:string){setBusy(true);setMsg("");try{const r
  const statusLabel=(status:string)=>({WAITING_FOR_PLAYERS:u.waitingStatus,READY:u.readyStatus,LIVE:"LIVE",FINISHED:u.confirmed,CANCELLED:u.cancelled}[status]||status);
 
  const activeStep=m.status==="WAITING_FOR_PLAYERS"?1:m.status==="READY"?3:m.status==="STARTING"?4:m.status==="LIVE"?5:m.status==="FINISHED"?6:1;
- const p1=displayPlayerOne?.avatarUrl||displayPlayerOne?.steamAvatarUrl||"/avatars/premium/01-cyan.svg",p2=displayPlayerTwo?.avatarUrl||displayPlayerTwo?.steamAvatarUrl||"/avatars/premium/02-violet.svg";
+ const p1=displayPlayerOne?.avatarUrl||displayPlayerOne?.steamAvatarUrl||"/images/avatar-placeholder.svg",p2=displayPlayerTwo?.avatarUrl||displayPlayerTwo?.steamAvatarUrl||"/images/avatar-placeholder.svg";
  return <><main className="match-page-shell mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-24 sm:px-6">
    <div className="mb-4 flex items-center justify-between gap-3"><Link href="/matches" className="text-sm font-bold text-zinc-500 hover:text-[var(--theme-accent)]">← {t.backMatches}</Link><div className="flex items-center gap-2"><span className={`status ${m.status==="LIVE"?"live":"waiting"}`}>{statusLabel(m.status)}</span>{isDemo&&<span className="rounded-full border border-pink-400/30 bg-pink-400/10 px-3 py-1 text-[10px] font-black text-pink-200">DEMO · VIRTUAL CREDITS</span>}</div></div>
   <section className="match-panel panel overflow-hidden rounded-[28px]">

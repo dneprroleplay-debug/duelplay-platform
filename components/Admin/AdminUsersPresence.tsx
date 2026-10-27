@@ -225,7 +225,7 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
                     alt={u.nickname}
                     className="h-10 w-10 rounded-xl object-cover"
                     onError={(e) => {
-                      e.currentTarget.src = "/avatars/premium/01-cyan.svg";
+                      e.currentTarget.src = "/images/avatar-placeholder.svg";
                     }}
                   />
                   <span

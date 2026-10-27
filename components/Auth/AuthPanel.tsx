@@ -42,7 +42,7 @@ export default function AuthPanel() {
         <p className="mt-2 text-xs leading-5 text-zinc-600">{t.referralRegisterHint}</p>
       </div>
       {error && <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-300">{error}</div>}
-      <a href={steamHref} className="mt-7 flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-[#171d25] px-5 py-4 font-black text-white transition hover:border-white/25 hover:bg-[#1d2530]">
+      <a href={steamHref} target="_blank" rel="noopener noreferrer" className="mt-7 flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-[#171d25] px-5 py-4 font-black text-white transition hover:border-white/25 hover:bg-[#1d2530]">
         <img src="/images/steam.svg" alt="Steam" className="h-7 w-7" />
         {t.loginSteam}
       </a>

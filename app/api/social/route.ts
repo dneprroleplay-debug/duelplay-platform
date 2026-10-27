@@ -11,19 +11,19 @@ export async function GET() {
     prisma.friend.findMany({
       where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
       include: {
-        sender: { select: { id: true, nickname: true, avatarUrl: true, status: true } },
-        receiver: { select: { id: true, nickname: true, avatarUrl: true, status: true } },
+        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } },
+        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } },
       },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.userMute.findMany({
       where: { userId: me.id },
-      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, status: true } } },
+      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.rival.findMany({
       where: { ownerId: me.id, status: "ACTIVE" },
-      include: { target: { select: { id: true, nickname: true, avatarUrl: true } } },
+      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true } } },
     }),
   ]);
 

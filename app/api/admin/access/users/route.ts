@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     const items = users.map((u) => ({
       id: u.id,
       nickname: u.nickname,
-      avatarUrl: u.avatarUrl || u.steamAvatarUrl || "/avatars/premium/01-cyan.svg",
+      avatarUrl: u.avatarUrl || u.steamAvatarUrl || "/images/avatar-placeholder.svg",
       role: u.role,
       status: u.status,
       online: onlineSet.has(u.id),

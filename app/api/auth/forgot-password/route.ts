@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashResetToken, generateResetToken, sendEmail } from "@/lib/email";
+import { passwordResetEmailHtml } from "@/lib/auth-email-templates";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "") || "https://duelplaygame.com";
     const link = `${baseUrl}/reset-password?token=${token}`;
     try {
-      await sendEmail({ from: "DuelPlay Security <security@duelplaygame.com>", to: email, subject: "Сброс пароля DuelPlay", html: `<div style="background:#0a0a0f;color:#fff;padding:24px"><h1>Привет, ${user.nickname}!</h1><p>Сброс пароля: <a href="${link}">Сбросить пароль</a></p><p>Ссылка: ${link}</p></div>`, text: `Ссылка: ${link}` });
+      await sendEmail({ from: "DuelPlay Security <security@duelplaygame.com>", to: email, subject: "Ссылка для смены пароля DuelPlay", html: passwordResetEmailHtml(user.nickname, link), text: `Привет, ${user.nickname}! Для смены пароля открой ссылку (действует 1 час): ${link}. Если ты не запрашивал смену пароля, проигнорируй это письмо.` });
     } catch (e) { console.error(e); }
   }
 
