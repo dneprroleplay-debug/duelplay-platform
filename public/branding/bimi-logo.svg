@@ -1,0 +1,25 @@
+cd "$HOME\Desktop\duelplay-app"
+
+$svg = Get-Clipboard -Raw
+
+if (
+    $svg.TrimStart() -notmatch '^<svg\b' -or
+    $svg -notmatch 'baseProfile="tiny-ps"' -or
+    $svg -notmatch '<title>DuelPlay</title>'
+) {
+    throw "В буфере нет ожидаемого SVG. Вернись в валидатор и нажми «Скопировать результат»."
+}
+
+$dir = Join-Path (Get-Location) "public\branding"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+$path = Join-Path $dir "bimi-logo.svg"
+
+[System.IO.File]::WriteAllText(
+    $path,
+    $svg.Trim(),
+    [System.Text.UTF8Encoding]::new($false)
+)
+
+Write-Host "SVG сохранён: $path" -ForegroundColor Green
+Get-Item $path | Select-Object FullName, Length
