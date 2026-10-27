@@ -67,8 +67,7 @@ export default function Footer() {
               <a href={social.steamGroup} target="_blank" rel="noopener noreferrer" className={socialLinkClass()}><SocialIconFrame><SteamIcon className="h-4 w-4" /></SocialIconFrame><span className="truncate text-sm">Steam Community</span></a>
               <a href={social.telegram} target="_blank" rel="noopener noreferrer" className={socialLinkClass()}><SocialIconFrame><TelegramIcon className="h-4 w-4" /></SocialIconFrame><span className="truncate text-sm">Telegram</span></a>
             </div>
-            <a href={social.supportUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--theme-accent)]/30 bg-[var(--theme-accent-bg)] px-3.5 py-2.5 text-sm font-bold text-[var(--theme-accent)] transition hover:border-[var(--theme-accent)]/60 hover:brightness-110"><DiscordIcon className="h-4 w-4" />Discord Support <span aria-hidden>↗</span></a>
-            <a href={`mailto:${social.supportEmail}`} className="mt-2 block break-all text-xs text-zinc-500 transition hover:text-[var(--theme-accent)]">Support email: {social.supportEmail}</a>
+            <a href={`mailto:${social.supportEmail}`} aria-label={`Email support: ${social.supportEmail}`} className="mt-3 inline-flex max-w-full items-center gap-2 rounded-xl border border-[var(--theme-accent)]/30 bg-[var(--theme-accent-bg)] px-3.5 py-2.5 text-sm font-bold text-[var(--theme-accent)] transition hover:border-[var(--theme-accent)]/60 hover:brightness-110"><span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-[var(--theme-accent)]/20 bg-black/20 text-base">✉</span><span className="break-all">{social.supportEmail}</span></a>
           </div>
 
           <div>

@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AuthFrame, { AuthField, authInputClass, authPrimaryClass, authSecondaryClass } from "./AuthFrame";
 
@@ -10,6 +11,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [referralCode, setReferralCode] = useState("");
+  const router = useRouter();
+  const steamPopupRef = useRef<Window | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -20,6 +23,43 @@ export default function LoginPage() {
   }, []);
 
   const steamHref = useMemo(() => referralCode ? `/api/auth/steam?ref=${encodeURIComponent(referralCode)}` : "/api/auth/steam", [referralCode]);
+
+  useEffect(() => {
+    const onSteamAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (!steamPopupRef.current || event.source !== steamPopupRef.current) return;
+      if (!event.data || event.data.type !== "duelplay:steam-auth-complete") return;
+      steamPopupRef.current = null;
+      void (async () => {
+        try {
+          const response = await fetch("/api/auth/me", { cache: "no-store" });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.user) {
+            setError("Steam вернул управление, но сессию подтвердить не удалось. Попробуй войти ещё раз.");
+            return;
+          }
+          window.dispatchEvent(new Event("duelplay:auth-changed"));
+          router.replace("/");
+        } catch {
+          setError("Не удалось обновить состояние входа. Обнови страницу и проверь авторизацию.");
+        }
+      })();
+    };
+    window.addEventListener("message", onSteamAuthMessage);
+    return () => window.removeEventListener("message", onSteamAuthMessage);
+  }, [router]);
+
+  function openSteamLogin(event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    const popup = window.open(steamHref, "_blank", "popup,width=520,height=720,resizable=yes,scrollbars=yes");
+    if (!popup) {
+      // Preserve the original same-tab OAuth flow when popups are blocked.
+      window.location.href = steamHref;
+      return;
+    }
+    steamPopupRef.current = popup;
+    try { popup.focus(); } catch {}
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setLoading(true); setError("");
@@ -37,7 +77,7 @@ export default function LoginPage() {
   }
 
   return <AuthFrame eyebrow="С возвращением" title="Войти в DuelPlay" description="Продолжай играть, находи соперников и возвращайся к своим дуэлям." footer={<>Впервые здесь? <Link href="/register" className="font-bold text-pink-300 transition hover:text-pink-200">Создать аккаунт</Link></>}>
-    <a href={steamHref} target="_blank" rel="noopener noreferrer" className={authSecondaryClass + " border-white/15 bg-[#171d25] hover:border-white/25 hover:bg-[#202936]"}>
+    <a href={steamHref} target="_blank" rel="noopener noreferrer" onClick={openSteamLogin} className={authSecondaryClass + " border-white/15 bg-[#171d25] hover:border-white/25 hover:bg-[#202936]"}>
       <img src="/images/steam.svg" alt="" className="h-6 w-6" /> Продолжить через Steam <span className="ml-auto text-zinc-500">↗</span>
     </a>
     <div className="my-6 flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.2em] text-zinc-600"><span className="h-px flex-1 bg-white/[.08]" />или по email<span className="h-px flex-1 bg-white/[.08]" /></div>
