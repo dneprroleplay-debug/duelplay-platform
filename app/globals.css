@@ -516,15 +516,23 @@ input,select,textarea,button{min-width:0;max-width:100%}
 @keyframes dp-frame-golden-sovereign{0%,100%{filter:drop-shadow(0 0 2px rgba(245,196,81,.3))}50%{filter:drop-shadow(0 0 6px rgba(255,220,130,.72)) drop-shadow(0 0 11px rgba(245,158,11,.3))}}
 @keyframes dp-frame-rising-eclipse{0%,100%{filter:drop-shadow(0 0 2px rgba(192,132,252,.35)) drop-shadow(0 0 4px rgba(251,113,133,.14))}50%{filter:drop-shadow(0 0 6px rgba(192,132,252,.68)) drop-shadow(0 0 10px rgba(251,113,133,.35))}}
 
-/* Profile banner: a soft pink surface with one theme-colored light trail around
-   the real rounded perimeter. The SVG is a lightweight, pointer-transparent overlay. */
-.dp-profile-banner{height:7rem;isolation:isolate;background:linear-gradient(112deg,#391126 0%,#78234e 46%,#351226 100%);border:1px solid rgba(255,105,180,.32);box-shadow:0 0 12px rgba(255,47,145,.14),inset 0 0 18px rgba(255,105,180,.08)}
-.dp-profile-banner__pink-base{position:absolute;inset:0;z-index:-1;background:linear-gradient(112deg,rgba(255,47,145,.18),rgba(255,105,180,.3) 48%,rgba(110,25,83,.24));pointer-events:none}
-.dp-profile-banner__image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
-.dp-profile-banner::after{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(112deg,rgba(255,47,145,.26),rgba(255,105,180,.2) 48%,rgba(110,25,83,.3));pointer-events:none}
-.dp-profile-banner__trail{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible;pointer-events:none;color:var(--dp-banner-trail,#ff2f91)}
-.dp-profile-banner__trail rect{fill:none;stroke:var(--dp-banner-trail,#ff2f91);stroke-width:1.7;stroke-linecap:round;stroke-dasharray:105 895;animation:dp-banner-perimeter 7.5s linear infinite;filter:drop-shadow(0 0 2px var(--dp-banner-trail,#ff2f91)) drop-shadow(0 0 4px color-mix(in srgb,var(--dp-banner-trail,#ff2f91) 50%,transparent))}
-.dp-profile-banner--compact{height:4rem;border-radius:.75rem;box-shadow:0 0 8px rgba(255,47,145,.12),inset 0 0 12px rgba(255,105,180,.06)}
-.dp-profile-banner--compact .dp-profile-banner__trail rect{stroke-width:2;stroke-dasharray:110 890;filter:drop-shadow(0 0 2px var(--dp-banner-trail,#ff2f91))}
+/* Minimal pink cosmetic banner; theme color is reserved for the animated perimeter trail. */
+.dp-profile-banner{height:7rem;isolation:isolate;background:#e83b91;border:1px solid rgba(255,154,211,.7);box-shadow:0 0 16px rgba(255,47,145,.24),inset 0 0 18px rgba(255,255,255,.06)}
+.dp-profile-banner__pink-base{position:absolute;inset:0;z-index:0;background:linear-gradient(120deg,#f0449b 0%,#e83b91 52%,#d93285 100%);pointer-events:none}
+.dp-profile-banner__brand{position:absolute;left:1.1rem;top:.8rem;width:9rem;height:auto;color:rgba(255,255,255,.92);filter:drop-shadow(0 1px 2px rgba(85,0,45,.16))}
+.dp-profile-banner__image{display:none}
+.dp-profile-banner::after{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(115deg,rgba(255,255,255,.035),transparent 40%,rgba(80,0,45,.05));pointer-events:none}
+.dp-profile-banner__trail{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:hidden;pointer-events:none;color:var(--dp-banner-trail,#ff2f91)}
+.dp-profile-banner__trail rect{fill:none;stroke:var(--dp-banner-trail,#ff2f91);stroke-width:2.25;stroke-linecap:round;stroke-dasharray:128 872;animation:dp-banner-perimeter 5.2s linear infinite;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--dp-banner-trail,#ff2f91)) drop-shadow(0 0 8px var(--dp-banner-trail,#ff2f91))}
+.dp-profile-banner--compact{height:4rem;border-radius:.75rem;box-shadow:0 0 10px rgba(255,47,145,.18),inset 0 0 12px rgba(255,255,255,.04)}
+.dp-profile-banner--compact .dp-profile-banner__brand{left:.7rem;top:.55rem;width:6.8rem}
+.dp-profile-banner--compact .dp-profile-banner__trail rect{stroke-width:2.2;stroke-dasharray:120 880;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 5px var(--dp-banner-trail,#ff2f91))}
 @keyframes dp-banner-perimeter{from{stroke-dashoffset:0}to{stroke-dashoffset:-1000}}
-@media(prefers-reduced-motion:reduce){.dp-profile-banner__trail rect{animation:none!important;stroke-dasharray:none;stroke-width:1.2;filter:none}}
+@property --dp-rating-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
+.dp-rating-current{position:relative;isolation:isolate;--dp-rating-angle:0deg}
+.dp-rating-current::before{content:"";position:absolute;inset:0;z-index:0;padding:1.5px;border-radius:inherit;pointer-events:none;background:conic-gradient(from var(--dp-rating-angle),transparent 0deg,transparent 238deg,var(--dp-rating-accent,#ff2f91) 270deg,#fff 278deg,var(--dp-rating-accent,#ff2f91) 286deg,transparent 316deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:dp-rating-perimeter 4.8s linear infinite;filter:drop-shadow(0 0 3px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 6px color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 65%,transparent))}
+.dp-rating-current>*{position:relative;z-index:1}
+.dp-rating-current:hover::before{filter:drop-shadow(0 0 4px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 9px var(--dp-rating-accent,#ff2f91))}
+@keyframes dp-rating-perimeter{to{--dp-rating-angle:360deg}}
+.dp-theme-title{--dp-title-accent:#ff2f91;color:color-mix(in srgb,var(--dp-title-accent) 76%,white);border-color:color-mix(in srgb,var(--dp-title-accent) 48%,transparent);background:color-mix(in srgb,var(--dp-title-accent) 12%,transparent);box-shadow:0 0 9px color-mix(in srgb,var(--dp-title-accent) 16%,transparent);text-shadow:0 0 10px color-mix(in srgb,var(--dp-title-accent) 22%,transparent)}
+@media(prefers-reduced-motion:reduce){.dp-profile-banner__trail rect{animation:none!important;stroke-dasharray:none;stroke-width:1.3;filter:none}.dp-rating-current::before{animation:none!important;background:var(--dp-rating-accent,#ff2f91);filter:none;opacity:.85}}

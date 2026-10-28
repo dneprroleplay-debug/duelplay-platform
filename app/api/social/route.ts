@@ -12,19 +12,19 @@ export async function GET() {
     prisma.friend.findMany({
       where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
       include: {
-        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
-        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
+        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, themePreference: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
+        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, themePreference: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
       },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.userMute.findMany({
       where: { userId: me.id },
-      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
+      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, themePreference: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.rival.findMany({
       where: { ownerId: me.id, status: "ACTIVE" },
-      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
+      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, themePreference: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
     }),
   ]);
 

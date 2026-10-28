@@ -38,7 +38,8 @@
     "test:level-frame-collection": "node scripts/test-level-frame-collection.mjs",
     "test:login-reward-frames": "node --experimental-strip-types scripts/test-login-reward-frame-integration.mjs && node scripts/test-login-rewards-rewards.mjs",
     "test:frame-animations": "node scripts/test-frame-animations.mjs",
-    "test:six-site-fixes": "node scripts/test-six-site-admin-email-rating-fixes.mjs"
+    "test:six-site-fixes": "node scripts/test-six-site-admin-email-rating-fixes.mjs",
+    "test:profile-theme-reactivity": "node --experimental-strip-types scripts/test-profile-theme-reactivity.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

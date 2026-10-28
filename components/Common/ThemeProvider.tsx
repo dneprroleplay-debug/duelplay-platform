@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { THEMES, ThemeId, isThemeBackgroundId } from "@/lib/themes";
 import {preloadImage} from "@/lib/image-preload";
 
@@ -10,6 +10,7 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
  const [standard,setStandard]=useState<ThemeId>("STANDARD");
  const [background,setBackground]=useState("stars");
  const [isCustom,setIsCustom]=useState(false); const [themePreference,setThemePreference]=useState<ThemeId>("STANDARD");
+ const themeSaveInProgress=useRef(false);
  useEffect(()=>{
   const load=async()=>{
     const [site,me]=await Promise.all([
@@ -19,6 +20,8 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
 
     ]);
 
+    // A periodic refresh that started during a theme save must not overwrite the optimistic selection.
+    if(themeSaveInProgress.current)return;
 
     const st=THEMES.some(x=>x.id===site.theme)?site.theme:"STANDARD";
     const bg=isThemeBackgroundId(site.background)?site.background:"stars";
@@ -52,7 +55,20 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
     setIsCustom(preference !== "STANDARD");
   };
   void load();
-  const onChanged=()=>void load();
+  const onChanged=(event:Event)=>{
+    const detail=(event as CustomEvent<{themePreference?:unknown;effectiveTheme?:unknown}>).detail;
+    const requested=detail?.themePreference;
+    if(typeof requested==="string"&&THEMES.some(x=>x.id===requested)){
+      const next=requested as ThemeId;
+      setThemePreference(next);
+      setIsCustom(next!=="STANDARD");
+      const requestedEffective=detail?.effectiveTheme;
+      setThemeState(typeof requestedEffective==="string"&&THEMES.some(x=>x.id===requestedEffective)?requestedEffective as ThemeId:(next==="STANDARD"?standard:next));
+      try{window.localStorage.setItem("duelplay-theme",next)}catch{}
+      return;
+    }
+    void load();
+  };
   const timer=window.setInterval(()=>void load(),5000);
   window.addEventListener("duelplay:theme-changed",onChanged);
   return()=>{window.clearInterval(timer);window.removeEventListener("duelplay:theme-changed",onChanged)};
@@ -81,27 +97,30 @@ export function ThemeProvider({children}:{children:React.ReactNode}){
   return()=>observer.disconnect();
  },[theme,background]);
  async function setTheme(id:ThemeId){
-  setThemePreference(id);
-  setIsCustom(id!=="STANDARD");
-
-  const effectiveTheme =
-    id==="STANDARD"
-      ? standard
-      : id;
-
-  setThemeState(effectiveTheme);
-
+  const previousPreference=themePreference;
+  const previousTheme=theme;
+  const apply=(preference:ThemeId,effective:ThemeId)=>{
+    setThemePreference(preference);
+    setIsCustom(preference!=="STANDARD");
+    setThemeState(effective);
+    try{window.localStorage.setItem("duelplay-theme",preference)}catch{}
+    window.dispatchEvent(new CustomEvent("duelplay:theme-changed",{detail:{themePreference:preference,effectiveTheme:effective}}));
+  };
+  themeSaveInProgress.current=true;
+  apply(id,id==="STANDARD"?standard:id);
   try{
-    window.localStorage.setItem("duelplay-theme",id);
-  }catch{}
-
-  try{
-    await fetch("/api/profile",{
+    const response=await fetch("/api/profile",{
       method:"PATCH",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({themePreference:id})
     });
-  }catch{}
+    if(!response.ok)throw new Error("Could not save profile theme");
+  }catch{
+    // Optimistic display is rolled back if persistence fails.
+    apply(previousPreference,previousTheme);
+  }finally{
+    themeSaveInProgress.current=false;
+  }
  }
  const value=useMemo(()=>({theme,themePreference,setTheme,themes:THEMES,isCustom}),[theme,themePreference,isCustom]); return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

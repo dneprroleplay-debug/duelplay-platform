@@ -11,7 +11,7 @@ const css = read('app/globals.css');
 const email = read('app/api/auth/verify-email/route.ts');
 const html = verificationEmailHtml('QAPlayer', 'AB12CD');
 const text = verificationEmailText('QAPlayer', 'AB12CD');
-assert.match(own, /themeId=\{data\.user\.themePreference\}/, 'own banner must use owner theme');
+assert.match(own, /themeId=\{themePreference\}/, 'own banner must use the reactive owner theme context');
 assert.match(pub, /themeId=\{p\.themePreference\}/, 'public banner must use profile owner theme, not viewer theme');
 assert.match(api, /themePreference:true/, "public profile API selects the owner theme");
 assert.match(api, /themePreference:u\.themePreference/, "public profile API returns the owner theme");
