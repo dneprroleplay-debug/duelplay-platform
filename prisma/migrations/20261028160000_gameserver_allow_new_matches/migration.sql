@@ -1,0 +1,1 @@
+ALTER TABLE "GameServer" ADD COLUMN "allowNewMatches" BOOLEAN NOT NULL DEFAULT true;

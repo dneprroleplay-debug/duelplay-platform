@@ -59,8 +59,9 @@ export async function POST(request: NextRequest) {
 
       const existing = requestedServerName
         ? await tx.gameServer.findUnique({ where: { name: requestedServerName } })
-        : await tx.gameServer.findFirst({ where: { status: "READY", matchId: null, lastHeartbeat: { gte: new Date(Date.now() - 30_000) } }, orderBy: { createdAt: "asc" } });
+        : await tx.gameServer.findFirst({ where: { status: "READY", matchId: null, allowNewMatches: true, lastHeartbeat: { gte: new Date(Date.now() - 30_000) } }, orderBy: { createdAt: "asc" } });
       if (existing && existing.matchId) throw new Error("SERVER_BUSY");
+      if (existing && existing.allowNewMatches === false) throw new Error("SERVER_DISABLED");
       if (!existing || existing.status !== "READY" || !existing.lastHeartbeat || Date.now() - existing.lastHeartbeat.getTime() > 30_000) throw new Error("SERVER_UNAVAILABLE");
       const server = existing
         ? await tx.gameServer.update({ where: { id: existing.id }, data: { host: body.host ? host : existing.host, port: body.port ? port : existing.port, status: "STARTING", matchId, processId: null, startedAt: null, stoppedAt: null, lastHeartbeat: new Date() } })
@@ -77,7 +78,8 @@ export async function POST(request: NextRequest) {
     if (code === "NOT_READY") return NextResponse.json({ error: "Match is not ready" }, { status: 409 });
     if (code === "NOT_REQUESTED") return NextResponse.json({ error: "Match has not requested a server" }, { status: 409 });
     if (code === "CS2_MAINTENANCE") return NextResponse.json({ error: "CS2 maintenance is active" }, { status: 503 });
-    if (code === "SERVER_UNAVAILABLE") return NextResponse.json({ error: "No ready CS2 server is available" }, { status: 503 });
+      if (code === "SERVER_UNAVAILABLE") return NextResponse.json({ error: "No ready CS2 server is available" }, { status: 503 });
+      if (code === "SERVER_DISABLED") return NextResponse.json({ error: "This CS2 server is disabled for new matches" }, { status: 409 });
     if (code === "STEAM_REQUIRED") return NextResponse.json({ error: "Both players must have Steam linked before a server can start" }, { status: 409 });
     if (code === "INVALID_MAP") return NextResponse.json({ error: "Invalid duel map" }, { status: 409 });
     if (code === "INVALID_MODE_CONFIG") return NextResponse.json({ error: "Unsupported or invalid mode configuration" }, { status: 409 });
