@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { syncLoginRewardFrameCatalog } from "@/lib/login-reward-frames";
+import { cosmeticFrameImageUrl } from "@/lib/cosmetic-frame-image";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -44,6 +45,7 @@ export async function GET() {
     const unlockLevel = typeof metadata.unlockLevel === "number" ? metadata.unlockLevel : null;
     return {
       ...item,
+      imageUrl: cosmeticFrameImageUrl(item.slug, item.imageUrl),
       owned: Boolean(purchase),
       ownedAt: purchase?.createdAt ?? null,
       source: typeof metadata.source === "string" ? metadata.source : item.slug === "frame-profile-complete" ? "PROFILE_COMPLETION" : ["frame-neon-pulse", "frame-electric-storm", "frame-inferno-crown"].includes(item.slug) ? "HUB" : "OTHER",

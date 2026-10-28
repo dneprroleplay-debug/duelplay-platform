@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { calculateProfileCompletion, PROFILE_COMPLETION_REWARD_KEY } from "@/lib/profile-completion";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { syncLoginRewardFrameCatalog } from "@/lib/login-reward-frames";
+import { cosmeticFrameImageUrl } from "@/lib/cosmetic-frame-image";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -25,7 +26,8 @@ export async function GET() {
     prisma.match.count({where:{economyMode:"DEMO",OR:[{playerOneId:user.id},{playerTwoId:user.id}],status:"FINISHED"}}),
   ]);
   const referralEarned = referralTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
-  const equippedFrame = user.equippedFrameItemId ? await prisma.cosmeticItem.findUnique({ where: { id: user.equippedFrameItemId }, select: { id: true, slug: true, name: true, imageUrl: true } }) : null;
+  const equippedFrameRow = user.equippedFrameItemId ? await prisma.cosmeticItem.findUnique({ where: { id: user.equippedFrameItemId }, select: { id: true, slug: true, name: true, imageUrl: true } }) : null;
+  const equippedFrame = equippedFrameRow ? { ...equippedFrameRow, imageUrl: cosmeticFrameImageUrl(equippedFrameRow.slug, equippedFrameRow.imageUrl) } : null;
   const completion = calculateProfileCompletion({ hasCustomAvatar: Boolean(user.avatarUrl), acceptedFriends, finishedMatches, achievements: achievements.length, hasBothBindings: Boolean(user.steamId && user.email && user.emailVerifiedAt) });
   if (completion.rewardUnlocked) {
     await prisma.rewardGrant.upsert({

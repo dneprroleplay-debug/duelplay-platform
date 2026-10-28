@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { leagueFromRating } from "@/lib/leagues";
+import { cosmeticFrameImageUrl } from "@/lib/cosmetic-frame-image";
 
 const PERIODS = ["global", "daily", "weekly", "seasonal"] as const;
 type Period = (typeof PERIODS)[number];
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const users = await prisma.user.findMany({
       where: { status: "ACTIVE", deletedAt: null, isTestAccount: false },
-      select: { id: true, nickname: true, avatarUrl: true, level: true, xp: true, playerStats: { select: { rating: true, wins: true, losses: true } } },
+      select: { id: true, nickname: true, avatarUrl: true, level: true, xp: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, playerStats: { select: { rating: true, wins: true, losses: true } } },
       take: 5000,
     });
 
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
       id: u.id,
       nickname: u.nickname,
       avatarUrl: u.avatarUrl,
+      equippedFrame: u.equippedFrameItem ? { ...u.equippedFrameItem, imageUrl: cosmeticFrameImageUrl(u.equippedFrameItem.slug, u.equippedFrameItem.imageUrl) } : null,
       level: u.level,
       xp: u.xp,
       rating: u.playerStats?.rating ?? 0,

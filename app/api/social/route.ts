@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { getPresenceCutoff } from "@/lib/presence";
+import { cosmeticFrameImageUrl } from "@/lib/cosmetic-frame-image";
 
 export async function GET() {
   const me = await getCurrentUser();
@@ -11,24 +12,28 @@ export async function GET() {
     prisma.friend.findMany({
       where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
       include: {
-        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } },
-        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } },
+        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } },
+        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } },
       },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.userMute.findMany({
       where: { userId: me.id },
-      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true } } },
+      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.rival.findMany({
       where: { ownerId: me.id, status: "ACTIVE" },
-      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true } } },
+      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } } },
     }),
   ]);
 
+  const withFrame = (person: any) => person ? ({
+    ...person,
+    equippedFrame: person.equippedFrameItem ? { ...person.equippedFrameItem, imageUrl: cosmeticFrameImageUrl(person.equippedFrameItem.slug, person.equippedFrameItem.imageUrl) } : null,
+  }) : person;
   const accepted = relations.filter((x) => x.status === "ACCEPTED");
-  const normalizedFriends = accepted.map((x) => ({ ...x, person: x.senderId === me.id ? x.receiver : x.sender }));
+  const normalizedFriends = accepted.map((x) => ({ ...x, sender: withFrame(x.sender), receiver: withFrame(x.receiver), person: withFrame(x.senderId === me.id ? x.receiver : x.sender) }));
   // Online presence reuses the platform's unified presence source: a non-revoked,
   // unexpired session active within the unified 120s inactivity threshold.
   const friendIds = normalizedFriends.map((x) => x.person.id);
@@ -47,12 +52,13 @@ export async function GET() {
     online: onlineSet.has(x.person.id),
     person: { ...x.person, online: onlineSet.has(x.person.id) },
   }));
-  const pendingIncoming = relations.filter((x) => x.receiverId === me.id && x.status === "PENDING");
-  const pendingOutgoing = relations.filter((x) => x.senderId === me.id && x.status === "PENDING");
-  const blocked = relations.filter((x) => x.status === "BLOCKED" && x.senderId === me.id);
+  const pendingIncoming = relations.filter((x) => x.receiverId === me.id && x.status === "PENDING").map(x => ({ ...x, sender: withFrame(x.sender), receiver: withFrame(x.receiver) }));
+  const pendingOutgoing = relations.filter((x) => x.senderId === me.id && x.status === "PENDING").map(x => ({ ...x, sender: withFrame(x.sender), receiver: withFrame(x.receiver) }));
+  const blocked = relations.filter((x) => x.status === "BLOCKED" && x.senderId === me.id).map(x => ({ ...x, sender: withFrame(x.sender), receiver: withFrame(x.receiver) }));
+  const serializedRivals = rivals.map(x => ({ ...x, target: withFrame(x.target) }));
 
   const unreadMessages = await prisma.socialMessage.count({ where: { receiverId: me.id, readAt: null } });
-  return NextResponse.json({ friends, rivals, pendingIncoming, pendingOutgoing, blocked, mutes, unreadMessages });
+  return NextResponse.json({ friends, rivals: serializedRivals, pendingIncoming, pendingOutgoing, blocked, mutes, unreadMessages });
 }
 
 export async function POST(r: NextRequest) {

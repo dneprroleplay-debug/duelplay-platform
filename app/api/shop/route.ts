@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { debitWallet } from "@/lib/wallet";
 import { normalizeCosmeticType, scopedShopIdempotencyKey, validateCosmeticMetadata, validateCosmeticPrice, COSMETIC_TYPES } from "@/lib/cosmetic-shop";
+import { isRewardOnlyCosmetic, REWARD_ONLY_COSMETIC_SLUGS } from "@/lib/reward-only-cosmetics";
+import { cosmeticFrameImageUrl } from "@/lib/cosmetic-frame-image";
 
 const MAX_PAGE_SIZE = 48;
 const MAX_SEARCH = 80;
@@ -24,7 +26,7 @@ export async function GET(r: NextRequest) {
   const where = {
     active: true,
     // Level rewards are earned by progression and must never be purchased from the shop.
-    slug: { notIn: ["frame-level-10", "frame-level-20", "frame-level-30", "frame-level-40", "frame-level-50", "frame-level-75", "frame-level-100"] },
+    slug: { notIn: [...REWARD_ONLY_COSMETIC_SLUGS] },
     ...(type && type !== "ALL" && COSMETIC_TYPES.includes(type as typeof COSMETIC_TYPES[number]) ? { type } : {}),
     ...(search ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { slug: { contains: search, mode: "insensitive" as const } }] } : {}),
   };
@@ -35,7 +37,7 @@ export async function GET(r: NextRequest) {
   const filteredOwned = owned === "true" ? { ...where, id: { in: [...ownedMap.keys()] } } : owned === "false" ? { ...where, id: { notIn: [...ownedMap.keys()] } } : where;
   const total = owned === "true" || owned === "false" ? await prisma.cosmeticItem.count({ where: filteredOwned }) : allCount;
   const items = await prisma.cosmeticItem.findMany({ where: filteredOwned, orderBy, skip: (page - 1) * pageSize, take: pageSize });
-  return json({ items: items.map(x => ({ ...x, price: Number(x.price), owned: ownedMap.has(x.id), ownedAt: ownedMap.get(x.id) ?? null })), page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), filters: { search, type: type || "ALL", owned: owned ?? "all", sort } });
+  return json({ items: items.map(x => ({ ...x, imageUrl: x.type === "FRAME" ? cosmeticFrameImageUrl(x.slug, x.imageUrl) : x.imageUrl, price: Number(x.price), owned: ownedMap.has(x.id), ownedAt: ownedMap.get(x.id) ?? null })), page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), filters: { search, type: type || "ALL", owned: owned ?? "all", sort } });
 }
 
 export async function POST(r: NextRequest) {
@@ -43,12 +45,16 @@ export async function POST(r: NextRequest) {
   if (!me) return json({ error: "Unauthorized" }, { status: 401 });
   const body = await r.json().catch(() => ({}));
   const itemId = String(body.itemId || "");
+  const locale = String(body.language || "EN").toUpperCase();
   if (!itemId) return json({ error: "Item not found" }, { status: 404 });
   const rawKey = String(r.headers.get("idempotency-key") || randomUUID()).trim();
   if (!rawKey || rawKey.length > 200) return json({ error: "Invalid idempotency key" }, { status: 400 });
   const idem = scopedShopIdempotencyKey(me.id, rawKey);
   try {
     const out = await prisma.$transaction(async tx => {
+      const item = await tx.cosmeticItem.findFirst({ where: { id: itemId, active: true } });
+      if (!item) throw new Error("ITEM");
+      if (isRewardOnlyCosmetic({ slug: item.slug, metadata: item.metadata })) throw new Error("REWARD_ONLY");
       const existingTx = await tx.transaction.findUnique({ where: { idempotencyKey: idem } });
       if (existingTx) {
         if (existingTx.referenceId !== itemId) throw new Error("IDEMPOTENCY_KEY_REUSED");
@@ -56,11 +62,6 @@ export async function POST(r: NextRequest) {
         if (!existingPurchase) throw new Error("IDEMPOTENCY_INCOMPLETE");
         return { purchase: existingPurchase, balance: Number(existingTx.balanceAfter), idempotent: true };
       }
-      const item = await tx.cosmeticItem.findFirst({ where: { id: itemId, active: true } });
-      if (!item) throw new Error("ITEM");
-      const itemMetadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-        ? item.metadata as Record<string, unknown> : {};
-      if (itemMetadata.source === "LEVEL" || item.slug.startsWith("frame-level-")) throw new Error("LEVEL_REWARD_ONLY");
       const alreadyOwned = await tx.cosmeticPurchase.findUnique({ where: { userId_itemId: { userId: me.id, itemId: item.id } } });
       if (alreadyOwned) throw new Error("ALREADY_OWNED");
       const price = validateCosmeticPrice(item.price);
@@ -74,8 +75,14 @@ export async function POST(r: NextRequest) {
     return json(out, { status: out.idempotent ? 200 : 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
-    const status = message === "ALREADY_OWNED" || message === "IDEMPOTENCY_KEY_REUSED" ? 409 : message === "INSUFFICIENT_BALANCE" ? 400 : message === "ITEM" ? 404 : message === "LEVEL_REWARD_ONLY" ? 403 : 400;
-    const error = message === "ALREADY_OWNED" ? "Already owned" : message === "IDEMPOTENCY_KEY_REUSED" ? "Idempotency key was already used for another item" : message === "INSUFFICIENT_BALANCE" ? "Insufficient balance" : message === "ITEM" ? "Item not found" : message === "LEVEL_REWARD_ONLY" ? "This frame is unlocked by player level, not purchased" : message === "GAMEPLAY_COSMETIC_FORBIDDEN" ? "Gameplay-affecting cosmetics are not allowed" : "Purchase failed";
+    const status = message === "ALREADY_OWNED" || message === "IDEMPOTENCY_KEY_REUSED" ? 409 : message === "INSUFFICIENT_BALANCE" ? 400 : message === "ITEM" ? 404 : (message === "LEVEL_REWARD_ONLY" || message === "REWARD_ONLY") ? 403 : 400;
+    const rewardOnlyMessage: Record<string, string> = {
+      RU: "Эту рамку можно получить только за выполнение условий, купить её нельзя.",
+      UA: "Цю рамку можна отримати лише за виконання умов, її не можна придбати.",
+      EN: "This frame is an achievement reward and cannot be purchased.",
+      PL: "Tę ramkę można zdobyć tylko za spełnienie warunków; nie można jej kupić.",
+    };
+    const error = message === "ALREADY_OWNED" ? "Already owned" : message === "IDEMPOTENCY_KEY_REUSED" ? "Idempotency key was already used for another item" : message === "INSUFFICIENT_BALANCE" ? "Insufficient balance" : message === "ITEM" ? "Item not found" : (message === "LEVEL_REWARD_ONLY" || message === "REWARD_ONLY") ? (rewardOnlyMessage[locale] || rewardOnlyMessage.EN) : message === "GAMEPLAY_COSMETIC_FORBIDDEN" ? "Gameplay-affecting cosmetics are not allowed" : "Purchase failed";
     return json({ error }, { status });
   }
 }
