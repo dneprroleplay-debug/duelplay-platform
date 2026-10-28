@@ -68,6 +68,8 @@ const MODE_CONFIG_POLL_MS = Number(process.env.DUELPLAY_MODE_CONFIG_POLL_MS || 3
 const MODE_CONFIG_DIR = join(CS2_DIR, 'csgo', 'cfg');
 const MODE_CONFIG_ACTIVE_FILE = join(MODE_CONFIG_DIR, 'duelplay-game-mode-config.json');
 const MODE_CONFIG_PENDING_FILE = join(MODE_CONFIG_DIR, 'duelplay-game-mode-config.pending.json');
+const MODE_CONFIG_MATCH_FILE = join(MODE_CONFIG_DIR, 'duelplay-match-mode.json');
+const MODE_CONTROLLER_STATE_FILE = join(MODE_CONFIG_DIR, 'duelplay-mode-controller-state.json');
 const MODE_CONTROLLER_DIR = join(CS2_DIR, 'csgo', 'addons', 'counterstrikesharp', 'plugins', 'DuelPlayModeController');
 const MODE_CONTROLLER_DLL = join(MODE_CONTROLLER_DIR, 'DuelPlayModeController.dll');
 const MODE_CONTROLLER_MANIFEST = join(MODE_CONTROLLER_DIR, 'mode-controller.manifest.json');
@@ -105,6 +107,8 @@ let lastModeConfigPollAt = 0;
 let modeConfigPollInFlight = false;
 let stagedModeConfig = null;
 let lastModeConfigAckKey = '';
+let lastModeConfigAppliedAckKey = '';
+const MANAGER_STARTED_AT_MS = Date.now();
 let activeModeConfigVersion = null;
 let activeModeConfigChecksum = null;
 let modeControllerVersion = null;
@@ -262,6 +266,23 @@ function writeJsonAtomically(filePath, value) {
   renameSync(tempPath, filePath);
 }
 
+function readModeControllerState() {
+  try {
+    if (!existsSync(MODE_CONTROLLER_STATE_FILE)) return null;
+    const state = JSON.parse(readFileSync(MODE_CONTROLLER_STATE_FILE, 'utf8'));
+    if (!state || state.schemaVersion !== 1 || state.applied !== true) return null;
+    if (typeof state.controllerVersion !== 'string'
+      || !Number.isInteger(state.configVersion)
+      || typeof state.configChecksum !== 'string'
+      || typeof state.writtenAt !== 'string') {
+      return null;
+    }
+    return state;
+  } catch {
+    return null;
+  }
+}
+
 async function acknowledgeModeConfig(payload, status, controller, error = null) {
   return api('/api/server-manager/game-mode-config/ack', {
     method: 'POST',
@@ -311,6 +332,18 @@ async function pollModeConfig() {
     if (!payload.isPending) {
       activeModeConfigVersion = payload.version;
       activeModeConfigChecksum = checksum;
+      const appliedKey = `${payload.version}:${checksum}:applied`;
+      const controllerState = readModeControllerState();
+      if (appliedKey !== lastModeConfigAppliedAckKey
+        && controllerState
+        && controllerState.controllerVersion === controller.version
+        && controllerState.configVersion === payload.version
+        && controllerState.configChecksum.toLowerCase() === checksum.toLowerCase()
+        && Date.parse(controllerState.writtenAt) >= MANAGER_STARTED_AT_MS) {
+        await acknowledgeModeConfig(payload, 'APPLIED', controller);
+        lastModeConfigAppliedAckKey = appliedKey;
+        console.log(`[DuelPlay] mode config v${payload.version} acknowledged as applied by the controller.`);
+      }
     }
     console.log(`[DuelPlay] mode config v${payload.version} staged (${payload.isPending ? 'pending publish' : 'published'}).`);
   } catch (error) {
@@ -380,7 +413,7 @@ function writeIfChanged(filePath, contents) {
   writeFileSync(filePath, contents);
 }
 
-function writeModeConfigFiles(mode = null, settings = {}) {
+function writeModeConfigFiles(mode = null, settings = {}, context = {}) {
   const cfgDir = join(CS2_DIR, 'csgo', 'cfg');
   mkdirSync(cfgDir, { recursive: true });
 
@@ -400,6 +433,20 @@ function writeModeConfigFiles(mode = null, settings = {}) {
   writeIfChanged(join(cfgDir, 'duelplay_low_gravity.cfg'), `// DuelPlay LOW_GRAVITY config\nsv_gravity ${gravity}\n`);
   const weaponSpeedScale = mode === 'SPEED_DUEL' ? 0 : 1;
   writeIfChanged(join(cfgDir, 'duelplay_speed_duel.cfg'), `// DuelPlay SPEED_DUEL config\nsv_maxspeed ${speed}\nsv_accelerate_use_weapon_speed ${weaponSpeedScale}\n`);
+
+  // The match file is an immutable, per-match snapshot consumed by the
+  // CounterStrikeSharp mode controller. It never points at a mutable published
+  // config, so a publish during a live match cannot change that match.
+  writeJsonAtomically(MODE_CONFIG_MATCH_FILE, {
+    schemaVersion: 1,
+    mode: mode ?? null,
+    mapId: mode ? context.mapId ?? null : null,
+    configVersion: mode && Number.isInteger(context.version) && context.version > 0 ? context.version : null,
+    configChecksum: mode && typeof context.checksum === 'string' ? context.checksum : null,
+    enabled: Boolean(mode),
+    settings: mode ? settings : {},
+    writtenAt: new Date().toISOString(),
+  });
 }
 
 function resetModeConfigs() {
@@ -1060,7 +1107,11 @@ async function claimAndStart(match) {
 
   console.log(`[DuelPlay] starting ${match.id} on ${runtimeHost}:${runtimePort}${workshopId ? ` workshop=${workshopId}` : ''}`);
   // Write validated per-match settings before +exec reads the cfg files.
-  writeModeConfigFiles(mode, modeSettings);
+  writeModeConfigFiles(mode, modeSettings, {
+    mapId: claimed.mapId ?? match.mapId ?? null,
+    version: claimed.modeConfigSnapshot?.version,
+    checksum: claimed.modeConfigSnapshot?.checksum,
+  });
   const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: process.env });
   reportTechnicalEvent({ source: 'cs2', category: 'process.starting', severity: 'INFO', message: 'CS2 process start requested.', matchId: match.id, correlationId: match.id, details: { pid: child.pid ?? null, port: runtimePort } });
   current = {

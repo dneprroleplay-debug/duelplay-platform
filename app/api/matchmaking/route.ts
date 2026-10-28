@@ -6,6 +6,7 @@ import { getFeatureFlag, getPlatformNumber } from "@/lib/platform-settings";
 import { deadlineFromNow, MATCH_START_TIMEOUT_MS } from "@/lib/match-timers";
 import { DUEL_MODE_IDS, isDuelMode, type DuelModeId } from "@/lib/duel-modes";
 import { DUEL_MAPS, getDuelMap, isMapModeSupported } from "@/lib/duel-maps";
+import { getMapSafetyProfiles } from "@/lib/duel-map-safety.mjs";
 import { buildGameModeAvailability } from "@/lib/game-mode-config.mjs";
 import { getActiveGameModeConfig } from "@/lib/game-mode-config-store";
 import { withDemoPolicyTransaction, type DemoPolicyTransactionContext } from "@/lib/demo-policy";
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
   if (requestedMapName && !mapName) return NextResponse.json({ error: "Invalid map", errorCode: "INVALID_MAP" }, { status: 400 });
   if (mapName && !isMapModeSupported(mapName, modeValue)) return NextResponse.json({ error: "Mode is not supported on this map", errorCode: "MODE_NOT_SUPPORTED_FOR_MAP" }, { status: 400 });
   const activeModeConfig = await getActiveGameModeConfig();
-  const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, {}).filter(item => item.modes[modeValue].available).map(item => item.mapId));
+  const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, getMapSafetyProfiles()).filter(item => item.modes[modeValue].available).map(item => item.mapId));
   if ((mapName && !availableMapIds.has(getDuelMap(mapName)?.id ?? "")) || (!mapName && availableMapIds.size === 0)) {
     return NextResponse.json({ error: "This mode is not currently available in the published configuration", errorCode: "MODE_CONFIG_NOT_AVAILABLE" }, { status: 409 });
   }
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
       // Read the published policy after taking the user lock, matching the lock
       // order used by regular match creation and avoiding a config/user deadlock.
       const activeModeConfig = await getActiveGameModeConfig(tx);
-      const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, {}).filter(item => item.modes[mode].available).map(item => item.mapId));
+      const availableMapIds = new Set(buildGameModeAvailability(activeModeConfig.config, DUEL_MAPS, getMapSafetyProfiles()).filter(item => item.modes[mode].available).map(item => item.mapId));
       if ((mapName && !availableMapIds.has(getDuelMap(mapName)?.id ?? "")) || (!mapName && availableMapIds.size === 0)) throw new Error("MODE_CONFIG_NOT_AVAILABLE");
 
       const ownStats = await tx.playerStats.findUnique({ where: { userId: me.id }, select: { rating: true } });

@@ -16,20 +16,32 @@ function snapshot(modeId, currentMapId, settings) {
   };
 }
 
-test('LOW_GRAVITY applies map-specific 50% over general 40%', () => {
+test('LOW_GRAVITY applies map-specific 60% over general 70%', () => {
   const value = extractMatchModeSettings('LOW_GRAVITY', snapshot('LOW_GRAVITY', mapId, {
-    gravityPercent: 40,
-    gravityPercentByMap: { [mapId]: 50 },
+    gravityPercent: 70,
+    gravityPercentByMap: { [mapId]: 60 },
   }), mapId);
-  assert.deepEqual(value, { gravityPercent: 50 });
+  assert.deepEqual(value, { gravityPercent: 60 });
 });
 
 test('LOW_GRAVITY uses the general gravity when this map has no override', () => {
   const value = extractMatchModeSettings('LOW_GRAVITY', snapshot('LOW_GRAVITY', mapId, {
-    gravityPercent: 40,
-    gravityPercentByMap: { aim_cache: 60 },
+    gravityPercent: 60,
+    gravityPercentByMap: { aim_cache: 70 },
   }), mapId);
-  assert.deepEqual(value, { gravityPercent: 40 });
+  assert.deepEqual(value, { gravityPercent: 60 });
+});
+
+test('LOW_GRAVITY rejects gravity below the approved 60% policy floor', () => {
+  for (const unsafe of [20, 40, 50]) {
+    assert.throws(() => extractMatchModeSettings('LOW_GRAVITY', snapshot('LOW_GRAVITY', mapId, {
+      gravityPercent: unsafe,
+    }), mapId), { message: 'MODE_CONFIG_UNAVAILABLE' });
+    assert.throws(() => extractMatchModeSettings('LOW_GRAVITY', snapshot('LOW_GRAVITY', mapId, {
+      gravityPercent: 70,
+      gravityPercentByMap: { [mapId]: unsafe },
+    }), mapId), { message: 'MODE_CONFIG_UNAVAILABLE' });
+  }
 });
 
 test('SPEED_DUEL extracts supported speed 130%', () => {
@@ -79,7 +91,10 @@ test('legacy modes do not require advanced settings snapshots', () => {
 test('server manager uses the shared validator, writes configs before process start, and defines resetModeConfigs', () => {
   const manager = fs.readFileSync(new URL('./server-manager/server-manager.mjs', import.meta.url), 'utf8');
   assert.match(manager, /extractMatchModeSettings\(mode, claimed\.modeConfigSnapshot, claimed\.mapId\)/);
-  assert.match(manager, /writeModeConfigFiles\(mode, modeSettings\);\s*const child = spawn\(CS2_SCRIPT/);
+  assert.match(manager, /writeModeConfigFiles\(mode, modeSettings, \{[\s\S]*?mapId: claimed\.mapId[\s\S]*?version: claimed\.modeConfigSnapshot\?\.version[\s\S]*?checksum: claimed\.modeConfigSnapshot\?\.checksum[\s\S]*?\}\);\s*const child = spawn\(CS2_SCRIPT/);
+  assert.match(manager, /MODE_CONFIG_MATCH_FILE = join\(MODE_CONFIG_DIR, 'duelplay-match-mode\.json'\)/);
+  assert.match(manager, /writeJsonAtomically\(MODE_CONFIG_MATCH_FILE/);
+  assert.match(manager, /acknowledgeModeConfig\(payload, 'APPLIED', controller\)/);
   assert.match(manager, /function resetModeConfigs\(\)/);
   assert.match(manager, /resetModeConfigs\(\);/);
   assert.match(manager, /const speed = Math\.round\(320 \* speedPercent \/ 100\)/);

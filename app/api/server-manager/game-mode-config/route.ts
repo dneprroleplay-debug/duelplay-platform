@@ -5,6 +5,7 @@ import { getClientIp } from "@/lib/request-meta";
 import { GAME_MODE_CONFIG_SERVER_NAMES, getGameModeConfigBundle, normalizeGameModeConfig } from "@/lib/game-mode-config-store";
 import { GAME_MODE_CONTROLLER_VERSION, REQUIRED_GAME_MODE_CONTROLLER_CAPABILITIES } from "@/lib/game-mode-config.mjs";
 import { DUEL_MAPS } from "@/lib/duel-maps";
+import { getMapSafetyProfiles } from "@/lib/duel-map-safety.mjs";
 import { isServerManagerRequest } from "../auth";
 
 export async function GET(request: NextRequest) {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   const bundle = await getGameModeConfigBundle();
   const revision = bundle.pending ?? bundle.published;
   if (!revision) return NextResponse.json({ ready: false, reason: "NO_CONFIG_REVISION" }, { status: 503 });
-  const mapSafetyProfiles = {};
+  const mapSafetyProfiles = getMapSafetyProfiles();
   const normalized = normalizeGameModeConfig(revision.config, mapSafetyProfiles);
   if (!normalized.ok) return NextResponse.json({ ready: false, reason: "INVALID_PUBLISHED_CONFIG", issues: normalized.errors }, { status: 503 });
   return NextResponse.json({

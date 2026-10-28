@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DUEL_MAPS } from "@/lib/duel-maps";
+import { getMapSafetyProfiles } from "@/lib/duel-map-safety.mjs";
 import {
   allConfigServersAcknowledged,
   DEFAULT_GAME_MODE_CONFIG,
@@ -33,7 +34,7 @@ function mapIds() {
   return DUEL_MAPS.map(map => map.id);
 }
 
-export function normalizeGameModeConfig(input: unknown, mapSafetyProfiles: Record<string, { verified?: boolean; minimumSafeGravityPercent?: number }> = {}) {
+export function normalizeGameModeConfig(input: unknown, mapSafetyProfiles: Record<string, { verified?: boolean; minimumSafeGravityPercent?: number }> = getMapSafetyProfiles()) {
   return validateGameModeConfig(input, { mapIds: mapIds(), mapSafetyProfiles });
 }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { GAME_MODE_CONFIG_STATE_KEY } from "@/lib/game-mode-config-store";
 import { DUEL_MAPS } from "@/lib/duel-maps";
+import { getMapSafetyProfiles } from "@/lib/duel-map-safety.mjs";
 import {
   LEGACY_COMPAT_GAME_MODE_CONFIG,
   buildGameModeAvailability,
@@ -19,6 +20,7 @@ export async function GET() {
       select: { publishedVersion: true },
     });
 
+    const mapSafetyProfiles = getMapSafetyProfiles();
     let config = LEGACY_COMPAT_GAME_MODE_CONFIG;
     let configVersion = 0;
     if (state?.publishedVersion !== null && state?.publishedVersion !== undefined) {
@@ -28,9 +30,9 @@ export async function GET() {
       });
       if (!revision) throw new Error("PUBLISHED_GAME_MODE_CONFIG_NOT_FOUND");
 
-      // No verified map-safety profiles are currently registered. Validation
-      // therefore refuses any LOW_GRAVITY configuration without guessing limits.
-      const normalized = validateGameModeConfig(revision.config, { mapIds: DUEL_MAPS.map(map => map.id), mapSafetyProfiles: {} });
+      // Validate against the same reviewed safety policy that accepted the
+      // revision. A map without a verified profile still fails closed.
+      const normalized = validateGameModeConfig(revision.config, { mapIds: DUEL_MAPS.map(map => map.id), mapSafetyProfiles });
       if (!normalized.ok || gameModeConfigChecksum(normalized.value) !== revision.checksum) {
         throw new Error("PUBLISHED_GAME_MODE_CONFIG_INVALID");
       }
@@ -38,7 +40,6 @@ export async function GET() {
       configVersion = state.publishedVersion;
     }
 
-    const mapSafetyProfiles: Record<string, { verified: boolean; minimumSafeGravityPercent: number }> = {};
     const maps = buildGameModeAvailability(config, DUEL_MAPS, mapSafetyProfiles);
     return NextResponse.json(
       { ok: true, configVersion, maps },

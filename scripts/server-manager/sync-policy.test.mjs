@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CONTROL_FILES,
+  DRIFT_EXCLUDES,
+  SYNC_EXCLUDES,
   assertManagersIdle,
   classifySmokeProcessExit,
   isDeepVerifyDay,
@@ -388,4 +390,20 @@ test('keeps the required control-file integrity set', () => {
     'bin/linuxsteamrt64/libengine2.so',
     'csgo/steam.inf',
   ]);
+});
+
+test('drift checks never compare per-instance runtime paths', () => {
+  for (const required of [
+    '--exclude=/bin/linuxsteamrt64/steamapps',
+    '--exclude=/csgo/rpt',
+    '--exclude=/csgo/backup_round*.txt',
+  ]) {
+    assert.ok(SYNC_EXCLUDES.includes(required), `sync excludes must contain ${required}`);
+    assert.ok(DRIFT_EXCLUDES.includes(required), `drift excludes must contain ${required}`);
+  }
+});
+
+test('drift checks still compare per-instance workshop map files and shared game files', () => {
+  assert.ok(!DRIFT_EXCLUDES.includes('--exclude=/csgo/maps/workshop'));
+  assert.ok(!DRIFT_EXCLUDES.includes('--exclude=/bin/linuxsteamrt64/cs2'));
 });

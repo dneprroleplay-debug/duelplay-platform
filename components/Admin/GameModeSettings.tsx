@@ -167,6 +167,7 @@ export default function GameModeSettings() {
             return <label key={map.id} className={`rounded-xl border p-3 text-xs ${allowed.has(map.id) ? "border-[var(--theme-accent)]/30 bg-[var(--theme-accent-bg)]" : "border-white/5 bg-black/10"}`}>
               <span className="flex items-start gap-2"><input type="checkbox" checked={allowed.has(map.id)} disabled={!canEnable} onChange={event => updateMapSelection(modeId, map.id, event.target.checked)}/><b>{map.displayName}</b></span>
               {gravitySetting && !profile?.verified && <span className="mt-2 block text-amber-300">{text.safetyMissing}</span>}
+              {gravitySetting && profile?.verified && typeof profile.minimumSafeGravityPercent === "number" && <span className="mt-2 block text-zinc-500">min {profile.minimumSafeGravityPercent}%</span>}
             </label>;
           })}</div>
         </details>

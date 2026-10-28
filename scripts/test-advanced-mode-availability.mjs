@@ -11,6 +11,11 @@ import {
   indexPublicGameModeAvailability,
   isDuelModeAvailable,
 } from '../lib/duel-mode-availability.mjs';
+import {
+  MINIMUM_SAFE_GRAVITY_PERCENT,
+  getMapSafetyProfileList,
+  getMapSafetyProfiles,
+} from '../lib/duel-map-safety.mjs';
 const MAPS = [
   { id: 'aim_redline', serverMapName: 'aim_redline' },
   { id: 'fy_snow', serverMapName: 'fy_snow' },
@@ -22,13 +27,26 @@ const catalog = MAPS.map(map => ({
 const mapIds = catalog.map(map => map.id);
 
 test('public availability keeps the eight legacy modes available and exposes the two gated modes', () => {
-  const statuses = buildGameModeAvailability(DEFAULT_GAME_MODE_CONFIG, catalog, {});
+  const statuses = buildGameModeAvailability(DEFAULT_GAME_MODE_CONFIG, catalog, getMapSafetyProfiles());
   assert.equal(statuses.length, catalog.length);
   for (const map of statuses) {
     for (const mode of GAME_MODE_IDS.slice(0, 8)) assert.equal(map.modes[mode].available, true, `${mode} should remain available on ${map.mapId}`);
-    assert.deepEqual(map.modes.LOW_GRAVITY, { available: false, reason: 'SAFETY_PROFILE_REQUIRED' });
+    assert.deepEqual(map.modes.LOW_GRAVITY, { available: false, reason: 'MODE_DISABLED' });
     assert.deepEqual(map.modes.SPEED_DUEL, { available: false, reason: 'MODE_DISABLED' });
   }
+});
+
+test('the reviewed safety policy covers every duel map with the 60% minimum', () => {
+  const profiles = getMapSafetyProfileList();
+  assert.equal(profiles.length, 10);
+  assert.equal(new Set(profiles.map(profile => profile.mapId)).size, 10);
+  for (const profile of profiles) {
+    assert.equal(profile.verified, true, profile.mapId);
+    assert.equal(profile.minimumSafeGravityPercent, MINIMUM_SAFE_GRAVITY_PERCENT, profile.mapId);
+    assert.ok(profile.minimumSafeGravityPercent >= 60, profile.mapId);
+    assert.equal(profile.policyVersion, 'DUELPLAY_LOW_GRAVITY_V1');
+  }
+  assert.equal(getMapSafetyProfileList().find(profile => profile.mapId === 'aim_redline')?.verified, true);
 });
 
 test('Speed Duel becomes available only when the active central configuration enables and allows it', () => {
@@ -57,11 +75,14 @@ test('Low Gravity is available only with a verified safe minimum and settings at
   config.modes.LOW_GRAVITY.enabled = true;
   config.modes.LOW_GRAVITY.allowedMapIds = ['aim_redline'];
   config.modes.LOW_GRAVITY.settings.gravityPercent = 60;
-  const profiles = { aim_redline: { verified: true, minimumSafeGravityPercent: 50 } };
+  const profiles = getMapSafetyProfiles();
   assert.equal(validateGameModeConfig(config, { mapIds, mapSafetyProfiles: profiles }).ok, true);
   assert.equal(buildGameModeAvailability(config, catalog, profiles).find(map => map.mapId === 'aim_redline').modes.LOW_GRAVITY.available, true);
-  config.modes.LOW_GRAVITY.settings.gravityPercent = 40;
-  assert.deepEqual(buildGameModeAvailability(config, catalog, profiles).find(map => map.mapId === 'aim_redline').modes.LOW_GRAVITY, { available: false, reason: 'UNSAFE_GRAVITY_SETTINGS' });
+  for (const unsafe of [20, 40, 50]) {
+    config.modes.LOW_GRAVITY.settings.gravityPercent = unsafe;
+    assert.deepEqual(validateGameModeConfig(config, { mapIds, mapSafetyProfiles: profiles }).ok, false, `gravity ${unsafe}% must be rejected`);
+    assert.deepEqual(buildGameModeAvailability(config, catalog, profiles).find(map => map.mapId === 'aim_redline').modes.LOW_GRAVITY, { available: false, reason: 'UNSAFE_GRAVITY_SETTINGS' });
+  }
 });
 
 test('public availability parser fails closed for advanced modes when API data is missing or malformed', () => {

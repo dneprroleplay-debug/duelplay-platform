@@ -6,6 +6,7 @@ import { requireGameModeAdmin } from "../../../../lib/admin-rbac";
 import { GAME_MODE_CONFIG_SERVER_NAMES, ensureGameModeConfigInitialized, getGameModeConfigBundle, normalizeGameModeConfig } from "@/lib/game-mode-config-store";
 import { GRENADE_TYPES, RANDOM_WEAPON_CATALOG, gameModeConfigChecksum } from "@/lib/game-mode-config.mjs";
 import { DUEL_MAPS } from "@/lib/duel-maps";
+import { getMapSafetyProfileList } from "@/lib/duel-map-safety.mjs";
 
 function errorResponse(error: unknown) {
   const code = error instanceof Error ? error.message : "";
@@ -68,7 +69,7 @@ export async function GET() {
       servers: registered,
       requiredServers: GAME_MODE_CONFIG_SERVER_NAMES,
       mapCatalog: DUEL_MAPS.map(map => ({ id: map.id, displayName: map.displayName, serverMapName: map.serverMapName })),
-      mapSafetyProfiles: [],
+      mapSafetyProfiles: getMapSafetyProfileList(),
       weaponCatalog: RANDOM_WEAPON_CATALOG,
       grenadeCatalog: GRENADE_TYPES,
       history,

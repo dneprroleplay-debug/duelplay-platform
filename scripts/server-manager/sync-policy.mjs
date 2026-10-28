@@ -4,6 +4,34 @@ export const CONTROL_FILES = [
   'bin/linuxsteamrt64/libengine2.so',
 ];
 
+// Paths that belong to a running instance rather than to the shared game
+// installation. They must never be copied between roots and must never be
+// treated as instance drift: CS2 recreates them per instance (workshop
+// downloads/content, round reports, and round backups).
+export const INSTANCE_RUNTIME_EXCLUDES = Object.freeze([
+  '--exclude=/bin/linuxsteamrt64/steamapps',
+  '--exclude=/csgo/rpt',
+  '--exclude=/csgo/backup_round*.txt',
+]);
+
+export const SYNC_EXCLUDES = Object.freeze([
+  '--exclude=/steamapps',
+  '--exclude=/csgo/addons',
+  '--exclude=/csgo/cfg',
+  '--exclude=/csgo/logs',
+  '--exclude=/csgo/replays',
+  '--exclude=/csgo/screenshots',
+  '--exclude=/csgo/maps/workshop',
+  '--exclude=/csgo/gameinfo.gi',
+  '--exclude=/bin/linuxsteamrt64/counterstrikesharp.log',
+  ...INSTANCE_RUNTIME_EXCLUDES,
+]);
+
+// Workshop map files under csgo/maps/workshop are not synchronized but are
+// still compared for drift, so a custom map added to only one instance is
+// reported as a real divergence.
+export const DRIFT_EXCLUDES = Object.freeze(SYNC_EXCLUDES.filter(value => value !== '--exclude=/csgo/maps/workshop'));
+
 export const DEEP_VERIFY_UTC_DAY = 0;
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);

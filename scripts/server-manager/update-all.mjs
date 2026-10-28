@@ -5,7 +5,7 @@ import { createSocket } from 'node:dgram';
 import { dirname, join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
-import { CONTROL_FILES, assertManagersIdle, classifySmokeProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
+import { CONTROL_FILES, DRIFT_EXCLUDES, SYNC_EXCLUDES, assertManagersIdle, classifySmokeProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
 import { createUpdateScheduleClient } from './update-schedule-client.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
@@ -26,19 +26,6 @@ const FORCE_DEEP_VERIFY = parseBooleanFlag(process.env.DUELPLAY_CS2_DEEP_VERIFY)
 const RUN_ID_ARG_INDEX = process.argv.indexOf('--run-id');
 const UPDATE_RUN_ID = process.env.DUELPLAY_CS2_UPDATE_RUN_ID || (RUN_ID_ARG_INDEX >= 0 ? process.argv[RUN_ID_ARG_INDEX + 1] : '') || '';
 let updateScheduleApi;
-const SYNC_EXCLUDES = [
-  '--exclude=/steamapps',
-  '--exclude=/csgo/addons',
-  '--exclude=/csgo/cfg',
-  '--exclude=/csgo/logs',
-  '--exclude=/csgo/replays',
-  '--exclude=/csgo/screenshots',
-  '--exclude=/csgo/maps/workshop',
-  '--exclude=/bin/linuxsteamrt64/steamapps/workshop',
-  '--exclude=/csgo/gameinfo.gi',
-  '--exclude=/bin/linuxsteamrt64/counterstrikesharp.log',
-];
-const DRIFT_EXCLUDES = SYNC_EXCLUDES.filter(value => value !== '--exclude=/csgo/maps/workshop' && value !== '--exclude=/bin/linuxsteamrt64/steamapps/workshop');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const stamp = new Date().toISOString().replaceAll(':', '-');
 
