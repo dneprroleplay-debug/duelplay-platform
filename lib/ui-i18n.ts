@@ -3,6 +3,7 @@ export type UiLanguage = "RU" | "UA" | "EN" | "PL";
 type Entry = Record<UiLanguage, string>;
 
 const M: Record<string, Entry> = {
+  "Create DEMO": {RU:"Создать DEMO",UA:"Створити DEMO",EN:"Create DEMO",PL:"Utwórz DEMO"},
   "Platform Control": {RU:"Управление платформой",UA:"Керування платформою",EN:"Platform Control",PL:"Zarządzanie platformą"},
   "Manage seasons, atmosphere, events, economy and live platform content without editing code.": {RU:"Управляйте сезонами, атмосферой, событиями, экономикой и контентом платформы без изменения кода.",UA:"Керуйте сезонами, атмосферою, подіями, економікою та контентом платформи без зміни коду.",EN:"Manage seasons, atmosphere, events, economy and live platform content without editing code.",PL:"Zarządzaj sezonami, atmosferą, wydarzeniami, ekonomią i treściami platformy bez edycji kodu."},
   "overview": {RU:"обзор",UA:"огляд",EN:"overview",PL:"przegląd"},
