@@ -68,37 +68,22 @@ export async function translateTexts(
     return result;
   }
 
-  let res: Response;
-  try {
-    res = await fetch(API, {
-      method: "POST",
-      headers: {
-        Authorization: `DeepL-Auth-Key ${apiKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-    });
-  } catch (error) {
-    // Translation is progressive enhancement: provider/network failures must not
-    // turn an otherwise healthy page request into an API 503. The caller falls
-    // back to the source text for any item absent from this result.
-    console.error("[DeepL] request failed; falling back to source text", error);
-    return result;
-  }
+  const res = await fetch(API, {
+    method: "POST",
+    headers: {
+      Authorization: `DeepL-Auth-Key ${apiKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
 
   if (!res.ok) {
-    const errorText = await res.text().catch(() => "Unable to read provider error response");
-    console.error("[DeepL] provider returned non-success status", res.status, errorText);
+    const errorText = await res.text();
+    console.error("[DeepL]", res.status, errorText);
     return result;
   }
 
-  let data: { translations?: Array<{ text?: string }> };
-  try {
-    data = (await res.json()) as { translations?: Array<{ text?: string }> };
-  } catch (error) {
-    console.error("[DeepL] invalid provider response; falling back to source text", error);
-    return result;
-  }
+  const data = (await res.json()) as { translations?: Array<{ text?: string }> };
   const translations = data.translations || [];
   const rows: Array<{ target: DeepLTarget; sourceHash: string; source: string; translated: string }> = [];
 

@@ -14,54 +14,12 @@ function errorResponse(error: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const access = await requireAdminAccess();
+    await requireAdminAccess();
     await requirePermission("users.view");
 
     const searchParams = request.nextUrl.searchParams;
-    const view = String(searchParams.get("view") || "active").toLowerCase();
-    const search = String(searchParams.get("search") || "").trim();
-
-    if (view === "deleted") {
-      if (access.roleCode !== "FOUNDER" || access.level !== 999) {
-        return NextResponse.json({ error: "Недостаточно прав", errorCode: "FORBIDDEN" }, { status: 403 });
-      }
-
-      const archiveSearchOr: Prisma.UserWhereInput[] = search
-        ? [{ nickname: { contains: search, mode: "insensitive" } }]
-        : [];
-      // User.id is a UUID: Prisma supports exact equality, not substring matching.
-      // Only add the ID predicate when the complete search value is a valid UUID.
-      const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
-      if (search && isFullUuid) archiveSearchOr.push({ id: search });
-
-      const where: Prisma.UserWhereInput = {
-        deletedAt: { not: null },
-        status: "DEACTIVATED",
-        ...(search ? { OR: archiveSearchOr } : {}),
-      };
-      const [total, archived] = await Promise.all([
-        prisma.user.count({ where }),
-        prisma.user.findMany({
-          where,
-          orderBy: { deletedAt: "desc" },
-          take: 100,
-          select: { id: true, nickname: true, status: true, deletedAt: true },
-        }),
-      ]);
-
-      return NextResponse.json({
-        view: "deleted",
-        total,
-        users: archived.map((user) => ({
-          id: user.id,
-          nickname: user.nickname,
-          status: user.status,
-          deletedAt: user.deletedAt?.toISOString() ?? null,
-        })),
-      }, { headers: { "Cache-Control": "no-store" } });
-    }
-
     const filter = String(searchParams.get("filter") || "all").toLowerCase();
+    const search = String(searchParams.get("search") || "").trim();
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10) || 20));
 
@@ -115,6 +73,7 @@ export async function GET(request: NextRequest) {
         steamAvatarUrl: true,
         role: true,
         status: true,
+        createdAt: true,
       },
       orderBy: { nickname: "asc" },
     });
@@ -136,6 +95,7 @@ export async function GET(request: NextRequest) {
       avatarUrl: u.avatarUrl || u.steamAvatarUrl || "/images/avatar-placeholder.svg",
       role: u.role,
       status: u.status,
+      createdAt: u.createdAt.toISOString(),
       online: onlineSet.has(u.id),
       lastActiveAt: lastActiveMap.get(u.id)?.toISOString() ?? null,
     }));

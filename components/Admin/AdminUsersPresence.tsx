@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { deferEffectTask } from "@/lib/effect-defer";
+import { useLanguage } from "@/components/Common/LanguageContext";
 
 type PresenceUser = {
   id: string;
@@ -10,6 +11,7 @@ type PresenceUser = {
   avatarUrl: string;
   role: string;
   status: string;
+  createdAt: string;
   online: boolean;
   lastActiveAt: string | null;
 };
@@ -39,7 +41,22 @@ function formatLastActive(iso: string | null): string {
   }
 }
 
+function registrationLabel(language: string): string {
+  if (language === "RU") return "Регистрация";
+  if (language === "UA") return "Реєстрація";
+  if (language === "PL") return "Rejestracja";
+  return "Registered";
+}
+
+function formatRegistrationDate(value: string, language: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const locale = language === "RU" ? "ru-RU" : language === "UA" ? "uk-UA" : language === "PL" ? "pl-PL" : "en-US";
+  return date.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+}
+
 export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?: boolean }) {
+  const { language } = useLanguage();
   const [data, setData] = useState<PresenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -241,6 +258,9 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
                   >
                     <span data-player-name>{u.nickname}</span>
                   </Link>
+                  <div className="mt-1 text-[10px] text-zinc-600" title={u.createdAt}>
+                    {registrationLabel(language)}: {formatRegistrationDate(u.createdAt, language)}
+                  </div>
                   <div className="flex items-center gap-1.5 text-[10px]">
                     <span
                       className={`font-semibold ${

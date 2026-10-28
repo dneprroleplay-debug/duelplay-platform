@@ -6,7 +6,7 @@ import { getClientIp } from "@/lib/request-meta";
 import { isSameOriginRequest } from "@/lib/steam-link-security";
 
 export async function POST(request: NextRequest) {
-  if (!isSameOriginRequest(request.headers.get("origin"), new URL(request.url).origin)) return NextResponse.json({ error: "CROSS_ORIGIN_REQUEST" }, { status: 403 });
+  if (!isSameOriginRequest(request.headers.get("origin"), (process.env.DUELPLAY_PUBLIC_URL || process.env.NEXT_PUBLIC_SITE_URL || (process.env.NODE_ENV === "production" ? "https://duelplaygame.com" : new URL(request.url).origin)).replace(/\/$/, ""))) return NextResponse.json({ error: "CROSS_ORIGIN_REQUEST" }, { status: 403 });
   const ip = getClientIp(request);
   try {
     await prisma.$transaction((tx) => enforceIpRateLimit(tx, ip, "EMAIL_LINK_VERIFY", 10, 10 * 60_000));

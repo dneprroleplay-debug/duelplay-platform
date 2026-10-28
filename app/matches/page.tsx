@@ -4,8 +4,12 @@ import Live from "@/components/Live/Live";
 import MatchmakingPanel from "@/components/Matchmaking/MatchmakingPanel";
 import MatchHistory from "@/components/Match/MatchHistory";
 import { useLanguage } from "@/components/Common/LanguageContext";
+import { useEffect, useState } from "react";
 
 export default function MatchesPage(){
-  const {t}=useLanguage();
-  return <><main className="min-h-screen pt-16"><MatchmakingPanel/><Live mode="waiting" showFilters/><MatchHistory variant="full"/><div className="mx-auto max-w-7xl px-4 pb-20 sm:px-6"><div className="flex justify-center border-t border-white/5 pt-8"><Link href="/create" className="inline-flex rounded-2xl bg-pink-400 px-7 py-4 font-black text-black shadow-[0_12px_45px_rgba(255,47,145,.18)] transition hover:bg-pink-300 active:scale-95">{t.createDuel}</Link></div></div></main></>;
+  const {t,language}=useLanguage();
+  const [economy,setEconomy]=useState<"REAL"|"DEMO">("REAL");
+  const [economyReady,setEconomyReady]=useState(false);
+  useEffect(()=>{setEconomy(new URLSearchParams(window.location.search).get("economyMode")==="DEMO"?"DEMO":"REAL");setEconomyReady(true)},[]);
+  return <><main className="min-h-screen pt-16">{!economyReady?<div className="mx-auto max-w-7xl px-4 pt-24 text-center text-zinc-500">Loading…</div>:<><div className="mx-auto max-w-7xl px-4 pt-5 sm:px-6"><div className="flex justify-start"><Link href={economy==="DEMO"?"/create-demo":"/create"} className="inline-flex rounded-2xl bg-pink-400 px-7 py-4 font-black text-black shadow-[0_12px_45px_rgba(255,47,145,.18)] transition hover:bg-pink-300 active:scale-95">{economy==="DEMO"?(language==="RU"?"Создать DEMO-практику":language==="UA"?"Створити DEMO-практику":language==="PL"?"Utwórz mecz DEMO":"Create DEMO practice"):t.createDuel}</Link></div></div>{economy==="REAL"&&<MatchmakingPanel/>}<Live mode="waiting" showFilters economy={economy}/>{economy==="REAL"&&<MatchHistory variant="full"/>}</>}</main></>;
 }

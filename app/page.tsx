@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -13,6 +13,7 @@ import TopSkins from "../components/TopSkins/TopSkins";
 import Cases from "../components/Cases/Cases";
 import HomeIntro from "../components/Common/HomeIntro";
 import BannerStrip from "../components/Home/BannerStrip";
+import RecentMatches from "../components/Home/RecentMatches";
 import { deferEffectTask } from "@/lib/effect-defer";
 
 function HomeContent(){
@@ -166,6 +167,7 @@ function HomeContent(){
       </section>
 
       <Live refreshKey={refreshKey} mode="waiting" showFilters/>
+      <RecentMatches/>
       <CreateMatch onCreated={()=>setRefreshKey(v=>v+1)}/>
       <TopSkins/>
       <Cases/>

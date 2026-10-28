@@ -24,6 +24,24 @@ const HISTORY_STATUS_FILTERS: Record<string, Prisma.MatchWhereInput["status"]> =
 
 export async function GET(request: NextRequest) {
   try {
+    if (request.nextUrl.searchParams.get("recent") === "1") {
+      const recent = await prisma.match.findMany({
+        where: {
+          economyMode: "REAL",
+          status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE", "FINISHED", "CANCELLED", "DISPUTED"] },
+        },
+        select: {
+          id: true, status: true, mode: true, mapName: true, betAmount: true, createdAt: true,
+          playerOne: { select: { id: true, nickname: true, avatarUrl: true } },
+          playerTwo: { select: { id: true, nickname: true, avatarUrl: true } },
+          winner: { select: { id: true, nickname: true } },
+          game: { select: { title: true, slug: true } },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 5,
+      });
+      return NextResponse.json(recent, { headers: { "Cache-Control": "no-store" } });
+    }
     const user = await getCurrentUser();
     const mineParam = request.nextUrl.searchParams.get("mine");
     const mine = mineParam === "active";

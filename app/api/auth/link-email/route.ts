@@ -14,7 +14,7 @@ function emailHtml(nickname: string, link: string) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!isSameOriginRequest(request.headers.get("origin"), new URL(request.url).origin)) return NextResponse.json({ error: "CROSS_ORIGIN_REQUEST" }, { status: 403 });
+  if (!isSameOriginRequest(request.headers.get("origin"), (process.env.DUELPLAY_PUBLIC_URL || process.env.NEXT_PUBLIC_SITE_URL || (process.env.NODE_ENV === "production" ? "https://duelplaygame.com" : new URL(request.url).origin)).replace(/\/$/, ""))) return NextResponse.json({ error: "CROSS_ORIGIN_REQUEST" }, { status: 403 });
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "AUTH_REQUIRED" }, { status: 401 });
   if (user.status !== "ACTIVE" || user.deletedAt) return NextResponse.json({ error: "ACCOUNT_DISABLED" }, { status: 403 });
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
-  const base = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, "");
+  const base = (process.env.DUELPLAY_PUBLIC_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === "production" ? "https://duelplaygame.com" : new URL(request.url).origin)).replace(/\/$/, "");
   const link = `${base}/profile#email-link=${token}`;
   try {
     await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Подтверди Email для DuelPlay", html: emailHtml(user.nickname, link), text: `Привет, ${user.nickname}! Подтверди привязку Email по ссылке: ${link}. Ссылка действует 10 минут и используется один раз.` });
