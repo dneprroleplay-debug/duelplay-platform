@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/Common/LanguageContext";
 import { deferEffectTask } from "@/lib/effect-defer";
+import CosmeticEquipment from "@/components/Common/CosmeticEquipment";
 
 type Item = {
   id: string;
@@ -105,6 +106,7 @@ export default function InventoryPage() {
         </div>
 
         <section className="mt-7 rounded-2xl border border-white/10 bg-white/[.025] p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-black">{frameText.title}</h2><span className="text-xs text-zinc-500">{frameText.level}: {frames[0]?.playerLevel ?? 0}</span></div>{frames.length===0?<p className="mt-2 text-sm text-zinc-500">{frameText.empty}</p>:<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{frames.map(frame=><article key={frame.id} className={`flex items-center gap-3 rounded-xl border p-3 ${frame.equipped?"border-pink-400/40 bg-pink-400/[.05]":frame.locked?"border-white/5 bg-black/20 opacity-80":"border-white/10 bg-black/10"}`}>{frame.imageUrl?<img src={frame.imageUrl} alt="" className={`h-12 w-12 shrink-0 rounded-lg object-contain frame-glow frame-glow--${frame.slug}`}/>:<span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-pink-400/30 text-pink-300">◇</span>}<div className="min-w-0 flex-1"><b className="block truncate text-sm">{frameText.names[frame.slug] || frame.name}</b><span className="block text-[11px] text-zinc-500">{frameSourceLabel(frame.source)}</span>{frame.unlockLevel!==null&&<span className="block text-[11px] text-zinc-500">{frame.locked?frameText.locked:frameText.level} {frame.unlockLevel}</span>}{frame.equipped&&<span className="text-xs text-pink-300">{frameText.active}</span>}{frame.owned&&!frame.equipped&&<span className="text-xs text-emerald-300">{frameText.owned}</span>}{!frame.owned&&<span className="text-xs text-zinc-500">{frameText.notOwned}</span>}</div>{frame.owned&&<button type="button" disabled={frameBusy} onClick={()=>void changeFrame(frame.equipped?null:frame.id)} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold hover:border-pink-400/40 disabled:opacity-50">{frame.equipped?frameText.remove:frameText.wear}</button>}</article>)}</div>}</section>
+        <CosmeticEquipment />
 
         <div className="mt-6 grid gap-2 sm:grid-cols-4">
           <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search item…" className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none" />

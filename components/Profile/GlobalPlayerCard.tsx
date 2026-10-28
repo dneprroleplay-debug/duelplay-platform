@@ -7,6 +7,7 @@ type PlayerSummary={
   nickname:string;
   avatarUrl?:string|null;
   equippedFrame?:{slug:string;name:string;imageUrl:string|null}|null;
+  equippedTitle?:{id:string;slug:string;name:string}|null;
   steamAvatarUrl?:string|null;
   level?:number|null;
   league?:string|null;
@@ -25,7 +26,7 @@ export default function GlobalPlayerCard({player,viewerId=null}:Props){
   return <article className="global-player-card rounded-2xl border border-white/5 bg-white/[.025] p-4">
    <div className="flex min-w-0 items-center gap-3">
     <FrameAvatar src={player.avatarUrl||player.steamAvatarUrl} alt={player.nickname} frame={player.equippedFrame} className="h-12 w-12"/>
-   <div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><b data-player-name className="truncate">{player.nickname}</b>{player.online&&<span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" title="Online"/>}</div>
+   <div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><b data-player-name className="truncate">{player.nickname}</b>{player.equippedTitle&&<span className="shrink-0 rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-200">{player.equippedTitle.name}</span>}{player.online&&<span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" title="Online"/>}</div>
     <div className="mt-1 text-xs text-zinc-500">Lv.{player.level??1} · {player.league||"Unranked"} · Rating {player.rating??1000}</div>
    </div>
   </div>

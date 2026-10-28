@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const users = await prisma.user.findMany({
       where: { status: "ACTIVE", deletedAt: null, isTestAccount: false },
-      select: { id: true, nickname: true, avatarUrl: true, level: true, xp: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, playerStats: { select: { rating: true, wins: true, losses: true } } },
+      select: { id: true, nickname: true, avatarUrl: true, level: true, xp: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } }, playerStats: { select: { rating: true, wins: true, losses: true } } },
       take: 5000,
     });
 
@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
       nickname: u.nickname,
       avatarUrl: u.avatarUrl,
       equippedFrame: u.equippedFrameItem ? { ...u.equippedFrameItem, imageUrl: cosmeticFrameImageUrl(u.equippedFrameItem.slug, u.equippedFrameItem.imageUrl) } : null,
+      equippedBanner: u.equippedBannerItem ? { ...u.equippedBannerItem, imageUrl: u.equippedBannerItem.imageUrl || (u.equippedBannerItem.slug === "pink-banner" ? "/images/banners/pink-arena-banner.svg" : null) } : null,
+      equippedTitle: u.equippedTitleItem,
       level: u.level,
       xp: u.xp,
       rating: u.playerStats?.rating ?? 0,

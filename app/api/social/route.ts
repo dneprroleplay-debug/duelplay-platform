@@ -12,25 +12,27 @@ export async function GET() {
     prisma.friend.findMany({
       where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
       include: {
-        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } },
-        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } },
+        sender: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
+        receiver: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } },
       },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.userMute.findMany({
       where: { userId: me.id },
-      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } } },
+      include: { mutedUser: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, status: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.rival.findMany({
       where: { ownerId: me.id, status: "ACTIVE" },
-      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } } } } },
+      include: { target: { select: { id: true, nickname: true, avatarUrl: true, steamAvatarUrl: true, equippedFrameItem: { select: { slug: true, name: true, imageUrl: true } }, equippedBannerItem: { select: { id: true, slug: true, name: true, imageUrl: true } }, equippedTitleItem: { select: { id: true, slug: true, name: true } } } } },
     }),
   ]);
 
   const withFrame = (person: any) => person ? ({
     ...person,
     equippedFrame: person.equippedFrameItem ? { ...person.equippedFrameItem, imageUrl: cosmeticFrameImageUrl(person.equippedFrameItem.slug, person.equippedFrameItem.imageUrl) } : null,
+    equippedBanner: person.equippedBannerItem ? { ...person.equippedBannerItem, imageUrl: person.equippedBannerItem.imageUrl || (person.equippedBannerItem.slug === "pink-banner" ? "/images/banners/pink-arena-banner.svg" : null) } : null,
+    equippedTitle: person.equippedTitleItem,
   }) : person;
   const accepted = relations.filter((x) => x.status === "ACCEPTED");
   const normalizedFriends = accepted.map((x) => ({ ...x, sender: withFrame(x.sender), receiver: withFrame(x.receiver), person: withFrame(x.senderId === me.id ? x.receiver : x.sender) }));

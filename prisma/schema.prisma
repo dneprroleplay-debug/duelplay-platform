@@ -389,6 +389,8 @@ model User {
   avatarUrl            String?
   steamAvatarUrl       String?
   equippedFrameItemId String? @db.Uuid
+  equippedBannerItemId String? @db.Uuid
+  equippedTitleItemId String? @db.Uuid
   role                 UserRole          @default(USER)
   status               UserStatus        @default(ACTIVE)
   isTestAccount        Boolean            @default(false)
@@ -433,6 +435,8 @@ model User {
   promoCodeUses        PromoCodeUse[]
   inventoryItems       InventoryItem[]
   equippedFrameItem    CosmeticItem? @relation("UserEquippedFrame", fields: [equippedFrameItemId], references: [id], onDelete: SetNull)
+  equippedBannerItem   CosmeticItem? @relation("UserEquippedBanner", fields: [equippedBannerItemId], references: [id], onDelete: SetNull)
+  equippedTitleItem    CosmeticItem? @relation("UserEquippedTitle", fields: [equippedTitleItemId], references: [id], onDelete: SetNull)
   steamTrades          SteamTrade[]
   playerStats         PlayerStats?
   friendsSent         Friend[] @relation("FriendSender")
@@ -2004,6 +2008,8 @@ model CosmeticItem {
   createdAt   DateTime @default(now())
   purchases   CosmeticPurchase[]
   equippedByUsers User[] @relation("UserEquippedFrame")
+  equippedBannerByUsers User[] @relation("UserEquippedBanner")
+  equippedTitleByUsers User[] @relation("UserEquippedTitle")
 }
 
 model CosmeticPurchase {
