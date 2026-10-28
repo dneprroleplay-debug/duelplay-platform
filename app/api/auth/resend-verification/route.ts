@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashCode, generateVerificationCode, sendEmail } from "@/lib/email";
-import { verificationEmailHtml } from "@/lib/auth-email-templates";
+import { verificationEmailHtml, verificationEmailText } from "@/lib/auth-email-templates";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   await prisma.emailVerificationCode.create({ data: { userId: user.id, email, codeHash: hashCode(code), purpose: "REGISTER", expiresAt: new Date(Date.now() + 10 * 60_000), ipAddress: ip } });
 
   try {
-    await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Твой новый код подтверждения DuelPlay", html: verificationEmailHtml(user.nickname, code), text: `Привет, ${user.nickname}! Твой новый код подтверждения: ${code}. Код действует 10 минут.` });
+    await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Твой новый код подтверждения DuelPlay", html: verificationEmailHtml(user.nickname, code), text: verificationEmailText(user.nickname, code) });
   } catch (e) { console.error(e); }
 
   return NextResponse.json({ ok: true });

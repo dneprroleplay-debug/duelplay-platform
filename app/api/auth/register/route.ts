@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, newSessionToken } from "@/lib/auth";
 import { hashCode, generateVerificationCode, sendEmail } from "@/lib/email";
-import { verificationEmailHtml } from "@/lib/auth-email-templates";
+import { verificationEmailHtml, verificationEmailText } from "@/lib/auth-email-templates";
 import { normalizeNickname, validateNickname } from "@/lib/nickname";
 import { enforceIpRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-meta";
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     try {
       const html = verificationEmailHtml(nickname, user.code);
-      await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Твой код подтверждения DuelPlay", html, text: `Привет, ${nickname}! Твой код подтверждения: ${user.code}. Код действует 10 минут. Если ты не создавал аккаунт, проигнорируй это письмо.` });
+      await sendEmail({ from: "DuelPlay <verify@duelplaygame.com>", to: email, subject: "Твой код подтверждения DuelPlay", html, text: verificationEmailText(nickname, user.code) });
     } catch (e) {
       console.error("email send failed", e);
       return NextResponse.json({ ok: false, emailSent: false, userId: user.user.id, error: "Email delivery failed" }, { status: 502 });

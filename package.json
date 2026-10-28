@@ -27,6 +27,7 @@
     "restore:test:postgres:r2": "bash scripts/restore-test-postgres-from-r2.sh",
     "prod:validate-env": "node scripts/validate-production-env.mjs",
     "qa:api-security": "node scripts/test-api-security.mjs",
+    "test:profile-banner-email-preview": "node --experimental-strip-types scripts/test-profile-banner-email-preview.mjs",
     "test:server-events:integration": "node scripts/test-server-technical-events-postgres.mjs",
     "test:advanced-modes": "node scripts/test-advanced-mode-availability.mjs && node scripts/test-low-gravity-speed-duel.mjs && node scripts/test-duel-modes.mjs",
     "test:site-social-links": "node --experimental-strip-types scripts/test-site-social-links.mjs",
