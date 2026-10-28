@@ -31,7 +31,7 @@ export async function GET() {
   const withFrame = (person: any) => person ? ({
     ...person,
     equippedFrame: person.equippedFrameItem ? { ...person.equippedFrameItem, imageUrl: cosmeticFrameImageUrl(person.equippedFrameItem.slug, person.equippedFrameItem.imageUrl) } : null,
-    equippedBanner: person.equippedBannerItem ? { ...person.equippedBannerItem, imageUrl: person.equippedBannerItem.imageUrl || (person.equippedBannerItem.slug === "pink-banner" ? "/images/banners/pink-arena-banner.svg" : null) } : null,
+    equippedBanner: person.equippedBannerItem ? { ...person.equippedBannerItem, imageUrl: person.equippedBannerItem.imageUrl || (person.equippedBannerItem.slug === "pink-banner" ? "/images/banners/duelplay-neon-logo.png" : null) } : null,
     equippedTitle: person.equippedTitleItem,
   }) : person;
   const accepted = relations.filter((x) => x.status === "ACCEPTED");

@@ -12,7 +12,7 @@ export async function GET() {
     prisma.cosmeticPurchase.findMany({ where: { userId: user.id, item: { type: { in: ["BANNER", "TITLE"] } } }, include: { item: { select: SELECT } }, orderBy: { createdAt: "asc" } }),
     prisma.user.findUnique({ where: { id: user.id }, select: { ...EQUIPMENT_FIELDS } }),
   ]);
-  const items = owned.map(row => ({ ...row.item, imageUrl: row.item.imageUrl || (row.item.slug === "pink-banner" ? "/images/banners/pink-arena-banner.svg" : null), ownedAt: row.createdAt, equipped: row.item.type === "BANNER" ? row.item.id === current?.equippedBannerItemId : row.item.id === current?.equippedTitleItemId }));
+  const items = owned.map(row => ({ ...row.item, imageUrl: row.item.imageUrl || (row.item.slug === "pink-banner" ? "/images/banners/duelplay-neon-logo.png" : null), ownedAt: row.createdAt, equipped: row.item.type === "BANNER" ? row.item.id === current?.equippedBannerItemId : row.item.id === current?.equippedTitleItemId }));
   return NextResponse.json({ items, equippedBannerItemId: current?.equippedBannerItemId ?? null, equippedTitleItemId: current?.equippedTitleItemId ?? null }, { headers: { "Cache-Control": "private, no-store" } });
 }
 

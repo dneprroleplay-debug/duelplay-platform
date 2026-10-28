@@ -33,11 +33,12 @@ export async function GET() {
 
   const now = new Date();
   await prisma.challenge.updateMany({ where: { status: "PENDING", expiresAt: { lte: now } }, data: { status: "EXPIRED" } });
-  return NextResponse.json(await prisma.challenge.findMany({
+  const rows = await prisma.challenge.findMany({
     where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
     include: { sender: { select: { id: true, nickname: true, avatarUrl: true } }, receiver: { select: { id: true, nickname: true, avatarUrl: true } } },
     orderBy: { createdAt: "desc" },
-  }));
+  });
+  return NextResponse.json(rows, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(r: NextRequest) {
@@ -138,6 +139,13 @@ export async function PATCH(r: NextRequest) {
       if (row.status === "PENDING" && row.expiresAt <= now) {
         await tx.challenge.updateMany({ where: { id, status: "PENDING" }, data: { status: "EXPIRED" } });
         throw new Error("EXPIRED");
+      }
+
+      // A repeated accept request must return the match already linked to this challenge.
+      // Do not create another match or debit either wallet a second time.
+      if (requestedStatus === "ACCEPTED" && row.receiverId === me.id && row.status === "ACCEPTED" && row.matchId) {
+        const existingMatch = await tx.match.findUnique({ where: { id: row.matchId }, select: { id: true, status: true } });
+        return { status: "ACCEPTED", match: existingMatch, idempotent: true };
       }
 
       if (requestedStatus === "DECLINED") {
