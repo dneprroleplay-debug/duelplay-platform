@@ -23,6 +23,8 @@ export async function GET(r: NextRequest) {
   const sort = String(sp.get("sort") || "price_asc");
   const where = {
     active: true,
+    // Level rewards are earned by progression and must never be purchased from the shop.
+    slug: { notIn: ["frame-level-10", "frame-level-20", "frame-level-30", "frame-level-40", "frame-level-50", "frame-level-75", "frame-level-100"] },
     ...(type && type !== "ALL" && COSMETIC_TYPES.includes(type as typeof COSMETIC_TYPES[number]) ? { type } : {}),
     ...(search ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { slug: { contains: search, mode: "insensitive" as const } }] } : {}),
   };
@@ -56,6 +58,9 @@ export async function POST(r: NextRequest) {
       }
       const item = await tx.cosmeticItem.findFirst({ where: { id: itemId, active: true } });
       if (!item) throw new Error("ITEM");
+      const itemMetadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+        ? item.metadata as Record<string, unknown> : {};
+      if (itemMetadata.source === "LEVEL" || item.slug.startsWith("frame-level-")) throw new Error("LEVEL_REWARD_ONLY");
       const alreadyOwned = await tx.cosmeticPurchase.findUnique({ where: { userId_itemId: { userId: me.id, itemId: item.id } } });
       if (alreadyOwned) throw new Error("ALREADY_OWNED");
       const price = validateCosmeticPrice(item.price);
@@ -69,8 +74,8 @@ export async function POST(r: NextRequest) {
     return json(out, { status: out.idempotent ? 200 : 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
-    const status = message === "ALREADY_OWNED" || message === "IDEMPOTENCY_KEY_REUSED" ? 409 : message === "INSUFFICIENT_BALANCE" ? 400 : message === "ITEM" ? 404 : 400;
-    const error = message === "ALREADY_OWNED" ? "Already owned" : message === "IDEMPOTENCY_KEY_REUSED" ? "Idempotency key was already used for another item" : message === "INSUFFICIENT_BALANCE" ? "Insufficient balance" : message === "ITEM" ? "Item not found" : message === "GAMEPLAY_COSMETIC_FORBIDDEN" ? "Gameplay-affecting cosmetics are not allowed" : "Purchase failed";
+    const status = message === "ALREADY_OWNED" || message === "IDEMPOTENCY_KEY_REUSED" ? 409 : message === "INSUFFICIENT_BALANCE" ? 400 : message === "ITEM" ? 404 : message === "LEVEL_REWARD_ONLY" ? 403 : 400;
+    const error = message === "ALREADY_OWNED" ? "Already owned" : message === "IDEMPOTENCY_KEY_REUSED" ? "Idempotency key was already used for another item" : message === "INSUFFICIENT_BALANCE" ? "Insufficient balance" : message === "ITEM" ? "Item not found" : message === "LEVEL_REWARD_ONLY" ? "This frame is unlocked by player level, not purchased" : message === "GAMEPLAY_COSMETIC_FORBIDDEN" ? "Gameplay-affecting cosmetics are not allowed" : "Purchase failed";
     return json({ error }, { status });
   }
 }

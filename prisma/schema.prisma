@@ -117,7 +117,6 @@ enum TransactionType {
   MATCH_BET
   MATCH_STAKE_LOCK
   MATCH_STAKE_RELEASE
-  DISPUTE_ADJUSTMENT
   TOURNAMENT_ENTRY
   MATCH_WIN
   REFUND
@@ -135,6 +134,7 @@ enum TransactionType {
   INVENTORY_SALE
   ACCOUNT_DELETION_RECOVERY_HOLD
   ACCOUNT_DELETION_RECOVERY_CREDIT
+  DISPUTE_ADJUSTMENT
 }
 
 enum TransactionStatus {
@@ -388,6 +388,7 @@ model User {
   nickname             String            @unique
   avatarUrl            String?
   steamAvatarUrl       String?
+  equippedFrameItemId String? @db.Uuid
   role                 UserRole          @default(USER)
   status               UserStatus        @default(ACTIVE)
   isTestAccount        Boolean            @default(false)
@@ -431,6 +432,7 @@ model User {
   achievements         UserAchievement[]
   promoCodeUses        PromoCodeUse[]
   inventoryItems       InventoryItem[]
+  equippedFrameItem    CosmeticItem? @relation("UserEquippedFrame", fields: [equippedFrameItemId], references: [id], onDelete: SetNull)
   steamTrades          SteamTrade[]
   playerStats         PlayerStats?
   friendsSent         Friend[] @relation("FriendSender")
@@ -2001,6 +2003,7 @@ model CosmeticItem {
   metadata    Json?
   createdAt   DateTime @default(now())
   purchases   CosmeticPurchase[]
+  equippedByUsers User[] @relation("UserEquippedFrame")
 }
 
 model CosmeticPurchase {
@@ -2135,24 +2138,23 @@ model TranslationCache {
 }
 
 
-/// Protected, one-time recovery of a verified REAL balance after account anonymization.
-/// Identity values are HMACs only; no raw email or Steam ID is stored here.
 model AccountRecovery {
-  id                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  oldUserId                  String   @unique @db.Uuid
-  emailHmac                  String   @db.Char(64)
-  steamHmac                  String   @db.Char(64)
-  realBalance                Decimal  @db.Decimal(20, 4)
-  currency                   String   @default("USD") @db.Char(3)
-  status                     String   @default("AVAILABLE") @db.VarChar(24)
-  sourceLastTransactionId    String   @db.Uuid
-  recoveryHoldTransactionId  String   @unique @db.Uuid
-  restoreTransactionId       String?  @unique @db.Uuid
-  restoredUserId             String?  @db.Uuid
-  createdAt                  DateTime @default(now())
-  restoredAt                 DateTime?
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  oldUserId                String   @unique @db.Uuid
+  emailHmac                String   @db.Char(64)
+  steamHmac                String   @db.Char(64)
+  realBalance              Decimal  @db.Decimal(20, 4)
+  currency                 String   @default("USD") @db.Char(3)
+  status                   String   @default("AVAILABLE") @db.VarChar(24)
+  sourceLastTransactionId  String   @db.Uuid
+  recoveryHoldTransactionId String  @unique @db.Uuid
+  restoreTransactionId     String?  @unique @db.Uuid
+  restoredUserId           String?  @db.Uuid
+  createdAt                DateTime @default(now()) @db.Timestamp(3)
+  restoredAt               DateTime? @db.Timestamp(3)
 
   @@index([emailHmac, status])
   @@index([emailHmac, steamHmac, status])
   @@index([status, createdAt])
+  @@map("AccountRecovery")
 }

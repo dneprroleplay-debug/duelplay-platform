@@ -445,3 +445,55 @@ input,select,textarea,button{min-width:0;max-width:100%}
   .match-panel{border-radius:16px!important}
   .match-panel .step-circle{width:30px;height:30px}
 }
+
+
+/* DuelPlay cosmetic frames: restrained animated glow, shared by rewards,
+   inventory and equipped profile overlays. The SVG alpha keeps glow on the frame itself. */
+.frame-glow{transform-origin:center;will-change:filter;animation-duration:3.2s;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.frame-glow--frame-neon-pulse{animation-name:dp-frame-neon-pulse}
+.frame-glow--frame-electric-storm{animation-name:dp-frame-electric-storm;animation-duration:2.7s}
+.frame-glow--frame-inferno-crown{animation-name:dp-frame-inferno-crown;animation-duration:3.5s}
+.frame-glow--frame-level-10{animation-name:dp-frame-level-pink;animation-duration:4.8s}
+.frame-glow--frame-level-20{animation-name:dp-frame-level-pink;animation-duration:4.2s}
+.frame-glow--frame-level-30{animation-name:dp-frame-level-violet;animation-duration:4.1s}
+.frame-glow--frame-level-40{animation-name:dp-frame-level-violet;animation-duration:3.8s}
+.frame-glow--frame-level-50{animation-name:dp-frame-level-rose-gold;animation-duration:3.8s}
+.frame-glow--frame-level-75{animation-name:dp-frame-level-gold;animation-duration:3.6s}
+.frame-glow--frame-level-100{animation-name:dp-frame-level-mythic;animation-duration:3.4s}
+@keyframes dp-frame-neon-pulse{
+  0%,100%{filter:drop-shadow(0 0 2px rgba(255,67,190,.42)) drop-shadow(0 0 5px rgba(174,67,255,.16))}
+  50%{filter:drop-shadow(0 0 5px rgba(255,67,190,.78)) drop-shadow(0 0 10px rgba(174,67,255,.42))}
+}
+@keyframes dp-frame-electric-storm{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(139,92,246,.42)) drop-shadow(0 0 6px rgba(65,170,255,.18))}
+  35%{filter:drop-shadow(0 0 7px rgba(139,92,246,.78)) drop-shadow(0 0 12px rgba(65,170,255,.45))}
+  42%{filter:drop-shadow(0 0 3px rgba(139,92,246,.5)) drop-shadow(0 0 7px rgba(65,170,255,.2))}
+  55%{filter:drop-shadow(0 0 6px rgba(139,92,246,.7)) drop-shadow(0 0 11px rgba(65,170,255,.36))}
+}
+@keyframes dp-frame-inferno-crown{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(245,184,61,.42)) drop-shadow(0 0 7px rgba(255,104,32,.18))}
+  50%{filter:drop-shadow(0 0 7px rgba(255,211,100,.78)) drop-shadow(0 0 14px rgba(255,104,32,.4))}
+}
+@keyframes dp-frame-level-pink{
+  0%,100%{filter:drop-shadow(0 0 1px rgba(255,79,189,.3)) drop-shadow(0 0 3px rgba(255,79,189,.12))}
+  50%{filter:drop-shadow(0 0 4px rgba(255,79,189,.62)) drop-shadow(0 0 7px rgba(255,79,189,.24))}
+}
+@keyframes dp-frame-level-violet{
+  0%,100%{filter:drop-shadow(0 0 2px rgba(167,139,250,.3)) drop-shadow(0 0 4px rgba(103,232,249,.1))}
+  50%{filter:drop-shadow(0 0 5px rgba(167,139,250,.68)) drop-shadow(0 0 9px rgba(103,232,249,.25))}
+}
+@keyframes dp-frame-level-rose-gold{
+  0%,100%{filter:drop-shadow(0 0 2px rgba(255,91,170,.34)) drop-shadow(0 0 4px rgba(245,196,81,.16))}
+  50%{filter:drop-shadow(0 0 5px rgba(255,91,170,.56)) drop-shadow(0 0 8px rgba(245,196,81,.35))}
+}
+@keyframes dp-frame-level-gold{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(245,196,81,.35)) drop-shadow(0 0 6px rgba(245,158,11,.14))}
+  50%{filter:drop-shadow(0 0 6px rgba(255,220,130,.78)) drop-shadow(0 0 11px rgba(245,158,11,.32))}
+}
+@keyframes dp-frame-level-mythic{
+  0%,100%{filter:drop-shadow(0 0 3px rgba(196,132,252,.38)) drop-shadow(0 0 6px rgba(255,210,106,.25))}
+  50%{filter:drop-shadow(0 0 7px rgba(196,132,252,.72)) drop-shadow(0 0 13px rgba(255,210,106,.48))}
+}
+@media(prefers-reduced-motion:reduce){
+  .frame-glow{animation:none!important;will-change:auto}
+}

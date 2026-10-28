@@ -1,5 +1,6 @@
-﻿﻿import { PrismaClient } from "@prisma/client";
+﻿import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../lib/auth";
+import { syncLoginRewardFrameCatalog } from "../lib/login-reward-frames";
 const prisma = new PrismaClient();
 async function main() {
   const game = await prisma.game.upsert({ where: { slug: "cs2" }, update: { isEnabled: true }, create: { slug: "cs2", title: "Counter-Strike 2", isEnabled: true, config: {} } });
@@ -63,8 +64,11 @@ async function main() {
   await prisma.loginReward.upsert({where:{day:30},update:{reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true},create:{day:30,reward:{balance:1000,cosmeticSlug:"frame-inferno-crown"},active:true}});
   
   for (const [slug,name,type,price] of [
-    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99],["frame-neon-pulse","Неоновый импульс","FRAME",0],["frame-electric-storm","Электрический шторм","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0]
+    ["neon-frame","Neon Frame","FRAME",4.99],["elite-title","ELITE Title","TITLE",7.99],["pink-banner","Pink Arena Banner","BANNER",5.99],["frame-neon-pulse","Неоновый импульс","FRAME",0],["frame-electric-storm","Электрический шторм","FRAME",0],["frame-inferno-crown","Inferno Crown","FRAME",0],["frame-profile-complete","DuelPlay Complete","FRAME",0]
   ] as const) await prisma.cosmeticItem.upsert({where:{slug},update:{name,type,price,active:true},create:{slug,name,type,price,active:true,metadata:{nonPayToWin:true}}});
+  // Keep reward cosmetics active and aligned with their original SVG assets.
+  // Existing CosmeticPurchase rows and equipped-frame references remain intact.
+  await prisma.$transaction(async (tx) => { await syncLoginRewardFrameCatalog(tx); });
   const missions=[
     ["daily-3-duels","Play 3 duels","PLAY_DUELS",3,{xp:150}],
     ["daily-2-wins","Win 2 duels","WINS",2,{xp:200}],

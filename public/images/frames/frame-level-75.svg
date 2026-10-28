@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Sovereign Gold">
+<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter></defs>
+<path d="M10 30 L10 18 L22 22 L32 8 L42 22 L54 18 L54 30" fill="none" stroke="#d6a84f" stroke-width="3" stroke-linejoin="round"/><path d="M9 35 Q6 53 20 56 L44 56 Q58 53 55 35" fill="none" stroke="#fff0b3" stroke-width="3"/><path d="M14 33 L14 46 M50 33 L50 46" stroke="#d6a84f" stroke-width="2"/></svg>

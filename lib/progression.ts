@@ -1,8 +1,9 @@
-﻿import { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { awardDuelPassXp } from '@/lib/duel-pass';
 import { boostedXpAmount } from '@/lib/xp-booster';
 import { refreshEventMissionsForUser } from '@/lib/event-pass';
 import { levelFromXp } from '@/lib/level';
+import { syncLevelFrames } from '@/lib/level-frames';
 
 export { levelFromXp };
 
@@ -25,6 +26,9 @@ export async function awardXp(tx:Prisma.TransactionClient,userId:string,amount:n
   const xp=Math.max(0,Math.floor(Number(user.xp)+gain));
   const level=levelFromXp(xp);
   const updated=await tx.user.update({where:{id:userId},data:{xp,level}});
+  // Grant newly earned profile frames in the same transaction as the XP update.
+  // Syncing also backfills all thresholds for players whose level jumped several times.
+  if (level > Number(user.level)) await syncLevelFrames(tx,userId,level);
   await awardDuelPassXp(tx,userId,gain);
   return updated;
 }

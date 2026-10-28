@@ -18,7 +18,7 @@ type Item = {
 type InventoryResponse = { items: Item[]; counts: Record<string, number>; stats?: { total: number; page: number; limit: number; pageCount: number; availableValue: number } };
 
 export default function InventoryPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -31,6 +31,15 @@ export default function InventoryPage() {
   const [query, setQuery] = useState("");
   const [stats, setStats] = useState<InventoryResponse["stats"]>();
   const [page, setPage] = useState(1);
+  const [frames, setFrames] = useState<Array<{id:string;slug:string;name:string;imageUrl:string|null;equipped:boolean;owned:boolean;locked:boolean;unlockLevel:number|null;playerLevel:number;source:string}>>([]);
+  const [frameBusy, setFrameBusy] = useState(false);
+  const frameText = ({
+    RU:{title:"Коллекция рамок профиля",empty:"Рамки появятся здесь по мере получения наград.",wear:"Надеть",remove:"Снять",active:"Надета",failed:"Не удалось изменить рамку.",locked:"Открывается на уровне",level:"Уровень",owned:"Получена",sourceProfile:"Заполнение профиля",sourceLevel:"Уровни",sourceHub:"DuelPlay Hub",sourceOther:"Другое",notOwned:"Не получена",names:{"frame-level-10":"Розовый сигнал","frame-level-20":"Розовая схема","frame-level-30":"Фиолетовый вектор","frame-level-40":"Глубинная призма","frame-level-50":"Титановая роза","frame-level-75":"Золотой суверен","frame-level-100":"Восходящее затмение","frame-profile-complete":"DuelPlay Complete"}},
+    UA:{title:"Колекція рамок профілю",empty:"Рамки з’являтимуться тут у міру отримання нагород.",wear:"Одягнути",remove:"Зняти",active:"Одягнена",failed:"Не вдалося змінити рамку.",locked:"Відкривається на рівні",level:"Рівень",owned:"Отримано",sourceProfile:"Заповнення профілю",sourceLevel:"Рівні",sourceHub:"DuelPlay Hub",sourceOther:"Інше",notOwned:"Не отримано",names:{"frame-level-10":"Рожевий сигнал","frame-level-20":"Рожева схема","frame-level-30":"Фіолетовий вектор","frame-level-40":"Глибинна призма","frame-level-50":"Титанова троянда","frame-level-75":"Золотий суверен","frame-level-100":"Східне затемнення","frame-profile-complete":"DuelPlay Complete"}},
+    EN:{title:"Profile frame collection",empty:"Frames will appear here as rewards are earned.",wear:"Equip",remove:"Remove",active:"Equipped",failed:"Could not change the frame.",locked:"Unlocks at level",level:"Level",owned:"Owned",sourceProfile:"Profile completion",sourceLevel:"Levels",sourceHub:"DuelPlay Hub",sourceOther:"Other",notOwned:"Not yet earned",names:{"frame-level-10":"Rose Signal","frame-level-20":"Pink Circuit","frame-level-30":"Violet Vector","frame-level-40":"Abyssal Prism","frame-level-50":"Titanium Rose","frame-level-75":"Sovereign Gold","frame-level-100":"Eclipse Ascendant","frame-profile-complete":"DuelPlay Complete"}},
+    PL:{title:"Kolekcja ramek profilu",empty:"Ramki pojawią się tutaj po zdobyciu nagród.",wear:"Załóż",remove:"Zdejmij",active:"Założona",failed:"Nie udało się zmienić ramki.",locked:"Odblokowanie na poziomie",level:"Poziom",owned:"Zdobyta",sourceProfile:"Uzupełnienie profilu",sourceLevel:"Poziomy",sourceHub:"DuelPlay Hub",sourceOther:"Inne",notOwned:"Jeszcze niezdobyta",names:{"frame-level-10":"Różowy sygnał","frame-level-20":"Różowy obwód","frame-level-30":"Fioletowy wektor","frame-level-40":"Otchłanna pryzma","frame-level-50":"Tytanowa róża","frame-level-75":"Złoty suweren","frame-level-100":"Wschodzące zaćmienie","frame-profile-complete":"DuelPlay Complete"}}
+  } as Record<string,any>)[language] || ({title:"Profile frame collection",empty:"Frames will appear here as rewards are earned.",wear:"Equip",remove:"Remove",active:"Equipped",failed:"Could not change the frame.",locked:"Unlocks at level",level:"Level",owned:"Owned",sourceProfile:"Profile completion",sourceLevel:"Levels",sourceHub:"DuelPlay Hub",sourceOther:"Other",notOwned:"Not yet earned",names:{}} as const);
+  const frameSourceLabel = (source:string) => source==="LEVEL" ? frameText.sourceLevel : source==="PROFILE_COMPLETION" ? frameText.sourceProfile : source==="HUB" ? frameText.sourceHub : frameText.sourceOther;
 
   const load = useCallback(async () => {
     setError("");
@@ -53,7 +62,12 @@ export default function InventoryPage() {
     }
   }, []);
 
-  useEffect(() => { deferEffectTask(() => { void load(); }); }, [load]);
+  useEffect(() => { deferEffectTask(() => { void load(); void fetch("/api/profile/frame", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(d => { if (d?.frames) setFrames(d.frames); }).catch(() => {}); }); }, [load]);
+
+  async function changeFrame(frameId: string | null) {
+    if (frameBusy) return; setFrameBusy(true); setError("");
+    try { const r = await fetch("/api/profile/frame", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: frameId }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || "FRAME_FAILED"); const refreshed = await fetch("/api/profile/frame", { cache: "no-store" }); const next = await refreshed.json(); setFrames(next.frames || []); window.dispatchEvent(new Event("duelplay:profile-updated")); } catch { setError(frameText.failed); } finally { setFrameBusy(false); }
+  }
 
   async function sell(item: Item) {
     if (!item.canSell || selling) return;
@@ -89,6 +103,8 @@ export default function InventoryPage() {
           </div>
           <button type="button" onClick={() => router.push("/cases")} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold transition hover:border-[var(--theme-accent)]/40 hover:text-[var(--theme-accent)]">{t.toCases}</button>
         </div>
+
+        <section className="mt-7 rounded-2xl border border-white/10 bg-white/[.025] p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-black">{frameText.title}</h2><span className="text-xs text-zinc-500">{frameText.level}: {frames[0]?.playerLevel ?? 0}</span></div>{frames.length===0?<p className="mt-2 text-sm text-zinc-500">{frameText.empty}</p>:<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{frames.map(frame=><article key={frame.id} className={`flex items-center gap-3 rounded-xl border p-3 ${frame.equipped?"border-pink-400/40 bg-pink-400/[.05]":frame.locked?"border-white/5 bg-black/20 opacity-80":"border-white/10 bg-black/10"}`}>{frame.imageUrl?<img src={frame.imageUrl} alt="" className={`h-12 w-12 shrink-0 rounded-lg object-contain frame-glow frame-glow--${frame.slug}`}/>:<span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-pink-400/30 text-pink-300">◇</span>}<div className="min-w-0 flex-1"><b className="block truncate text-sm">{frameText.names[frame.slug] || frame.name}</b><span className="block text-[11px] text-zinc-500">{frameSourceLabel(frame.source)}</span>{frame.unlockLevel!==null&&<span className="block text-[11px] text-zinc-500">{frame.locked?frameText.locked:frameText.level} {frame.unlockLevel}</span>}{frame.equipped&&<span className="text-xs text-pink-300">{frameText.active}</span>}{frame.owned&&!frame.equipped&&<span className="text-xs text-emerald-300">{frameText.owned}</span>}{!frame.owned&&<span className="text-xs text-zinc-500">{frameText.notOwned}</span>}</div>{frame.owned&&<button type="button" disabled={frameBusy} onClick={()=>void changeFrame(frame.equipped?null:frame.id)} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold hover:border-pink-400/40 disabled:opacity-50">{frame.equipped?frameText.remove:frameText.wear}</button>}</article>)}</div>}</section>
 
         <div className="mt-6 grid gap-2 sm:grid-cols-4">
           <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search item…" className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none" />

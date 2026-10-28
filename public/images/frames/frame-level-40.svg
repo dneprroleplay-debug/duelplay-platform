@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Abyssal Prism">
+<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter></defs>
+<path d="M8 23 L8 12 L20 8 M44 8 L56 12 L56 23 M8 41 L8 52 L20 56 M44 56 L56 52 L56 41" fill="none" stroke="#8b5cf6" stroke-width="3" stroke-linejoin="round"/><path d="M13 18 L18 13 M51 18 L46 13 M13 46 L18 51 M51 46 L46 51" stroke="#d946ef" stroke-width="2"/></svg>

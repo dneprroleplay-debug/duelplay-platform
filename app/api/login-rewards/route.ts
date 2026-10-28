@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/current-user";
 import { withDemoTransaction } from "@/lib/demo-wallet";
+import { grantLoginRewardFrame, loginRewardFrameDefinition, syncLoginRewardFrameCatalog } from "@/lib/login-reward-frames";
 
 const MAX_DAYS = 30;
 
@@ -63,13 +64,21 @@ function normalizeReward(reward: unknown, fallback: CanonicalReward) {
     base.balance = base.amount;
   }
   if (base.balance === undefined) base.balance = fallback.balance;
-  if (base.cosmeticSlug === undefined && fallback.cosmeticSlug) base.cosmeticSlug = fallback.cosmeticSlug;
+  if ((base.cosmeticSlug === undefined || base.cosmeticSlug === null || base.cosmeticSlug === "") && fallback.cosmeticSlug) {
+    base.cosmeticSlug = fallback.cosmeticSlug;
+  }
   return base;
 }
 
 export async function GET() {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Repair/create the three system cosmetic records idempotently. This only
+  // synchronizes catalog metadata/assets; it never grants reward ownership.
+  await prisma.$transaction(async (tx) => {
+    await syncLoginRewardFrameCatalog(tx);
+  });
 
   const claimed = await prisma.userLoginReward.findMany({
     where: { userId: me.id },
@@ -83,7 +92,15 @@ export async function GET() {
   const next = nextSequence(last);
 
   return NextResponse.json({
-    rewards: CANONICAL_LOGIN_REWARDS.map((reward) => ({ day: reward.day, reward, active: true })),
+    rewards: CANONICAL_LOGIN_REWARDS.map((reward) => {
+      const frame = reward.cosmeticSlug ? loginRewardFrameDefinition(reward.cosmeticSlug) : null;
+      return {
+        day: reward.day,
+        reward,
+        active: true,
+        frame: frame ? { slug: frame.slug, name: frame.name, imageUrl: frame.imageUrl, rarity: frame.rarity, unlockDay: frame.day } : null,
+      };
+    }),
     claimed: claimed.map((claim) => ({
       ...claim,
       reward: normalizeReward(claim.reward, canonicalReward(claim.day) ?? { day: claim.day, balance: 0 }),
@@ -143,16 +160,14 @@ export async function POST(_r: NextRequest) {
             );
 
         if (storedReward.cosmeticSlug) {
-          const item = await tx.cosmeticItem.findUnique({ where: { slug: String(storedReward.cosmeticSlug) } });
-          if (item) {
-            const owned = await tx.cosmeticPurchase.findUnique({ where: { userId_itemId: { userId: me.id, itemId: item.id } } });
-            if (!owned) await tx.cosmeticPurchase.create({ data: { userId: me.id, itemId: item.id, price: 0 } });
-          }
+          // Backfill claims made before the catalog item existed, while keeping
+          // the original reward/DEMO ledger idempotency key and claim history.
+          await grantLoginRewardFrame(tx, me.id, String(storedReward.cosmeticSlug));
         }
 
         return {
           row: { ...existingToday, reward: storedReward },
-          granted: { balance: Number(granted.transaction.amount), idempotent: granted.idempotent ?? true },
+          granted: { balance: priorTransaction ? 0 : Number(granted.transaction.amount), idempotent: granted.idempotent ?? true },
           idempotent: true,
           recovered: !priorTransaction,
         };
@@ -176,11 +191,9 @@ export async function POST(_r: NextRequest) {
       );
 
       if (rewardDefinition.cosmeticSlug) {
-        const item = await tx.cosmeticItem.findUnique({ where: { slug: rewardDefinition.cosmeticSlug } });
-        if (item) {
-          const owned = await tx.cosmeticPurchase.findUnique({ where: { userId_itemId: { userId: me.id, itemId: item.id } } });
-          if (!owned) await tx.cosmeticPurchase.create({ data: { userId: me.id, itemId: item.id, price: 0 } });
-        }
+        // Item creation/repair and unique ownership grant commit or roll back
+        // together with the claim row and DEMO ledger adjustment.
+        await grantLoginRewardFrame(tx, me.id, rewardDefinition.cosmeticSlug);
       }
 
       return {
