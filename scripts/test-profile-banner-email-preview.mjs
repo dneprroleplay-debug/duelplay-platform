@@ -18,7 +18,7 @@ assert.match(api, /themePreference:u\.themePreference/, "public profile API retu
 assert.match(component, /themeById\(typeof themeId === "string" \? themeId : "STANDARD"\)/, 'unknown theme safely falls back to STANDARD');
 assert.match(component, /--dp-banner-trail.*accent/s, 'active theme accent is used for trail color');
 assert.match(css, /@keyframes dp-banner-perimeter/, 'perimeter trail animation exists');
-assert.match(css, /prefers-reduced-motion:reduce\)\{\.dp-profile-banner__trail rect\{animation:none!important/, 'reduced motion stops the moving trail');
+assert.match(css, /prefers-reduced-motion:reduce\)[\s\S]*?\.dp-profile-banner__trail path\{animation:none!important/, 'reduced motion stops the moving trail');
 assert.match(inventory, /ProfileBanner imageUrl=\{item\.imageUrl\}.*compact/s, 'inventory banner preview uses shared renderer');
 assert.match(html, /href="https:\/\/duelplaygame\.com\/verify-email#code=AB12CD"/, 'email CTA has correct verification URL fragment');
 assert.match(html, /10 минут/, 'HTML states the 10-minute lifetime');
