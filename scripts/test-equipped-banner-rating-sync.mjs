@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const read = (name) => fs.readFileSync(path.join(process.cwd(), name), "utf8");
+const leaderboards = read("app/api/leaderboards/route.ts");
+const rating = read("app/rating/page.tsx");
+const profile = read("app/profile/page.tsx");
+const publicProfile = read("app/profile/[nickname]/page.tsx");
+const cosmetics = read("app/api/profile/cosmetics/route.ts");
+const publicProfileApi = read("app/api/profile/[nickname]/route.ts");
+const equipment = read("components/Common/CosmeticEquipment.tsx");
+const css = read("app/globals.css");
+const banner = read("components/Common/ProfileBanner.tsx");
+
+assert.match(leaderboards, /equippedBannerItem: \{ select: \{ id: true, slug: true, type: true \} \}/);
+assert.match(leaderboards, /equippedBanner: u\.equippedBannerItem\?\.type === "BANNER"[\s\S]*?: null/);
+assert.match(rating, /x\.equippedBanner \? "dp-rating-banner" : ""/);
+assert.match(rating, /themeById\(x\.themePreference\|\|"STANDARD"\)\.accent/);
+assert.doesNotMatch(rating, /user\?\.id && x\.id === user\.id \? "dp-rating-current/);
+assert.match(rating, /addEventListener\("duelplay:banner-changed",onThemeChanged\)/);
+assert.match(rating, /updated\.equippedBanner=typeof detail\.equippedBannerItemId==="string"/);
+assert.match(equipment, /new CustomEvent\("duelplay:banner-changed",\{detail:\{equippedBannerItemId:equip\?item\.id:null\}\}\)/);
+assert.match(cosmetics, /row\.item\.id === current\?\.equippedBannerItemId/);
+assert.match(profile, /data\.equippedBanner\?\.imageUrl && <div className="mb-6"><ProfileBanner/);
+assert.match(publicProfile, /p\.equippedBanner\?\.imageUrl && <div className="mb-6"><ProfileBanner/);
+assert.match(publicProfileApi, /equippedBanner:u\.equippedBannerItem\?\.type === "BANNER"/);
+assert.match(css, /\.dp-rating-banner::before/);
+assert.match(css, /prefers-reduced-motion:reduce[\s\S]*dp-rating-banner::before/);
+assert.match(banner, /duelplay-neon-logo-cropped\.png/);
+assert.doesNotMatch(banner, /fallback|defaultBanner/i);
+console.log("Equipped banner/profile/rating synchronization: PASS (10 source-level scenarios)");

@@ -40,7 +40,8 @@
     "test:frame-animations": "node scripts/test-frame-animations.mjs",
     "test:six-site-fixes": "node scripts/test-six-site-admin-email-rating-fixes.mjs",
     "test:profile-theme-reactivity": "node --experimental-strip-types scripts/test-profile-theme-reactivity.mjs",
-    "test:profile-banner-theme-mask": "node scripts/test-profile-banner-theme-mask.mjs"
+    "test:profile-banner-theme-mask": "node scripts/test-profile-banner-theme-mask.mjs",
+    "test:equipped-banner-rating-sync": "node scripts/test-equipped-banner-rating-sync.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

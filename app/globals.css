@@ -19,7 +19,7 @@
   --font-mono:var(--font-geist-mono)
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth} 
+html{scroll-behavior:smooth}
 html,body,*{-webkit-user-select:none;user-select:none} input,textarea,select,[contenteditable="true"]{-webkit-user-select:text;user-select:text}
 body{position:relative;isolation:isolate;margin:0;background:#050507 var(--global-hero-image, url('/hero-backgrounds/hero-01.jpg')) center/cover fixed no-repeat;color:var(--foreground);font-family:Arial,Helvetica,sans-serif}
 /* Active season uses its own full-site seasonal background. Without a season the normal global background is untouched. */
@@ -528,10 +528,10 @@ input,select,textarea,button{min-width:0;max-width:100%}
 @keyframes dp-banner-perimeter{from{stroke-dashoffset:0}to{stroke-dashoffset:-1000}}
 @media(max-width:640px){.dp-profile-banner{width:100%;aspect-ratio:1983/470}.dp-profile-banner__trail path{stroke-width:1.5;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 3px var(--dp-banner-trail,#ff2f91))}.dp-profile-banner--compact{max-height:3.25rem}}
 @property --dp-rating-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
-.dp-rating-current{position:relative;isolation:isolate;--dp-rating-angle:0deg}
-.dp-rating-current::before{content:"";position:absolute;inset:0;z-index:0;padding:1.5px;border-radius:inherit;pointer-events:none;background:conic-gradient(from var(--dp-rating-angle),transparent 0deg,transparent 238deg,var(--dp-rating-accent,#ff2f91) 270deg,#fff 278deg,var(--dp-rating-accent,#ff2f91) 286deg,transparent 316deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:dp-rating-perimeter 4.8s linear infinite;filter:drop-shadow(0 0 3px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 6px color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 65%,transparent))}
-.dp-rating-current>*{position:relative;z-index:1}
-.dp-rating-current:hover::before{filter:drop-shadow(0 0 4px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 9px var(--dp-rating-accent,#ff2f91))}
+.dp-rating-banner{position:relative;isolation:isolate;--dp-rating-angle:0deg;background:color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 5%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 24%,transparent),0 0 15px color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 8%,transparent)}
+.dp-rating-banner::before{content:"";position:absolute;inset:0;z-index:0;padding:1.5px;border-radius:inherit;pointer-events:none;background:conic-gradient(from var(--dp-rating-angle),transparent 0deg,transparent 238deg,var(--dp-rating-accent,#ff2f91) 270deg,#fff 278deg,var(--dp-rating-accent,#ff2f91) 286deg,transparent 316deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:dp-rating-perimeter 4.8s linear infinite;filter:drop-shadow(0 0 2px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 4px color-mix(in srgb,var(--dp-rating-accent,#ff2f91) 55%,transparent))}
+.dp-rating-banner>*{position:relative;z-index:1}
+.dp-rating-banner:hover::before{filter:drop-shadow(0 0 3px var(--dp-rating-accent,#ff2f91)) drop-shadow(0 0 6px var(--dp-rating-accent,#ff2f91))}
 @keyframes dp-rating-perimeter{to{--dp-rating-angle:360deg}}
 .dp-theme-title{--dp-title-accent:#ff2f91;color:color-mix(in srgb,var(--dp-title-accent) 76%,white);border-color:color-mix(in srgb,var(--dp-title-accent) 48%,transparent);background:color-mix(in srgb,var(--dp-title-accent) 12%,transparent);box-shadow:0 0 9px color-mix(in srgb,var(--dp-title-accent) 16%,transparent);text-shadow:0 0 10px color-mix(in srgb,var(--dp-title-accent) 22%,transparent)}
-@media(prefers-reduced-motion:reduce){.dp-profile-banner__trail path{animation:none!important;stroke-dasharray:none;stroke-width:1.3;filter:none}.dp-rating-current::before{animation:none!important;background:var(--dp-rating-accent,#ff2f91);filter:none;opacity:.85}}
+@media(prefers-reduced-motion:reduce){.dp-profile-banner__trail path{animation:none!important;stroke-dasharray:none;stroke-width:1.3;filter:none}.dp-rating-banner::before{animation:none!important;background:var(--dp-rating-accent,#ff2f91);filter:none;opacity:.85}}
