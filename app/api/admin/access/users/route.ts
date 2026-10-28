@@ -72,6 +72,8 @@ export async function GET(request: NextRequest) {
         avatarUrl: true,
         steamAvatarUrl: true,
         role: true,
+        steamId: true,
+        adminRoleAssignment: { select: { roleCode: true, level: true } },
         status: true,
         createdAt: true,
       },
@@ -89,16 +91,28 @@ export async function GET(request: NextRequest) {
 
     const lastActiveMap = new Map(latestSessions.map((s) => [s.userId, s._max.lastActiveAt]));
 
-    const items = users.map((u) => ({
+    const ownerSteamId = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
+    const items = users.map((u) => {
+      // The card badge reflects the authoritative assignment/owner identity,
+      // not merely the legacy User.role column. Founder is never inferred from
+      // a nickname, and SUPERADMIN users are not promoted to Founder.
+      const assignedRole = u.adminRoleAssignment?.roleCode;
+      const isFounder = (assignedRole === "FOUNDER" && u.adminRoleAssignment?.level === 999)
+        || Boolean(ownerSteamId && u.steamId && u.steamId === ownerSteamId);
+      const roleCode = isFounder ? "FOUNDER" : assignedRole || u.role;
+      const roleLevel = isFounder ? 999 : u.adminRoleAssignment?.level ?? null;
+      return {
       id: u.id,
       nickname: u.nickname,
       avatarUrl: u.avatarUrl || u.steamAvatarUrl || "/images/avatar-placeholder.svg",
-      role: u.role,
+      role: roleCode,
+      roleCode,
+      roleLevel,
       status: u.status,
       createdAt: u.createdAt.toISOString(),
       online: onlineSet.has(u.id),
       lastActiveAt: lastActiveMap.get(u.id)?.toISOString() ?? null,
-    }));
+    }; });
 
     return NextResponse.json(
       {

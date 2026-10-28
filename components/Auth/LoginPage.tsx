@@ -97,9 +97,11 @@ export default function LoginPage() {
     steamPopupRef.current = popup;
     steamTimeoutRef.current = window.setTimeout(() => {
       if (steamHandledRef.current) return;
-      clearSteamWait();
+      // Show a recoverable timeout, but keep the popup/channel listeners alive:
+      // Steam may still complete the callback after this UI deadline.
+      steamTimeoutRef.current = null;
       setError("Ожидание Steam заняло слишком много времени. Если вход не завершился, попробуй ещё раз.");
-    }, 120_000);
+    }, 240_000);
     try { popup.focus(); } catch {}
   }
 

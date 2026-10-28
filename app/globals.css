@@ -497,3 +497,21 @@ input,select,textarea,button{min-width:0;max-width:100%}
 @media(prefers-reduced-motion:reduce){
   .frame-glow{animation:none!important;will-change:auto}
 }
+
+/* Additional signature animations for existing catalog frames. These classes
+   only affect the transparent frame image, never the avatar underneath. */
+.frame-glow--neon-frame{animation-name:dp-frame-neon-pulse;animation-duration:3.4s}
+.frame-glow--pink-signal{animation-name:dp-frame-pink-signal;animation-duration:3.8s}
+.frame-glow--pink-scheme{animation-name:dp-frame-pink-scheme;animation-duration:4.6s}
+.frame-glow--violet-vector{animation-name:dp-frame-violet-vector;animation-duration:3.6s}
+.frame-glow--deep-prism{animation-name:dp-frame-deep-prism;animation-duration:4.2s}
+.frame-glow--titanium-rose{animation-name:dp-frame-titanium-rose;animation-duration:4.8s}
+.frame-glow--golden-sovereign{animation-name:dp-frame-golden-sovereign;animation-duration:5.2s}
+.frame-glow--rising-eclipse{animation-name:dp-frame-rising-eclipse;animation-duration:4.4s}
+@keyframes dp-frame-pink-signal{0%,100%{filter:drop-shadow(0 0 2px rgba(255,79,189,.35))}50%{filter:drop-shadow(0 0 7px rgba(255,79,189,.72)) drop-shadow(0 0 12px rgba(255,79,189,.2))}}
+@keyframes dp-frame-pink-scheme{0%,100%{filter:drop-shadow(0 0 2px rgba(255,105,180,.3))}50%{filter:drop-shadow(0 0 5px rgba(255,105,180,.58)) drop-shadow(0 0 8px rgba(244,114,182,.28))}}
+@keyframes dp-frame-violet-vector{0%,100%{filter:drop-shadow(0 0 2px rgba(167,139,250,.35)) drop-shadow(0 0 4px rgba(103,232,249,.12))}50%{filter:drop-shadow(0 0 6px rgba(167,139,250,.75)) drop-shadow(0 0 11px rgba(103,232,249,.32))}}
+@keyframes dp-frame-deep-prism{0%,100%{filter:drop-shadow(0 0 2px rgba(99,102,241,.3))}50%{filter:drop-shadow(0 0 6px rgba(99,102,241,.68)) drop-shadow(0 0 10px rgba(45,212,191,.28))}}
+@keyframes dp-frame-titanium-rose{0%,100%{filter:drop-shadow(0 0 2px rgba(203,213,225,.28)) drop-shadow(0 0 4px rgba(244,114,182,.15))}50%{filter:drop-shadow(0 0 5px rgba(203,213,225,.55)) drop-shadow(0 0 9px rgba(244,114,182,.36))}}
+@keyframes dp-frame-golden-sovereign{0%,100%{filter:drop-shadow(0 0 2px rgba(245,196,81,.3))}50%{filter:drop-shadow(0 0 6px rgba(255,220,130,.72)) drop-shadow(0 0 11px rgba(245,158,11,.3))}}
+@keyframes dp-frame-rising-eclipse{0%,100%{filter:drop-shadow(0 0 2px rgba(192,132,252,.35)) drop-shadow(0 0 4px rgba(251,113,133,.14))}50%{filter:drop-shadow(0 0 6px rgba(192,132,252,.68)) drop-shadow(0 0 10px rgba(251,113,133,.35))}}

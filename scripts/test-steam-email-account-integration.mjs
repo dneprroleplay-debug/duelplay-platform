@@ -44,7 +44,7 @@ check(!/postMessage\([^,]+,\s*["']\*["']/.test(steamCallback), "Popup does not u
 check(/duelplay:steam-auth-error/.test(steamCallback) && /steam_conflict/.test(steamCallback), "Error callbacks emit an error result, never a success result");
 check(/event\.origin !== window\.location\.origin/.test(loginPage) && /event\.source !== steamPopupRef\.current/.test(loginPage) && /result\.intent !== "login"/.test(loginPage), "Login tab validates message origin, expected popup source, and login intent");
 check(/refresh\(\)/.test(loginPage) && /router\.replace\("\/"\)/.test(loginPage), "Login tab verifies the real session and redirects after refresh");
-check(/new BroadcastChannel\("duelplay-steam-oauth-v1"\)/.test(loginPage) && /120_000/.test(loginPage), "Login tab listens only while waiting and has a finite OAuth timeout");
+check(/new BroadcastChannel\("duelplay-steam-oauth-v1"\)/.test(loginPage) && /240_000/.test(loginPage), "Login tab listens for OAuth completion with the extended finite 240-second timeout");
 check(/refresh: \(\) => Promise<HeaderUser \| null>/.test(authContext), "AuthContext refresh returns the server-confirmed user without requiring a second request");
 check(/STEAM_REQUIRED/.test(matchStart) && /!match\.playerOne\.steamId \|\| !match\.playerTwo\?\.steamId/.test(matchStart), "A real match cannot start without actual Steam IDs (except existing local test accounts)");
 check(/STEAM_REQUIRED/.test(claimRoute) && /!match\.playerOne\.steamId \|\| !match\.playerTwo\?\.steamId/.test(claimRoute), "Server manager refuses to claim a real match without Steam IDs");

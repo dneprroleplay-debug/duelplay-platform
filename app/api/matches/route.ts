@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
         where: {
           economyMode: "REAL",
           status: { in: ["WAITING_FOR_PLAYERS", "READY", "STARTING", "LIVE", "FINISHED", "CANCELLED", "DISPUTED"] },
+          playerOneId: { not: null },
         },
         select: {
           id: true, status: true, mode: true, mapName: true, betAmount: true, createdAt: true,

@@ -10,6 +10,8 @@ type PresenceUser = {
   nickname: string;
   avatarUrl: string;
   role: string;
+  roleCode?: string;
+  roleLevel?: number | null;
   status: string;
   createdAt: string;
   online: boolean;
@@ -39,6 +41,17 @@ function formatLastActive(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function adminRoleLabel(user: PresenceUser, language: string): string {
+  const role = user.roleCode || user.role;
+  if (role === "FOUNDER" && user.roleLevel === 999) {
+    if (language === "RU") return "ОСНОВАТЕЛЬ · 999";
+    if (language === "UA") return "ЗАСНОВНИК · 999";
+    if (language === "PL") return "ZAŁOŻYCIEL · 999";
+    return "FOUNDER · 999";
+  }
+  return role;
 }
 
 function registrationLabel(language: string): string {
@@ -279,7 +292,7 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
 
               <div className="shrink-0 text-right">
                 <span className="rounded-md border border-white/8 bg-white/[.04] px-1.5 py-0.5 text-[9px] font-black uppercase text-zinc-400">
-                  {u.role}
+                  {adminRoleLabel(u, language)}
                 </span>
               </div>
             </div>

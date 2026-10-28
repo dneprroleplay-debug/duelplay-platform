@@ -33,3 +33,25 @@ assert.match(rating, /shadow-\[inset_0_0_0_1px_rgba\(255,47,145/);
 for (const lang of ["Регистрация", "Реєстрація", "Rejestracja", "Registered"]) assert.ok(adminUi.includes(lang));
 for (const lang of ["Последние матчи", "Останні матчі", "Ostatnie mecze", "Latest matches"]) assert.ok(recent.includes(lang));
 console.log("Six site/admin/email/rating fixes: source-contract checks PASS");
+
+
+// Follow-up founder/email/Steam/frame requirements.
+const login = read("../components/Auth/LoginPage.tsx");
+const profile = read("../app/profile/page.tsx");
+const framesCss = read("../app/globals.css");
+assert.match(adminApi, /adminRoleAssignment:\s*\{\s*select:\s*\{ roleCode: true, level: true \} \}/);
+assert.match(adminApi, /assignedRole === "FOUNDER" && u\.adminRoleAssignment\?\.level === 999/);
+assert.match(adminApi, /roleCode = isFounder \? "FOUNDER" : assignedRole \|\| u\.role/);
+assert.match(adminUi, /FOUNDER · 999/);
+assert.match(linkEmail, /mailto:support@duelplaygame\.com/);
+assert.match(linkEmail, /Подтверди Email/);
+assert.match(linkEmail, /10 минут/);
+assert.match(linkEmail, /role="presentation"/);
+assert.match(profile, /mailto:support@duelplaygame\.com/);
+assert.match(profile, /Boolean\(u\.emailVerifiedAt&&u\.email\)/);
+assert.match(profile, /supportHelp/);
+assert.match(login, /}, 240_000\)/);
+assert.match(login, /keep the popup\/channel listeners alive/);
+for (const slug of ["neon-frame", "pink-signal", "pink-scheme", "violet-vector", "deep-prism", "titanium-rose", "golden-sovereign", "rising-eclipse"]) assert.ok(framesCss.includes(`frame-glow--${slug}`), `missing frame animation ${slug}`);
+assert.match(framesCss, /prefers-reduced-motion:reduce/);
+console.log("Founder/email/support/Steam/frame follow-up checks: PASS");
