@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,12 @@ namespace
 {
 ISmmAPI* g_ismm = nullptr;
 INetworkStringTableContainer* g_stringTables = nullptr;
+
+// Keeps avatar PNG bytes alive for as long as the override is registered.
+// Network string table stores a raw pointer into this buffer; freeing it
+// (e.g. when the command's local vector went out of scope) caused a
+// use-after-free SIGSEGV when CS2 later read the avatar on player connect.
+std::map<uint64_t, std::vector<unsigned char>> g_avatarData;
 
 INetworkStringTableContainer* AcquireStringTables()
 {
@@ -95,6 +102,7 @@ bool ClearAvatarOverride(uint64_t steamId)
     if (index <= 0)
     {
         META_CONPRINTF("[DuelPlayPlayerAvatar] no avatar override for %s\n", key);
+        g_avatarData.erase(steamId);
         return true;
     }
 
@@ -110,6 +118,7 @@ bool ClearAvatarOverride(uint64_t steamId)
     META_CONPRINTF("[DuelPlayPlayerAvatar] cleared avatar sid=%s index=%d\n",
                    key, index);
 
+    g_avatarData.erase(steamId);
     return true;
 }
 
@@ -167,11 +176,15 @@ bool SetAvatarOverride(
     char key[32];
     FormatSteamId(steamId, key, sizeof(key));
 
+    // Persist the bytes so the network string table's raw pointer stays valid
+    // after this command returns (prevents use-after-free on player connect).
+    g_avatarData[steamId] = data;
+
     SetStringUserDataRequest_t userData{};
     userData.m_pRawData =
-        const_cast<unsigned char*>(data.data());
+        const_cast<unsigned char*>(g_avatarData[steamId].data());
     userData.m_cbDataSize =
-        static_cast<unsigned int>(data.size());
+        static_cast<unsigned int>(g_avatarData[steamId].size());
 
     int index = table->FindStringIndex(key);
 

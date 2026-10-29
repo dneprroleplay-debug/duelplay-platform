@@ -11,7 +11,7 @@ add_compile_options(-include strings.h)
 # CS2 / Metamod dependencies
 # =========================
 set(HL2SDK "/home/ubuntu/duelplay-build-deps/hl2sdk-cs2")
-set(MMSOURCE "/home/ubuntu/duelplay-build-deps/metamod-source")
+set(MMSOURCE "/home/ubuntu/duelplay-build-deps/metamod-source-1411")
 
 set(HL2SDK_PUBLIC "${HL2SDK}/public")
 set(METAMOD_CORE "${MMSOURCE}/core")
@@ -119,6 +119,7 @@ add_library(DuelPlayPlayerAvatar SHARED
 
 target_include_directories(DuelPlayPlayerAvatar PRIVATE
     "${METAMOD_CORE}"
+    "${METAMOD_CORE}/sourcehook"
     "${KHOOK_INCLUDE}"
     "${HL2SDK_PUBLIC}"
     "${HL2SDK_PUBLIC}/tier0"

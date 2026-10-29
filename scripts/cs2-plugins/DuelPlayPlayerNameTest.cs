@@ -46,9 +46,12 @@ public sealed class DuelPlayPlayerName : BasePlugin
 
         var player = Utilities.GetPlayers()
             .FirstOrDefault(p =>
+                p is not null &&
                 p.IsValid &&
                 !p.IsBot &&
-                p.SteamID == steamId
+                p.SteamID == steamId &&
+                p.PlayerPawn is not null &&
+                p.PlayerPawn.IsValid
             );
 
         if (player is null)
@@ -57,7 +60,17 @@ public sealed class DuelPlayPlayerName : BasePlugin
             return;
         }
 
-        player.PlayerName = nickname;
+        // Setting the name on a not-yet-initialized player controller can crash
+        // CS2 (SIGSEGV) during ConnectClient. Only apply once the pawn exists.
+        try
+        {
+            player.PlayerName = nickname;
+        }
+        catch
+        {
+            command.ReplyToCommand($"Player {steamId} is not ready for name override.");
+            return;
+        }
 
         command.ReplyToCommand(
             $"DuelPlay nickname set: {steamId} -> {nickname}"
