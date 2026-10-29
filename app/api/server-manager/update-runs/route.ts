@@ -74,8 +74,14 @@ export async function PATCH(request: Request) {
   const runId = typeof body.runId === "string" && /^[0-9a-f-]{36}$/i.test(body.runId) ? body.runId : "";
   const stage = String(body.stage ?? "");
   const status = body.status === undefined ? undefined : String(body.status);
-  if (!runId || !RUN_STAGES.has(stage) || (status !== undefined && status !== "RUNNING" && !TERMINAL_STATUSES.has(status))) {
-    return NextResponse.json({ errorCode: "INVALID_RUN_UPDATE" }, { status: 400 });
+  if (!runId) {
+    return NextResponse.json({ errorCode: "INVALID_RUN_ID" }, { status: 400 });
+  }
+  if (!RUN_STAGES.has(stage)) {
+    return NextResponse.json({ errorCode: "INVALID_RUN_STAGE", stage }, { status: 400 });
+  }
+  if (status !== undefined && status !== "RUNNING" && !TERMINAL_STATUSES.has(status)) {
+    return NextResponse.json({ errorCode: "INVALID_RUN_STATUS", status }, { status: 400 });
   }
 
   let checkedInstances: Prisma.InputJsonValue | undefined;
