@@ -18,7 +18,10 @@ export function createUpdateScheduleClient({ apiUrl, secret, fetchImpl = fetch, 
     const text = await response.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch {}
-    if (!response.ok) throw new Error(`DuelPlay schedule API returned HTTP ${response.status}${data.errorCode ? ` (${data.errorCode})` : ''}`);
+    if (!response.ok) {
+      const details = text ? text.slice(0, 1000) : "<empty response body>";
+      throw new Error(`DuelPlay schedule API returned HTTP ${response.status}${data.errorCode ? ` (${data.errorCode})` : ""}; response=${details}`);
+    }
     return data;
   };
 }
