@@ -59,7 +59,7 @@ async function main() {
       }
     },
     readRun: runId => api(`/api/server-manager/update-runs?runId=${encodeURIComponent(runId)}`),
-    reportFailure: (runId, failure) => api('/api/server-manager/update-runs', { method: 'PATCH', body: { runId, status: 'FAILED', stage: 'FAILED', interventionRequired: true, ...failure } }),
+    reportFailure: (runId, failure) => api('/api/server-manager/update-runs', { method: 'PATCH', body: { runId, ...failure, status: 'FAILED', stage: 'FAILED', interventionRequired: true } }),
   });
 
   if (!['NOT_DUE', 'DISABLED'].includes(result.action)) {
