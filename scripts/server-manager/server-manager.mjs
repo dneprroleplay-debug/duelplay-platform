@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { join } from 'node:path';
 import { createTechnicalEventOutbox } from './technical-event-outbox.mjs';
 import { managerHealthSnapshot } from './manager-health.mjs';
+import { isCs2GdbDiagnosticConsumed, markCs2GdbDiagnosticConsumed } from './cs2-gdb-diagnostic-state.mjs';
 import sharp from 'sharp';
 import {
   FIRST_TO_10_KILLS,
@@ -123,6 +124,10 @@ let buyZoneGuardTimer = null;
 const BUY_ZONE_REPORT_SETTLE_MS = 400;
 const BUY_ZONE_GUARD_INTERVAL_MS = 3000;
 const duelRuleTimers = new Set();
+const AVATAR_OVERRIDE_ENABLED = true;
+const CS_DIAGNOSE_GDB = ["1", "true", "yes"].includes(String(process.env.DUELPLAY_CS2_DIAGNOSE_GDB ?? "").trim().toLowerCase());
+let csDiagnoseGdbActive = false;
+const CS_DIAGNOSE_GDB_WRAPPER = "/home/ubuntu/duelplay-app/scripts/server-manager/cs2-gdb-diag.sh";
 let lastRoundRuleApplyAt = 0;
 let shuttingDown = false;
 let lastLogFile = "";
@@ -523,6 +528,7 @@ function writeConfigs() {
 function command(text) {
   const child = current?.process;
   if (!child || child.killed || child.exitCode !== null || child.stdin.destroyed) return false;
+  if (csDiagnoseGdbActive) return false;
   try { child.stdin.write(`${text}\n`); return true; } catch { return false; }
 }
 
@@ -568,6 +574,11 @@ async function syncPlayerAvatar(steamId) {
   const avatarPath = await preparePlayerAvatar(normalized, avatarUrl);
   if (!avatarPath) return;
   if (!current || current.id !== matchId) return;
+
+  if (!AVATAR_OVERRIDE_ENABLED) {
+    console.log(`[DuelPlay] avatar override disabled; skipping ${normalized}`);
+    return;
+  }
 
   if (command(`duelplay_set_player_avatar ${normalized} ${avatarPath}`)) {
     syncedAvatarKeys.set(syncKey, avatarUrl);
@@ -1112,7 +1123,11 @@ async function claimAndStart(match) {
     version: claimed.modeConfigSnapshot?.version,
     checksum: claimed.modeConfigSnapshot?.checksum,
   });
-  const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: process.env });
+  const csDiagnoseGdb = CS_DIAGNOSE_GDB && !isCs2GdbDiagnosticConsumed() && SERVER_ID === 'cs2-2';
+  const csDiagnoseGdbArmed = csDiagnoseGdb && markCs2GdbDiagnosticConsumed();
+  if (csDiagnoseGdbArmed) { csDiagnoseGdbActive = true; }
+  if (csDiagnoseGdb && !csDiagnoseGdbArmed) { console.error('[DuelPlay] CS2 GDB diagnostic marker could not be saved; falling back to the standard CS2 launch.'); }
+  const child = spawn(CS2_SCRIPT, args, { cwd: CS2_DIR, stdio: 'pipe', env: { ...process.env, ...(csDiagnoseGdbArmed ? { GAME_DEBUGGER: CS_DIAGNOSE_GDB_WRAPPER } : {}) } });
   reportTechnicalEvent({ source: 'cs2', category: 'process.starting', severity: 'INFO', message: 'CS2 process start requested.', matchId: match.id, correlationId: match.id, details: { pid: child.pid ?? null, port: runtimePort } });
   current = {
     id: match.id,
@@ -1188,6 +1203,7 @@ async function claimAndStart(match) {
   child.stdout?.on('error', () => {});
   child.stderr?.on('error', () => {});
   child.on('error', async (error) => {
+    csDiagnoseGdbActive = false;
     console.error('[DuelPlay] CS2 process error', error);
     const failed = current;
     reportTechnicalEvent({ source: 'cs2', category: 'process.start-failed', severity: 'CRITICAL', message: 'CS2 process failed to start.', matchId: failed?.id ?? match.id, correlationId: failed?.id ?? match.id, details: { errorCode: error.code ?? null, syscall: error.syscall ?? null } });
@@ -1200,6 +1216,7 @@ async function claimAndStart(match) {
   });
   child.on('exit', async (code, signal) => {
     clearCurrentTimers();
+    csDiagnoseGdbActive = false;
     const finished = current;
     current = null;
     try { resetModeConfigs(); } catch (resetError) { console.error('[DuelPlay] failed to reset mode configs after process exit', resetError); }
@@ -1282,8 +1299,12 @@ async function claimAndStart(match) {
           current.playerOneAvatarUrl
         );
         if (avatarPath) {
-          command(`duelplay_set_player_avatar ${current.playerOneSteamId} ${avatarPath}`);
-          console.log(`[DuelPlay] syncing CS2 avatar ${current.playerOneSteamId} -> ${avatarPath}`);
+          if (!AVATAR_OVERRIDE_ENABLED) {
+            console.log(`[DuelPlay] avatar override disabled; skipping ${current.playerOneSteamId}`);
+          } else {
+            command(`duelplay_set_player_avatar ${current.playerOneSteamId} ${avatarPath}`);
+            console.log(`[DuelPlay] syncing CS2 avatar ${current.playerOneSteamId} -> ${avatarPath}`);
+          }
         }
       }
 
@@ -1293,8 +1314,12 @@ async function claimAndStart(match) {
           current.playerTwoAvatarUrl
         );
         if (avatarPath) {
-          command(`duelplay_set_player_avatar ${current.playerTwoSteamId} ${avatarPath}`);
-          console.log(`[DuelPlay] syncing CS2 avatar ${current.playerTwoSteamId} -> ${avatarPath}`);
+          if (!AVATAR_OVERRIDE_ENABLED) {
+            console.log(`[DuelPlay] avatar override disabled; skipping ${current.playerTwoSteamId}`);
+          } else {
+            command(`duelplay_set_player_avatar ${current.playerTwoSteamId} ${avatarPath}`);
+            console.log(`[DuelPlay] syncing CS2 avatar ${current.playerTwoSteamId} -> ${avatarPath}`);
+          }
         }
       }
 
