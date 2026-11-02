@@ -16,6 +16,7 @@ type PresenceUser = {
   createdAt: string;
   online: boolean;
   lastActiveAt: string | null;
+  demoBalance: string;
 };
 
 type PresenceResponse = {
@@ -26,6 +27,7 @@ type PresenceResponse = {
   limit: number;
   totalPages: number;
   totalFiltered: number;
+  canAdjustDemo: boolean;
   users: PresenceUser[];
 };
 
@@ -77,6 +79,11 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [page, setPage] = useState(1);
+  const [demoDialog, setDemoDialog] = useState<{ user: PresenceUser; operation: "CREDIT" | "DEBIT" } | null>(null);
+  const [demoAmount, setDemoAmount] = useState("");
+  const [demoReason, setDemoReason] = useState("");
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoNotice, setDemoNotice] = useState("");
 
   const load = useCallback(async (isBackground = false) => {
     if (!isBackground) setLoading(true);
@@ -114,6 +121,48 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
     }, 15000);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  const submitDemoAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!demoDialog || demoBusy) return;
+    setDemoBusy(true);
+    setDemoNotice("");
+    try {
+      const response = await fetch("/api/admin/access/demo-balance", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: demoDialog.user.id,
+          operation: demoDialog.operation,
+          amount: demoAmount.trim(),
+          reason: demoReason.trim(),
+          operationId: crypto.randomUUID(),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || "Не удалось изменить DEMO-баланс");
+      setData((current) => current ? ({
+        ...current,
+        users: current.users.map((user) => user.id === demoDialog.user.id ? { ...user, demoBalance: result.balance } : user),
+      }) : current);
+      setDemoNotice(`${demoDialog.operation === "CREDIT" ? "DEMO пополнен" : "DEMO списан"}. Новый баланс: $${result.balance}`);
+      setDemoDialog(null);
+      setDemoAmount("");
+      setDemoReason("");
+    } catch (err) {
+      setDemoNotice(err instanceof Error ? err.message : "Ошибка выполнения операции");
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const openDemoDialog = (user: PresenceUser, operation: "CREDIT" | "DEBIT") => {
+    setDemoNotice("");
+    setDemoAmount("");
+    setDemoReason("");
+    setDemoDialog({ user, operation });
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,7 +294,7 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
           {data.users.map((u) => (
             <div
               key={u.id}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-white/6 bg-white/[.02] p-3 transition hover:border-white/15 hover:bg-white/[.035]"
+              className="flex flex-col gap-3 rounded-2xl border border-white/6 bg-white/[.02] p-3 transition hover:border-white/15 hover:bg-white/[.035]"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <div className="relative shrink-0">
@@ -295,10 +344,39 @@ export default function AdminUsersPresence({ isFullPage = false }: { isFullPage?
                   {adminRoleLabel(u, language)}
                 </span>
               </div>
+              <div className="mt-3 w-full border-t border-white/6 pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">DEMO-баланс</span>
+                  <span className="text-sm font-black tabular-nums text-emerald-300">${Number(u.demoBalance || 0).toFixed(2)}</span>
+                </div>
+                {data?.canAdjustDemo && <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => openDemoDialog(u, "CREDIT")} className="rounded-lg border border-emerald-400/25 bg-emerald-400/[.06] px-2 py-2 text-[10px] font-black text-emerald-200 transition hover:bg-emerald-400/10">Пополнить DEMO</button>
+                  <button type="button" onClick={() => openDemoDialog(u, "DEBIT")} className="rounded-lg border border-amber-400/25 bg-amber-400/[.06] px-2 py-2 text-[10px] font-black text-amber-200 transition hover:bg-amber-400/10">Списать DEMO</button>
+                </div>}
+              </div>
             </div>
           ))}
         </div>
       )}
+
+      {demoNotice && <div role="status" className="mt-4 rounded-xl border border-white/10 bg-white/[.04] px-4 py-3 text-xs text-zinc-200">{demoNotice}</div>}
+
+      {demoDialog && <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !demoBusy) setDemoDialog(null); }}>
+        <form onSubmit={submitDemoAdjustment} className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b0b10] p-5 shadow-2xl sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-[var(--theme-accent)]">ADMIN DEMO ADJUSTMENT</div><h3 className="mt-2 text-xl font-black">{demoDialog.operation === "CREDIT" ? "Пополнить DEMO" : "Списать DEMO"}</h3></div>
+            <button type="button" disabled={demoBusy} onClick={() => setDemoDialog(null)} aria-label="Закрыть" className="rounded-lg border border-white/10 px-3 py-1 text-zinc-400 hover:text-white">✕</button>
+          </div>
+          <div className="mt-5 rounded-xl border border-white/8 bg-white/[.03] p-3"><div className="text-xs text-zinc-500">Пользователь</div><div className="mt-1 font-bold">{demoDialog.user.nickname}</div><div className="mt-3 text-xs text-zinc-500">Текущий DEMO-баланс</div><div className="mt-1 text-2xl font-black tabular-nums text-emerald-300">${Number(demoDialog.user.demoBalance || 0).toFixed(2)}</div></div>
+          <label className="mt-4 block text-xs font-bold text-zinc-400">Сумма (USD)
+            <input required inputMode="decimal" autoComplete="off" value={demoAmount} onChange={(event) => setDemoAmount(event.target.value)} placeholder="Например, 25.00" className="input mt-2 w-full" />
+          </label>
+          <label className="mt-4 block text-xs font-bold text-zinc-400">Причина операции
+            <textarea required minLength={3} maxLength={1000} value={demoReason} onChange={(event) => setDemoReason(event.target.value)} placeholder="Укажи причину корректировки…" rows={3} className="input mt-2 w-full resize-y" />
+          </label>
+          <div className="mt-5 flex gap-2"><button type="button" disabled={demoBusy} onClick={() => setDemoDialog(null)} className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-zinc-300 disabled:opacity-40">Отмена</button><button type="submit" disabled={demoBusy || !demoAmount.trim() || demoReason.trim().length < 3} className="flex-1 rounded-xl bg-[var(--theme-accent)] px-4 py-3 text-sm font-black text-black disabled:opacity-40">{demoBusy ? "Выполняется…" : "Подтвердить"}</button></div>
+        </form>
+      </div>}
 
       {/* Pagination */}
       {data && data.totalPages > 1 && (

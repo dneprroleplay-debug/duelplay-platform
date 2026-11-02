@@ -82,7 +82,7 @@ type DemoWalletOperations = {
   getOrCreateDemoWallet(userId: string): ReturnType<typeof getOrCreateDemoWalletInTransaction>;
   grantDemoStarterCredits(userId: string): ReturnType<typeof grantDemoStarterCreditsInTransaction>;
   creditDemoCredits(userId: string, amount: DemoAmount, idempotencyKey: string, type: "MATCH_WIN", matchId: string, description?: string): ReturnType<typeof creditDemoCreditsInTransaction>;
-  adjustDemoCredits(userId: string, signedAmount: DemoAmount, idempotencyKey: string, description: string): ReturnType<typeof adjustDemoCreditsInTransaction>;
+  adjustDemoCredits(userId: string, signedAmount: DemoAmount, idempotencyKey: string, description: string, metadata?: Prisma.InputJsonValue): ReturnType<typeof adjustDemoCreditsInTransaction>;
   reserveDemoStake(userId: string, matchId: string, amount: DemoAmount, debitIdempotencyKey: string, holdIdempotencyKey: string): ReturnType<typeof reserveDemoStakeInTransaction>;
   closeDemoWalletHold(userId: string, matchId: string, amount: DemoAmount, idempotencyKey: string, finalStatus: "RELEASED" | "CONSUMED"): ReturnType<typeof closeDemoWalletHoldInTransaction>;
   recordDemoMatchFee(matchId: string, amount: DemoAmount, idempotencyKey: string): ReturnType<typeof recordDemoMatchFeeInTransaction>;
@@ -208,6 +208,7 @@ async function creditWithDebtPriority(
   type: "STARTER_GRANT" | "MATCH_WIN" | "MATCH_REFUND" | "BALANCE_ADJUSTMENT",
   matchId?: string,
   description?: string,
+  metadata?: Prisma.InputJsonValue,
 ) {
   const existing = await tx.demoTransaction.findUnique({ where: { idempotencyKey } });
   if (existing) {
@@ -240,7 +241,7 @@ async function creditWithDebtPriority(
   const transaction = await appendWalletTransaction(tx, {
     wallet, balanceBefore: wallet.balance, balanceAfter, amount: credited,
     type, idempotencyKey, matchId, description,
-    metadata: { grossAmount: grossAmount.toFixed(4), debtOffset: debtOffset.toFixed(4) },
+    metadata: { ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}), grossAmount: grossAmount.toFixed(4), debtOffset: debtOffset.toFixed(4) },
   });
   return { idempotent: false, transaction, wallet: updatedWallet };
 }
@@ -288,14 +289,14 @@ async function creditDemoCreditsInTransaction(
 }
 
 async function adjustDemoCreditsInTransaction(
-  tx: DemoWalletTx, userId: string, signedAmount: DemoAmount, idempotencyKey: string, description: string,
+  tx: DemoWalletTx, userId: string, signedAmount: DemoAmount, idempotencyKey: string, description: string, metadata?: Prisma.InputJsonValue,
 ) {
   requireKey(idempotencyKey);
   if (!description?.trim()) throw new Error("ADJUSTMENT_REASON_REQUIRED");
   const delta = decimal(signedAmount);
   if (delta.isZero()) throw new Error("INVALID_AMOUNT");
   const wallet = await lockDemoWalletRow(tx, userId);
-  if (delta.gt(0)) return creditWithDebtPriority(tx, wallet, delta, idempotencyKey, "BALANCE_ADJUSTMENT", undefined, description);
+  if (delta.gt(0)) return creditWithDebtPriority(tx, wallet, delta, idempotencyKey, "BALANCE_ADJUSTMENT", undefined, description, metadata);
   const existing = await existingForWallet(tx, idempotencyKey, {
     walletId: wallet.id, userId, type: "BALANCE_ADJUSTMENT", amount: delta,
   });
@@ -306,7 +307,7 @@ async function adjustDemoCreditsInTransaction(
   const updatedWallet = await tx.demoWallet.update({ where: { id: wallet.id }, data: { balance: after } });
   const transaction = await appendWalletTransaction(tx, {
     wallet, balanceBefore: wallet.balance, balanceAfter: after, amount: delta,
-    type: "BALANCE_ADJUSTMENT", idempotencyKey, description,
+    type: "BALANCE_ADJUSTMENT", idempotencyKey, description, metadata,
   });
   return { idempotent: false, transaction, wallet: updatedWallet };
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdminAccess, requirePermission } from "@/lib/admin-rbac";
+import { requireAdminAccess, requirePermission, hasPermission } from "@/lib/admin-rbac";
 import { getPresenceCutoff } from "@/lib/presence";
 import { Prisma } from "@prisma/client";
 
@@ -118,6 +118,7 @@ export async function GET(request: NextRequest) {
         adminRoleAssignment: { select: { roleCode: true, level: true } },
         status: true,
         createdAt: true,
+        demoWallet: { select: { balance: true } },
       },
       orderBy: { nickname: "asc" },
     });
@@ -154,6 +155,7 @@ export async function GET(request: NextRequest) {
       createdAt: u.createdAt.toISOString(),
       online: onlineSet.has(u.id),
       lastActiveAt: lastActiveMap.get(u.id)?.toISOString() ?? null,
+      demoBalance: u.demoWallet?.balance.toFixed(4) ?? "0.0000",
     }; });
 
     return NextResponse.json(
@@ -165,6 +167,7 @@ export async function GET(request: NextRequest) {
         limit,
         totalPages,
         totalFiltered: filteredCount,
+        canAdjustDemo: hasPermission(access.permissions, "finance.wallet.adjust"),
         users: items,
       },
       { headers: { "Cache-Control": "no-store" } }
