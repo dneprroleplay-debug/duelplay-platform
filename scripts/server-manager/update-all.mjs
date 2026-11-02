@@ -31,7 +31,7 @@ const GAME_DIR = join(COMMON_DIR, 'game');
 const LOG_DIR = process.env.DUELPLAY_CS2_UPDATE_LOG_DIR || '/home/ubuntu/cs2/update-logs';
 const API_URL = String(process.env.DUELPLAY_API_URL || SHARED_ENV.DUELPLAY_API_URL || '').replace(/\/$/, '');
 const MANAGER_SECRET = process.env.DUELPLAY_SERVER_MANAGER_SECRET || SHARED_ENV.DUELPLAY_SERVER_MANAGER_SECRET || '';
-const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
+const STEAMCMD_BIN = process.env.STEAMCMD_BIN || '/usr/games/steamcmd';
 const APP_ID = String(process.env.CS2_APP_ID || '730');
 const DRAIN_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_DRAIN_TIMEOUT_MS || 60 * 60_000);
 const MANAGER_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_MANAGER_TIMEOUT_MS || 180_000);
@@ -330,10 +330,10 @@ function querySteamPublicBuildId() {
   });
 }
 
-function rsyncDriftCheck(server) {
+function rsyncDriftCheck(server, { checksum = false } = {}) {
   return new Promise((resolve, reject) => {
     const args = [
-      '-acni',
+      checksum ? '-acni' : '-ani',
       // --delete is paired with -n only, so target-only files are reported as drift and never removed.
       '--delete',
       '--out-format=DUELPLAY_CHANGE:%i:%n',
@@ -436,7 +436,7 @@ async function verifyRecordedInstanceState(state, installedBuildId, sharedVersio
     if (!sameHashMap(instanceControlFiles, sharedControlFiles) || !sameHashMap(instanceControlFiles, saved.controlFiles)) return false;
     const gameInfo = join(server.root, 'csgo', 'gameinfo.gi');
     if (!existsSync(gameInfo) || normalizePerServerGameInfo(server, readFileSync(gameInfo, 'utf8')) !== readFileSync(gameInfo, 'utf8')) return false;
-    const drift = await rsyncDriftCheck(server);
+    const drift = await rsyncDriftCheck(server, { checksum: true });
     if (!drift.clean) {
       log(`${server.name}: checksum dry-run found ${drift.changes.length} differing path(s); the saved state is not adoptable.`);
       return false;
@@ -819,27 +819,19 @@ async function main() {
   log(`Build comparison: installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}.`);
 
   if (plan.action === 'NO_UPDATE') {
-    log(`NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}; Steam has no newer official build.`);
-    log('Steam Build ID is unchanged; checking instance roots with read-only rsync checksum dry-runs.');
-    currentStage = 'INSTANCE_DRIFT_CHECK';
-    const inspection = await inspectInstanceDrift();
-    checkedInstances.splice(0, checkedInstances.length, ...inspection.checks);
-    updateDiagnostics.splice(0, updateDiagnostics.length, ...instanceDriftDiagnostics(inspection.differences));
-    await reportUpdateRun({ stage: currentStage, checkedInstances, publicBuildId: latestBuildId, installedBuildIdBefore: buildIdBefore, diagnostics: updateDiagnostics });
-    const observedPlan = selectUpdateAction({ latestBuildId, installedBuildId: buildIdBefore, instanceDrift: inspection.differences });
-    if (observedPlan.action === 'INSTANCE_DRIFT') {
-      logInstanceDrift(inspection.differences, buildIdBefore, latestBuildId);
-      persistAttempt('INSTANCE_DRIFT', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId, differingFiles: inspection.differences.length });
-      await setUpdateStatus('INSTANCE_DRIFT');
-      currentStage = 'INSTANCE_DRIFT';
-      await reportUpdateRun({ status: 'INSTANCE_DRIFT', stage: currentStage, interventionRequired: true, maintenanceEnabled: false, syncMarkerActive: false, checkedInstances, diagnostics: updateDiagnostics });
-      return;
-    }
-    log('NO_UPDATE: no instance drift; no app_update, maintenance marker, file sync, or CS2 smoke process is needed.');
+    log(`NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}; no game-directory scan, rsync, maintenance, marker, synchronization, or smoke test is needed.`);
     persistAttempt('NO_UPDATE', { installedBuildId: buildIdBefore, publicBuildId: latestBuildId });
     await setUpdateStatus('NO_UPDATE');
     currentStage = 'NO_UPDATE';
-    await reportUpdateRun({ status: 'NO_UPDATE', stage: currentStage, interventionRequired: false, maintenanceEnabled: false, syncMarkerActive: false, checkedInstances, diagnostics: [] });
+    await reportUpdateRun({
+      status: 'NO_UPDATE',
+      stage: currentStage,
+      interventionRequired: false,
+      maintenanceEnabled: false,
+      syncMarkerActive: false,
+      checkedInstances: [],
+      diagnostics: [],
+    });
     return;
   }
 

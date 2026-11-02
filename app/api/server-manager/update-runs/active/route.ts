@@ -15,8 +15,9 @@ export async function GET(request: Request) {
   ]);
   if (!run) return NextResponse.json({ errorCode: "UPDATE_RUN_NOT_FOUND" }, { status: 404 });
   if (run.status !== "RUNNING") return NextResponse.json({ errorCode: "UPDATE_RUN_NOT_ACTIVE", status: run.status }, { status: 409 });
-  if (run.source !== "STEAM_BUILD" && (!scheduleRead.schedule || scheduleRead.invalid || !scheduleRead.configured || !scheduleRead.schedule.enabled || scheduleRead.schedule.revision !== run.scheduleRevision)) {
-    return NextResponse.json({ errorCode: "SCHEDULE_CHANGED_BEFORE_UPDATE" }, { status: 409 });
+  if (!scheduleRead.schedule || scheduleRead.invalid || !scheduleRead.configured
+    || !scheduleRead.schedule.enabled || scheduleRead.schedule.revision !== run.scheduleRevision) {
+    return NextResponse.json({ errorCode: "SCHEDULE_DISABLED_OR_CHANGED_BEFORE_UPDATE" }, { status: 409 });
   }
   return NextResponse.json({ ok: true, run }, { headers: { "Cache-Control": "no-store" } });
 }

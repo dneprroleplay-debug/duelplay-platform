@@ -9,7 +9,7 @@ const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duel
 const RUN_ENV_FILE = process.env.DUELPLAY_CS2_UPDATE_RUN_ENV_FILE || '/run/duelplay-cs2-update-scheduler/run.env';
 const RECONCILE_SCRIPT = `${dirname(fileURLToPath(import.meta.url))}/reconcile-cs2-maintenance.mjs`;
 const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
-const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
+const STEAMCMD_BIN = process.env.STEAMCMD_BIN || '/usr/games/steamcmd';
 const APP_ID = process.env.CS2_APP_ID || '730';
 
 function readEnvFile(filePath) {
@@ -125,7 +125,23 @@ async function main() {
   const run = await api(`/api/server-manager/update-runs?runId=${encodeURIComponent(claim.runId)}`).catch(() => null);
   if (startResult.exitCode !== 0 || !run || run.status === 'RUNNING') {
     const message = `Automatic updater did not finish cleanly (exit=${startResult.exitCode ?? 'null'}, status=${run?.status ?? 'unknown'}).`;
-    try { await api('/api/server-manager/update-runs', { method: 'PATCH', body: { runId: claim.runId, status: 'FAILED', stage: 'FAILED', errorCode: 'AUTO_UPDATE_START_OR_STATUS_FAILED', errorMessage: message, interventionRequired: true } }); } catch {}
+    const interventionRequired = !run
+      || run.maintenanceEnabled === true
+      || run.syncMarkerActive === true
+      || run.interventionRequired === true;
+    try {
+      await api('/api/server-manager/update-runs', {
+        method: 'PATCH',
+        body: {
+          runId: claim.runId,
+          status: 'FAILED',
+          stage: run?.stage ?? 'FAILED',
+          errorCode: 'AUTO_UPDATE_START_OR_STATUS_FAILED',
+          errorMessage: message,
+          interventionRequired,
+        },
+      });
+    } catch {}
     await heartbeat('ERROR', message);
     throw new Error(message);
   }

@@ -9,6 +9,12 @@ const service = read('scripts/server-manager/duelplay-cs2-update.service');
 const reconcileTimer = read('scripts/server-manager/duelplay-cs2-maintenance-reconcile.timer');
 const reconcileService = read('scripts/server-manager/duelplay-cs2-maintenance-reconcile.service');
 const finalize = read('app/api/server-manager/update-runs/finalize/route.ts');
+const claim = read('app/api/server-manager/update-schedule/claim/route.ts');
+const activeGate = read('app/api/server-manager/update-runs/active/route.ts');
+const scheduler = read('scripts/server-manager/update-schedule-check.mjs');
+const noUpdateStart = updater.indexOf("if (plan.action === 'NO_UPDATE')");
+const noUpdateEnd = updater.indexOf("log(`Update decision:", noUpdateStart);
+const noUpdateBlock = updater.slice(noUpdateStart, noUpdateEnd);
 
 const canonical = 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll';
 const legacy = 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly.dll';
@@ -22,9 +28,14 @@ const checks = [
   ['smoke check uses the canonical plugin path', updater.includes(`['grenade plugin', '${canonical}']`)],
 
   // No-update and drift runs are read-only with respect to the game installs.
-  ['same Build ID dry-runs all instances with checksums', updater.includes('rsyncDriftCheck(server)') && updater.includes("'-acni'")],
+  ['same Build ID exits without scanning game directories or running rsync', noUpdateStart >= 0 && noUpdateEnd > noUpdateStart && noUpdateBlock.includes("persistAttempt('NO_UPDATE'") && !noUpdateBlock.includes('inspectInstanceDrift') && !noUpdateBlock.includes('rsyncDriftCheck')],
+  ['ordinary pre-sync drift uses metadata-only rsync while explicit state adoption retains checksums', updater.includes("checksum ? '-acni' : '-ani'") && updater.includes('rsyncDriftCheck(server, { checksum: true })') && updater.includes('const preUpdateInspection = await inspectInstanceDrift();')],
+  ['Steam Build claims require the enabled admin schedule under its advisory lock', claim.includes('CS2_UPDATE_SCHEDULE_LOCK') && claim.includes('!schedule.enabled') && claim.includes('readCs2UpdateSchedule(tx)')],
+  ['updater rechecks schedule enablement and revision before doing work', activeGate.includes('!scheduleRead.schedule.enabled') && activeGate.includes('scheduleRead.schedule.revision !== run.scheduleRevision') && !activeGate.includes('run.source !== "STEAM_BUILD"')],
+  ['safe pre-mutation FAILED Build ID claims can be retried while unsafe failures remain blocked', claim.includes('existing.status === "FAILED"') && claim.includes('existing.maintenanceEnabled === false') && claim.includes('existing.syncMarkerActive === false') && claim.includes('RETRY_REQUIRES_INTERVENTION')],
+  ['scheduler and updater use the installed absolute SteamCMD path by default', scheduler.includes("|| '/usr/games/steamcmd'") && updater.includes("|| '/usr/games/steamcmd'")],
   ['NO_UPDATE logs installed and public IDs, then returns before app_update, maintenance, markers, sync, and smoke tests', updater.includes('NO_UPDATE installedBuildId=${buildIdBefore} publicBuildId=${latestBuildId}') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await setMaintenance(true);') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('beginSyncMarker();') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf("'+app_update'") && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await syncInstances({') && updater.indexOf("if (plan.action === 'NO_UPDATE')") < updater.indexOf('await smokeCheckServer(server)')],
-  ['INSTANCE_DRIFT is logged and never repaired automatically', updater.includes("observedPlan.action === 'INSTANCE_DRIFT'") && updater.includes('log(`INSTANCE_DRIFT server=') && updater.includes("persistAttempt('INSTANCE_DRIFT'")],
+  ['new Build ID preflight detects and blocks pre-existing instance drift without repair', updater.includes('const preUpdateInspection = await inspectInstanceDrift();') && updater.includes('logInstanceDrift(preUpdateInspection.differences, buildIdBefore, latestBuildId)') && updater.includes("persistAttempt('INSTANCE_DRIFT'") && updater.includes('UPDATE_BLOCKED_BY_INSTANCE_DRIFT')],
   ['pre-existing source conflicts block a new Build ID update before maintenance', updater.indexOf('const preUpdateInspection = await inspectInstanceDrift();') < updater.indexOf('await setMaintenance(true);') && updater.includes('preExistingConflicts.length') && updater.includes('Pre-existing source/instance drift requires review before updating.')],
   ['missing Build IDs cannot trigger recovery downloads', updater.includes("plan.action === 'BLOCKED'") && updater.includes('refusing to update or synchronize any files')],
   ['SteamCMD app_update is invoked at exactly one call site', (updater.match(/\+app_update/g) ?? []).length === 1],
