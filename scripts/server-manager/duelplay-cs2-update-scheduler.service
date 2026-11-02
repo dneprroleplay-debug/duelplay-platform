@@ -1,5 +1,5 @@
 [Unit]
-Description=Poll the central DuelPlay CS2 update schedule and dispatch due runs
+Description=Detect new Steam CS2 builds and dispatch controlled cluster updates
 After=network-online.target
 Wants=network-online.target
 

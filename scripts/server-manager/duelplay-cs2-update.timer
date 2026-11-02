@@ -1,5 +1,5 @@
 [Unit]
-Description=Poll the central DuelPlay CS2 update schedule
+Description=Poll Steam for new DuelPlay CS2 public builds
 
 [Timer]
 OnCalendar=*-*-* *:*:00 Europe/Kyiv

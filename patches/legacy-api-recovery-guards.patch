@@ -1,0 +1,244 @@
+--- a/app/api/server-manager/maintenance/route.ts
++++ b/app/api/server-manager/maintenance/route.ts
+@@ -3,6 +3,7 @@
+ import { getClientIp } from "@/lib/request-meta";
+ import { isServerManagerRequest } from "../auth";
+ import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export async function GET(request: NextRequest) {
+   if (!isServerManagerRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+@@ -62,10 +63,29 @@
+   }
+   const ip = getClientIp(request);
+   const userAgent = request.headers.get("user-agent") || "duelplay-cs2-update";
+-  const row = await prisma.$transaction(async tx => {
++  const transactionResult = await prisma.$transaction(async tx => {
+     let flag: { id: string; enabled: boolean } | null = null;
++    // Serialize every update-control mutation with recovery, including status-only requests.
++    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
++    if (enabled === false || updateStatus) {
++      const unfinished = await getUnfinishedCs2RecoveryKeys(tx);
++      if (unfinished.length > 0) {
++        await tx.auditLog.create({
++          data: {
++            action: "BLOCK_CS2_UPDATE_CONTROL_MUTATION_DURING_RECOVERY",
++            targetType: "PLATFORM",
++            targetId: unfinished[0],
++            ipAddress: ip,
++            userAgent,
++            result: "BLOCKED",
++            reason: "Update control API mutation refused while a CS2 recovery journal was not COMPLETED.",
++            payload: { blockedRecoveryKeys: unfinished, source: "CS2_CONTROLLED_RECOVERY" },
++          },
++        });
++        return { blockedByRecovery: true as const, flag: null };
++      }
++    }
+     if (enabled !== undefined) {
+-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+       flag = await tx.featureFlag.upsert({
+         where: { key: "MAINTENANCE_MODE" },
+         update: { enabled },
+@@ -91,7 +111,10 @@
+         create: { key: "CS2_UPDATE_STATUS", value: updateStatus as object, description: "Latest automated CS2 update status", updatedBy: null },
+       });
+     }
+-    return flag;
++    return { blockedByRecovery: false as const, flag };
+   });
+-  return NextResponse.json({ ok: true, enabled: row?.enabled, message: MAINTENANCE_MESSAGE }, { headers: { "Cache-Control": "no-store" } });
++  if (transactionResult.blockedByRecovery) {
++    return NextResponse.json({ errorCode: "CS2_RECOVERY_IN_PROGRESS" }, { status: 409, headers: { "Cache-Control": "no-store" } });
++  }
++  return NextResponse.json({ ok: true, enabled: transactionResult.flag?.enabled, message: MAINTENANCE_MESSAGE }, { headers: { "Cache-Control": "no-store" } });
+ }
+--- a/app/api/server-manager/update-runs/finalize/route.ts
++++ b/app/api/server-manager/update-runs/finalize/route.ts
+@@ -3,6 +3,7 @@
+ import { prisma } from "@/lib/prisma";
+ import { getAuditContext } from "@/lib/request-meta";
+ import { isFreshServerManagerRequest } from "../../auth";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export const runtime = "nodejs";
+ 
+@@ -43,6 +44,7 @@
+     const result = await prisma.$transaction(async tx => {
+       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:cs2-update-run'), hashtext(${runId}))`;
++      if ((await getUnfinishedCs2RecoveryKeys(tx)).length > 0) throw new Error("CS2_RECOVERY_IN_PROGRESS");
+       const run = await tx.cs2UpdateRun.findUnique({ where: { id: runId } });
+       if (!run) throw new Error("UPDATE_RUN_NOT_FOUND");
+       if (run.status !== "RUNNING") throw new Error("UPDATE_RUN_NOT_RUNNING");
+@@ -119,6 +121,7 @@
+   } catch (error) {
+     const code = error instanceof Error ? error.message : "";
+     if (code === "UPDATE_RUN_NOT_FOUND") return NextResponse.json({ errorCode: code }, { status: 404 });
++    if (code === "CS2_RECOVERY_IN_PROGRESS") return NextResponse.json({ errorCode: code }, { status: 409 });
+     if (code === "UPDATE_RUN_NOT_RUNNING" || code.startsWith("UPDATE_")) return NextResponse.json({ errorCode: code }, { status: 409 });
+     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") return NextResponse.json({ errorCode: "UPDATE_FINALIZATION_CONFLICT" }, { status: 409 });
+     console.error("[CS2_UPDATE_FINALIZE]", error);
+--- a/app/api/server-manager/update-runs/route.ts
++++ b/app/api/server-manager/update-runs/route.ts
+@@ -3,6 +3,7 @@
+ import { prisma } from "@/lib/prisma";
+ import { isFreshServerManagerRequest } from "../auth";
+ import { sanitizeUpdateDiagnostic } from "@/lib/cs2-update-store";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export const runtime = "nodejs";
+ 
+@@ -105,7 +106,9 @@
+ 
+   try {
+     const run = await prisma.$transaction(async tx => {
++      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:cs2-update-run'), hashtext(${runId}))`;
++      if ((await getUnfinishedCs2RecoveryKeys(tx)).length > 0) throw new Error("CS2_RECOVERY_IN_PROGRESS");
+       const current = await tx.cs2UpdateRun.findUnique({ where: { id: runId } });
+       if (!current) throw new Error("UPDATE_RUN_NOT_FOUND");
+       if (current.status !== "RUNNING") {
+@@ -158,7 +161,7 @@
+   } catch (error) {
+     const code = error instanceof Error ? error.message : "";
+     if (code === "UPDATE_RUN_NOT_FOUND") return NextResponse.json({ errorCode: code }, { status: 404 });
+-    if (code === "UPDATE_RUN_ALREADY_FINISHED") return NextResponse.json({ errorCode: code }, { status: 409 });
++    if (code === "UPDATE_RUN_ALREADY_FINISHED" || code === "CS2_RECOVERY_IN_PROGRESS") return NextResponse.json({ errorCode: code }, { status: 409 });
+     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") return NextResponse.json({ errorCode: "UPDATE_RUN_CONFLICT" }, { status: 409 });
+     console.error("[CS2_UPDATE_RUN_REPORT]", error);
+     return NextResponse.json({ errorCode: "UPDATE_RUN_REPORT_FAILED" }, { status: 500 });
+--- a/app/api/server-manager/update-schedule/claim/route.ts
++++ b/app/api/server-manager/update-schedule/claim/route.ts
+@@ -4,6 +4,7 @@
+ import { isFreshServerManagerRequest } from "../../auth";
+ import { getDueCs2UpdateOccurrence } from "@/lib/cs2-update-schedule.mjs";
+ import { CS2_UPDATE_SCHEDULE_LOCK, readCs2UpdateSchedule } from "@/lib/cs2-update-store";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export const runtime = "nodejs";
+ 
+@@ -25,6 +26,10 @@
+ 
+   try {
+     const result = await prisma.$transaction(async tx => {
++      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
++      if ((await getUnfinishedCs2RecoveryKeys(tx)).length > 0) {
++        return { claimed: false, reason: "CS2_RECOVERY_IN_PROGRESS" as const };
++      }
+       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${CS2_UPDATE_SCHEDULE_LOCK}))`;
+       const { schedule, configured, invalid } = await readCs2UpdateSchedule(tx);
+       if (!schedule || !configured || invalid) throw new Error("SCHEDULE_INVALID");
+--- a/app/api/maintenance/route.ts
++++ b/app/api/maintenance/route.ts
+@@ -6,6 +6,7 @@
+ import { auditRequest } from "@/lib/admin";
+ import { requirePermission, resolveAdminAccess } from "@/lib/admin-rbac";
+ import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export async function GET() {
+   const row = await prisma.featureFlag.findUnique({ where: { key: "MAINTENANCE_MODE" } });
+@@ -37,14 +38,24 @@
+   }
+   const enabled = (body as Record<string, unknown>).enabled as boolean;
+ 
+-  const row = await prisma.$transaction(async tx => {
++  const result = await prisma.$transaction(async tx => {
+     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+-    return tx.featureFlag.upsert({
++    if (!enabled) {
++      const blockedRecoveryKeys = await getUnfinishedCs2RecoveryKeys(tx);
++      if (blockedRecoveryKeys.length > 0) return { row: null, blockedRecoveryKeys };
++    }
++    const row = await tx.featureFlag.upsert({
+       where: { key: "MAINTENANCE_MODE" },
+       update: { enabled, updatedBy: me.user.id },
+       create: { key: "MAINTENANCE_MODE", enabled, updatedBy: me.user.id },
+     });
++    return { row, blockedRecoveryKeys: [] as string[] };
+   });
++  if (result.blockedRecoveryKeys.length > 0) {
++    await auditRequest(request, me.user.id, "BLOCK_DISABLE_MAINTENANCE_DURING_CS2_RECOVERY", "PLATFORM", result.blockedRecoveryKeys[0], { result: "BLOCKED", blockedRecoveryKeys: result.blockedRecoveryKeys }, "BLOCKED", "Maintenance disable refused while a CS2 recovery journal was not COMPLETED.");
++    return NextResponse.json({ errorCode: "CS2_RECOVERY_IN_PROGRESS" }, { status: 409, headers: { "Cache-Control": "no-store" } });
++  }
++  const row = result.row!;
+   await auditRequest(request, me.user.id, enabled ? "ENABLE_MAINTENANCE" : "DISABLE_MAINTENANCE", "PLATFORM", row.id, { enabled, result: "SUCCESS" });
+   return NextResponse.json(row, { headers: { "Cache-Control": "no-store" } });
+ }
+--- a/app/api/feature-flags/route.ts
++++ b/app/api/feature-flags/route.ts
+@@ -3,6 +3,7 @@
+ import { audit } from "@/lib/admin";
+ import { requirePermission } from "@/lib/admin-rbac";
+ import { FEATURE_FLAG_DEFAULTS, FEATURE_FLAG_KEYS, validateFeatureFlagPayload } from "@/lib/feature-flags";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ export async function GET() {
+   try {
+@@ -17,8 +18,26 @@
+     const me = await requirePermission("feature_flags.manage");
+     const validation = validateFeatureFlagPayload(await r.json().catch(() => null));
+     if (!validation.ok) return NextResponse.json({ error: "Invalid feature flag payload", errorCode: validation.error }, { status: 400 });
+-    const row = await prisma.featureFlag.upsert({ where: { key: validation.key }, update: { enabled: validation.enabled, updatedBy: me.user.id }, create: { key: validation.key, enabled: validation.enabled, updatedBy: me.user.id } });
+-    await audit(me.user.id, "CHANGE_FEATURE_FLAG", "FEATURE_FLAG", row.id, { key: validation.key, enabled: validation.enabled });
++    let blockedRecoveryKeys: string[] = [];
++    let row: Awaited<ReturnType<typeof prisma.featureFlag.upsert>> | null = null;
++    if (validation.key === "MAINTENANCE_MODE" && validation.enabled === false) {
++      const result = await prisma.$transaction(async tx => {
++        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
++        const blocked = await getUnfinishedCs2RecoveryKeys(tx);
++        if (blocked.length > 0) return { row: null, blockedRecoveryKeys: blocked };
++        const updated = await tx.featureFlag.upsert({ where: { key: validation.key }, update: { enabled: validation.enabled, updatedBy: me.user.id }, create: { key: validation.key, enabled: validation.enabled, updatedBy: me.user.id } });
++        return { row: updated, blockedRecoveryKeys: [] as string[] };
++      });
++      row = result.row;
++      blockedRecoveryKeys = result.blockedRecoveryKeys;
++    } else {
++      row = await prisma.featureFlag.upsert({ where: { key: validation.key }, update: { enabled: validation.enabled, updatedBy: me.user.id }, create: { key: validation.key, enabled: validation.enabled, updatedBy: me.user.id } });
++    }
++    if (blockedRecoveryKeys.length > 0) {
++      await audit(me.user.id, "BLOCK_DISABLE_MAINTENANCE_DURING_CS2_RECOVERY", "PLATFORM", blockedRecoveryKeys[0], { result: "BLOCKED", blockedRecoveryKeys });
++      return NextResponse.json({ errorCode: "CS2_RECOVERY_IN_PROGRESS" }, { status: 409 });
++    }
++    await audit(me.user.id, "CHANGE_FEATURE_FLAG", "FEATURE_FLAG", row!.id, { key: validation.key, enabled: validation.enabled });
+     return NextResponse.json(row);
+   } catch { return NextResponse.json({ error: "SUPERADMIN required" }, { status: 403 }); }
+ }
+--- a/app/api/admin/route.ts
++++ b/app/api/admin/route.ts
+@@ -18,6 +18,7 @@
+ import { assertFinancialStatusUpdateSucceeded, canTransitionDepositStatus, canTransitionWithdrawalStatus, financialStatusPermission, hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
+ import { getClientIp } from "@/lib/request-meta";
+ import { withDemoPolicyTransaction } from "@/lib/demo-policy";
++import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
+ 
+ const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
+ function protectedOwner(u:{steamId:string|null;nickname:string;role:string}){
+@@ -293,8 +294,24 @@
+     if(action==="featureFlag"){
+       const validation=validateFeatureFlagPayload(body);
+       if(!validation.ok)return NextResponse.json({error:"Некорректный feature flag",errorCode:validation.error},{status:400});
+-      const row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
+-      await auditRequest(request, me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row.id,{key:validation.key,enabled:validation.enabled});
++      let row: Awaited<ReturnType<typeof prisma.featureFlag.upsert>> | null = null;
++      if(validation.key==="MAINTENANCE_MODE"&&validation.enabled===false){
++        const result=await prisma.$transaction(async tx=>{
++          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
++          const blockedRecoveryKeys=await getUnfinishedCs2RecoveryKeys(tx);
++          if(blockedRecoveryKeys.length)return {row:null,blockedRecoveryKeys};
++          const updated=await tx.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
++          return {row:updated,blockedRecoveryKeys:[] as string[]};
++        });
++        if(result.blockedRecoveryKeys.length){
++          await auditRequest(request,me.id,"BLOCK_DISABLE_MAINTENANCE_DURING_CS2_RECOVERY","PLATFORM",result.blockedRecoveryKeys[0],{result:"BLOCKED",blockedRecoveryKeys:result.blockedRecoveryKeys},"BLOCKED","Maintenance disable refused while a CS2 recovery journal was not COMPLETED.");
++          return NextResponse.json({errorCode:"CS2_RECOVERY_IN_PROGRESS"},{status:409});
++        }
++        row=result.row;
++      }else{
++        row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
++      }
++      await auditRequest(request, me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row!.id,{key:validation.key,enabled:validation.enabled});
+       return NextResponse.json({ok:true,row});
+     }
+ 

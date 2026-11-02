@@ -795,7 +795,7 @@ async function adoptCurrentSuccessfulState() {
 }
 
 const isAdoptingCurrentState = process.argv.includes('--adopt-current-success');
-const isScheduledRun = process.argv.includes('--scheduled');
+const isScheduledRun = process.argv.includes('--scheduled') || process.argv.includes('--automatic');
 
 async function main() {
   if (!isScheduledRun || !/^[0-9a-f-]{36}$/i.test(UPDATE_RUN_ID)) throw new Error('SCHEDULED_UPDATE_RUN_CLAIM_REQUIRED; refusing to query Steam or modify any files.');
@@ -911,7 +911,7 @@ async function main() {
   await runProcess(STEAMCMD_BIN, [
     '+force_install_dir', COMMON_DIR,
     '+login', 'anonymous',
-    '+app_update', APP_ID, 'validate',
+    '+app_update', APP_ID,
     '+quit',
   ], { cwd: GAME_DIR, timeoutMs: STEAMCMD_TIMEOUT_MS });
   log('SteamCMD app_update completed once against the shared CS2 installation.');

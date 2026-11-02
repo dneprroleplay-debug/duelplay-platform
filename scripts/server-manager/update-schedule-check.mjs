@@ -3,11 +3,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createUpdateScheduleClient } from './update-schedule-client.mjs';
-import { pollCs2UpdateSchedule } from '../../lib/cs2-update-poller.mjs';
+import { parseSteamPublicBuildId } from './sync-policy.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const RUN_ENV_FILE = process.env.DUELPLAY_CS2_UPDATE_RUN_ENV_FILE || '/run/duelplay-cs2-update-scheduler/run.env';
 const RECONCILE_SCRIPT = `${dirname(fileURLToPath(import.meta.url))}/reconcile-cs2-maintenance.mjs`;
+const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
+const STEAMCMD_BIN = process.env.STEAMCMD_BIN || 'steamcmd';
+const APP_ID = process.env.CS2_APP_ID || '730';
 
 function readEnvFile(filePath) {
   if (!existsSync(filePath)) throw new Error(`Missing updater environment file: ${filePath}`);
@@ -41,6 +44,43 @@ async function reconcileStaleMaintenance() {
   }
 }
 
+
+function querySteamPublicBuildId() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(STEAMCMD_BIN, ['+login', 'anonymous', '+app_info_update', '1', '+app_info_print', APP_ID, '+quit'], {
+      cwd: COMMON_DIR, env: process.env, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    let settled = false;
+    const finish = (error, value = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error); else resolve(value);
+    };
+    const append = chunk => { output += chunk.toString(); if (output.length > 4_000_000) output = output.slice(-4_000_000); };
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    child.once('error', error => finish(error));
+    child.once('close', (code, signal) => {
+      if (code !== 0) return finish(new Error(`Steam metadata query failed (exit=${code ?? 'null'}, signal=${signal ?? 'none'}).`));
+      const buildId = parseSteamPublicBuildId(output);
+      if (!buildId) return finish(new Error('Steam public branch Build ID was not found in SteamCMD metadata.'));
+      finish(null, buildId);
+    });
+    const timer = setTimeout(() => { child.kill('SIGTERM'); finish(new Error('Steam metadata query timed out after 120 seconds.')); }, 120_000);
+    timer.unref?.();
+  });
+}
+
+function readInstalledBuildId() {
+  const manifest = `${COMMON_DIR}/steamapps/appmanifest_730.acf`;
+  if (!existsSync(manifest)) throw new Error(`Installed Steam manifest is missing: ${manifest}`);
+  const match = readFileSync(manifest, 'utf8').match(/"buildid"\s+"(\d+)"/);
+  if (!match) throw new Error('Installed CS2 Build ID is missing from appmanifest_730.acf.');
+  return match[1];
+}
+
 async function main() {
   const sharedEnv = readEnvFile(`${CONFIG_DIR}/.env`);
   const api = createUpdateScheduleClient({
@@ -50,36 +90,47 @@ async function main() {
 
   await reconcileStaleMaintenance();
 
-  const result = await pollCs2UpdateSchedule({
-    readSchedule: () => api('/api/server-manager/update-schedule'),
-    updateHeartbeat: body => api('/api/server-manager/update-schedule/heartbeat', { method: 'POST', body }),
-    updaterIsActive: () => {
-      const status = spawnSync('/usr/bin/systemctl', ['is-active', '--quiet', 'duelplay-cs2-update.service'], { encoding: 'utf8' });
-      if (status.error) throw new Error(`Could not query updater service: ${status.error.message}`);
-      if (status.status === 0) return true;
-      if (status.status === 3) return false;
-      throw new Error(`Updater service state is unknown (systemctl exit=${status.status ?? 'null'}).`);
-    },
-    claimRun: body => api('/api/server-manager/update-schedule/claim', { method: 'POST', body }),
-    startUpdater: async runId => {
-      const directory = dirname(RUN_ENV_FILE);
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      const tempPath = `${RUN_ENV_FILE}.${process.pid}.${Date.now()}.tmp`;
-      writeFileSync(tempPath, `DUELPLAY_CS2_UPDATE_RUN_ID=${runId}\n`, { mode: 0o600, flag: 'wx' });
-      renameSync(tempPath, RUN_ENV_FILE);
-      try {
-        return await childExit('/usr/bin/sudo', ['-n', '/usr/bin/systemctl', 'start', 'duelplay-cs2-update.service']);
-      } finally {
-        try { if (existsSync(RUN_ENV_FILE)) unlinkSync(RUN_ENV_FILE); } catch {}
-      }
-    },
-    readRun: runId => api(`/api/server-manager/update-runs?runId=${encodeURIComponent(runId)}`),
-    reportFailure: (runId, failure) => api('/api/server-manager/update-runs', { method: 'PATCH', body: { runId, ...failure, status: 'FAILED', stage: 'FAILED', interventionRequired: true } }),
-  });
+  const heartbeat = async (agentStatus, agentError = null) => {
+    try { await api('/api/server-manager/update-schedule/heartbeat', { method: 'POST', body: { agentStatus, agentError } }); }
+    catch (error) { console.error(`[DuelPlay CS2 scheduler] heartbeat failed: ${error instanceof Error ? error.message : 'unknown error'}`); }
+  };
+  const active = spawnSync('/usr/bin/systemctl', ['is-active', '--quiet', 'duelplay-cs2-update.service'], { encoding: 'utf8' });
+  if (active.error || ![0, 3].includes(active.status)) throw new Error(`Updater service state is unknown (systemctl exit=${active.status ?? 'null'}).`);
+  if (active.status === 0) { await heartbeat('UPDATE_RUNNING'); console.log('[DuelPlay CS2 scheduler] UPDATE_RUNNING'); return; }
 
-  if (!['NOT_DUE', 'DISABLED'].includes(result.action)) {
-    console.log(`[DuelPlay CS2 scheduler] ${result.action}${result.runId ? ` runId=${result.runId}` : ''}${result.reason ? ` reason=${result.reason}` : ''}${result.error ? ` error=${result.error}` : ''}`);
+  const installedBuildId = readInstalledBuildId();
+  const publicBuildId = await querySteamPublicBuildId();
+  console.log(`[DuelPlay CS2 scheduler] Build check installed=${installedBuildId} public=${publicBuildId}`);
+  if (installedBuildId === publicBuildId) { await heartbeat('ONLINE'); return; }
+
+  await heartbeat('UPDATE_DUE');
+  const claim = await api('/api/server-manager/update-schedule/claim', { method: 'POST', body: { source: 'STEAM_BUILD', publicBuildId } });
+  if (!claim?.claimed || !claim.runId) {
+    console.log(`[DuelPlay CS2 scheduler] ${claim?.reason ?? 'AUTO_UPDATE_NOT_CLAIMED'}${claim?.runId ? ` runId=${claim.runId}` : ''}`);
+    await heartbeat('ONLINE', null);
+    return;
   }
+
+  const directory = dirname(RUN_ENV_FILE);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const tempPath = `${RUN_ENV_FILE}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, `DUELPLAY_CS2_UPDATE_RUN_ID=${claim.runId}\n`, { mode: 0o600, flag: 'wx' });
+  renameSync(tempPath, RUN_ENV_FILE);
+  let startResult;
+  try {
+    startResult = await childExit('/usr/bin/sudo', ['-n', '/usr/bin/systemctl', 'start', 'duelplay-cs2-update.service']);
+  } finally {
+    try { if (existsSync(RUN_ENV_FILE)) unlinkSync(RUN_ENV_FILE); } catch {}
+  }
+  const run = await api(`/api/server-manager/update-runs?runId=${encodeURIComponent(claim.runId)}`).catch(() => null);
+  if (startResult.exitCode !== 0 || !run || run.status === 'RUNNING') {
+    const message = `Automatic updater did not finish cleanly (exit=${startResult.exitCode ?? 'null'}, status=${run?.status ?? 'unknown'}).`;
+    try { await api('/api/server-manager/update-runs', { method: 'PATCH', body: { runId: claim.runId, status: 'FAILED', stage: 'FAILED', errorCode: 'AUTO_UPDATE_START_OR_STATUS_FAILED', errorMessage: message, interventionRequired: true } }); } catch {}
+    await heartbeat('ERROR', message);
+    throw new Error(message);
+  }
+  await heartbeat(['FAILED', 'BLOCKED', 'INSTANCE_DRIFT'].includes(String(run.status)) ? 'ERROR' : 'ONLINE', run.errorMessage ?? null);
+  console.log(`[DuelPlay CS2 scheduler] automatic run ${run.status} runId=${claim.runId}`);
 }
 
 try {
