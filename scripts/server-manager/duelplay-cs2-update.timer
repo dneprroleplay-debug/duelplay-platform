@@ -2,7 +2,7 @@
 Description=Poll Steam for new DuelPlay CS2 public builds
 
 [Timer]
-OnCalendar=*-*-* *:*:00 Europe/Kyiv
+OnCalendar=*-*-* 05:00:00 Europe/Kyiv
 AccuracySec=1s
 Persistent=false
 Unit=duelplay-cs2-update-scheduler.service
