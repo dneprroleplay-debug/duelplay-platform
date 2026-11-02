@@ -32,8 +32,6 @@ export const SYNC_EXCLUDES = Object.freeze([
 // reported as a real divergence.
 export const DRIFT_EXCLUDES = Object.freeze(SYNC_EXCLUDES.filter(value => value !== '--exclude=/csgo/maps/workshop'));
 
-export const DEEP_VERIFY_UTC_DAY = 0;
-
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 export function parseBooleanFlag(value) {
@@ -45,10 +43,6 @@ export function parseSteamPublicBuildId(output) {
   return match ? match[1] : null;
 }
 
-export function isDeepVerifyDay(now = new Date(), deepVerifyUtcDay = DEEP_VERIFY_UTC_DAY) {
-  return now.getUTCDay() === deepVerifyUtcDay;
-}
-
 export function previousRunWasSuccessful(status) {
   return status === 'SUCCEEDED';
 }
@@ -57,20 +51,23 @@ export function selectSyncMode({
   buildIdBefore,
   buildIdAfter,
   previousStatus,
-  now = new Date(),
   forceDeep = false,
-  deepVerifyUtcDay = DEEP_VERIFY_UTC_DAY,
 } = {}) {
   const reasons = [];
+  const deepReasons = [];
+
   if (!buildIdBefore || !buildIdAfter) {
-    reasons.push('build id is unavailable');
+    deepReasons.push('build id is unavailable');
   } else if (buildIdBefore !== buildIdAfter) {
     reasons.push(`build id changed (${buildIdBefore} -> ${buildIdAfter})`);
   }
-  if (forceDeep) reasons.push('DUELPLAY_CS2_DEEP_VERIFY is enabled');
-  if (isDeepVerifyDay(now, deepVerifyUtcDay)) reasons.push('scheduled UTC deep-verification day');
-  if (!previousRunWasSuccessful(previousStatus)) reasons.push(`previous update status is ${previousStatus ?? 'unknown'} (not SUCCEEDED)`);
-  return { deep: reasons.length > 0, reasons };
+
+  if (forceDeep) deepReasons.push('DUELPLAY_CS2_DEEP_VERIFY is enabled');
+  if (!previousRunWasSuccessful(previousStatus)) {
+    deepReasons.push(`previous update status is ${previousStatus ?? 'unknown'} (not SUCCEEDED)`);
+  }
+
+  return { deep: deepReasons.length > 0, reasons: [...reasons, ...deepReasons] };
 }
 
 export function selectUpdateAction({

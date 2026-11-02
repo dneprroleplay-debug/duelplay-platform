@@ -10,7 +10,6 @@ import {
   SYNC_EXCLUDES,
   assertManagersIdle,
   classifySmokeProcessExit,
-  isDeepVerifyDay,
   parseSteamPublicBuildId,
   selectUpdateAction,
   selectSyncMode,
@@ -229,28 +228,25 @@ test('uses quick rsync when the build is unchanged and no deep verification is s
   assert.deepEqual(result.reasons, []);
 });
 
-test('uses full checksum when the build id changes', () => {
+test('uses quick metadata sync when a new Build ID follows a successful update', () => {
   const result = selectSyncMode({
     buildIdBefore: '26144732',
     buildIdAfter: '26144733',
     previousStatus: 'SUCCEEDED',
-    now: MONDAY,
   });
-  assert.equal(result.deep, true);
+  assert.equal(result.deep, false);
   assert.match(result.reasons.join('; '), /build id changed/);
 });
 
-test('uses full checksum on the scheduled UTC deep-verification day', () => {
+test('does not schedule full checksum scans on Sunday', () => {
   assert.equal(SUNDAY.getUTCDay(), 0);
-  assert.equal(isDeepVerifyDay(SUNDAY), true);
   const result = selectSyncMode({
     buildIdBefore: '26144732',
     buildIdAfter: '26144732',
     previousStatus: 'SUCCEEDED',
-    now: SUNDAY,
   });
-  assert.equal(result.deep, true);
-  assert.match(result.reasons.join('; '), /scheduled UTC deep-verification day/);
+  assert.equal(result.deep, false);
+  assert.deepEqual(result.reasons, []);
 });
 
 test('uses full checksum when the forced deep-verification flag is enabled', () => {

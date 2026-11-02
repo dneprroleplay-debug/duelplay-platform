@@ -918,10 +918,9 @@ async function main() {
     buildIdBefore,
     buildIdAfter,
     previousStatus,
-    forceDeep: FORCE_DEEP_VERIFY || plan.deep || plan.runAppUpdate,
+    forceDeep: FORCE_DEEP_VERIFY,
   });
   log(`Synchronization mode: ${deep ? 'checksum-based incremental' : 'quick metadata incremental'}${reasons.length ? ` (${reasons.join('; ')})` : ''}.`);
-  if (!deep) throw new Error('A new Steam Build ID requires checksum-based incremental synchronization; refusing a metadata-only sync.');
 
   await syncInstances({
     servers,
