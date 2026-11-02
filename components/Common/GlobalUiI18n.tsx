@@ -295,8 +295,44 @@ export default function GlobalUiI18n() {
       }, 50);
     }
 
+    function needsRemoteTranslation(text: string) {
+      const value = text.trim();
+      if (!shouldTranslateText(value, lang)) return false;
+      if (translateCanonicalUi(lang, value) || translateDuelPlayTerm(lang, value) || manualTranslation(value, lang)) return false;
+      if (lang !== "EN" && cache.current.has(`${lang}:${value}`)) return false;
+      return true;
+    }
+
+    function addedNodeNeedsTranslation(node: Node): boolean {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return needsRemoteTranslation(node.nodeValue || "");
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return false;
+      const element = node as HTMLElement;
+      if (shouldSkipElement(element)) return false;
+      for (const attribute of TRANSLATABLE_ATTRIBUTES) {
+        const value = element.getAttribute(attribute);
+        if (value && !isProtectedUiValue(value) && needsRemoteTranslation(value)) return true;
+      }
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let textNode: Node | null;
+      while ((textNode = walker.nextNode())) {
+        if (!shouldSkipElement(textNode.parentElement) && needsRemoteTranslation(textNode.nodeValue || "")) return true;
+      }
+      return false;
+    }
+
     void translatePage();
-    const observer = new MutationObserver(() => schedule());
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const addedNode of Array.from(record.addedNodes)) {
+          if (addedNodeNeedsTranslation(addedNode)) {
+            schedule();
+            return;
+          }
+        }
+      }
+    });
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {

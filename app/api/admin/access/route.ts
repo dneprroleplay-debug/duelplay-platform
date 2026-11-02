@@ -16,6 +16,7 @@ function errorResponse(error: unknown) {
 export async function GET() {
   try {
     const access = await requireAdminAccess();
+    const canViewSensitiveUserEmail = access.roleCode === "FOUNDER" && access.level === 999;
     const [assignments, users] = await Promise.all([
       prisma.adminRoleAssignment.findMany({
         include: { user: { select: { id: true, nickname: true, steamId: true, role: true, status: true } } },
@@ -25,7 +26,14 @@ export async function GET() {
         where: { deletedAt: null },
         orderBy: { nickname: "asc" },
         take: 500,
-        select: { id: true, nickname: true, steamId: true, role: true, status: true },
+        select: {
+          id: true,
+          nickname: true,
+          steamId: true,
+          role: true,
+          status: true,
+          ...(canViewSensitiveUserEmail ? { email: true, emailVerifiedAt: true } : {}),
+        },
       }),
     ]);
     const roles = ADMIN_ROLE_CODES.map(code => {
@@ -37,7 +45,11 @@ export async function GET() {
       founder: access.roleCode === "FOUNDER",
       roles,
       assignments: access.roleCode === "FOUNDER" || hasPermission(access.permissions, "roles.manage") ? assignments : [],
-      users: access.roleCode === "FOUNDER" || hasPermission(access.permissions, "roles.manage") ? users : [],
+      users: access.roleCode === "FOUNDER" || hasPermission(access.permissions, "roles.manage")
+        ? users.map(user => canViewSensitiveUserEmail
+          ? user
+          : { id: user.id, nickname: user.nickname, steamId: user.steamId, role: user.role, status: user.status })
+        : [],
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }
