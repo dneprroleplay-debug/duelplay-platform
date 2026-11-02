@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 
 const read = (path) => fs.readFileSync(path, 'utf8');
 const updater = read('scripts/server-manager/update-all.mjs');
+const syncPolicy = read('scripts/server-manager/sync-policy.mjs');
 const timer = read('scripts/server-manager/duelplay-cs2-update.timer');
 const service = read('scripts/server-manager/duelplay-cs2-update.service');
+const reconcileTimer = read('scripts/server-manager/duelplay-cs2-maintenance-reconcile.timer');
+const reconcileService = read('scripts/server-manager/duelplay-cs2-maintenance-reconcile.service');
 const finalize = read('app/api/server-manager/update-runs/finalize/route.ts');
 
 const canonical = 'csgo/addons/counterstrikesharp/plugins/DuelPlayGrenadeOnly/DuelPlayGrenadeOnly.dll';
@@ -27,11 +30,13 @@ const checks = [
   ['SteamCMD app_update is invoked at exactly one call site', (updater.match(/\+app_update/g) ?? []).length === 1],
   ['an update uses checksum-based rsync and never deletes destination files', syncMutation.includes("...(deep ? ['--checksum'] : [])") && !syncMutation.includes('--delete')],
   ['drift inventory is checksum-based and read-only, including target-only paths', updater.includes("'-acni'") && updater.includes("'--delete'") && updater.includes('paired with -n only')],
-  ['per-instance configs, workshop maps and add-ons are excluded from mutation sync', ['--exclude=/csgo/addons', '--exclude=/csgo/cfg', '--exclude=/csgo/maps/workshop', '--exclude=/bin/linuxsteamrt64/steamapps/workshop', '--exclude=/csgo/gameinfo.gi'].every(value => updater.includes(value))],
+  ['per-instance configs, workshop maps and add-ons are excluded from mutation sync', ['--exclude=/csgo/addons', '--exclude=/csgo/cfg', '--exclude=/csgo/maps/workshop', '--exclude=/bin/linuxsteamrt64/steamapps', '--exclude=/csgo/gameinfo.gi'].every(value => syncPolicy.includes(value)) && updater.includes('...SYNC_EXCLUDES')],
   ['protected plugins are only parity-checked, never copied or repaired', updater.includes('findProductionPluginDrift()') && !updater.includes('function ensurePerServerPlugins()') && !updater.includes('function copyFromWorkingServer(')],
   ['component verification happens before maintenance is enabled', updater.indexOf('verifyPerServerComponents();') < updater.indexOf('await setMaintenance(true);')],
   ['active matches/processes are rejected before any server mutation', updater.indexOf('await assertInstancesIdle();') < updater.indexOf('mutationStarted = true;') && updater.indexOf('mutationStarted = true;') < updater.indexOf('await runProcess(STEAMCMD_BIN')],
-  ['an already-running updater status blocks a second operation', updater.includes("previousStatus === 'RUNNING'") && updater.includes('refusing overlapping or uncertain maintenance')],
+  ['a stale RUNNING status is marked interrupted by the lock-owning updater', updater.includes("previousStatus === 'RUNNING'") && updater.includes('treating it as interrupted') && updater.includes('INTERRUPTED_UPDATER_STATE')],
+  ['finalization is retried before an update is declared failed', updater.includes('async function finalizeUpdateRun(') && updater.includes('attempt <= 3') && updater.includes('await finalizeUpdateRun(finalStatus)')],
+  ['SteamCMD is bounded by a timeout', updater.includes('STEAMCMD_TIMEOUT_MS') && updater.includes('timeoutMs: STEAMCMD_TIMEOUT_MS')],
   ['pre-mutation failures restore the previous maintenance state', updater.includes('restoreMaintenanceIfSafe(') && updater.includes('maintenanceTouched')],
   ['server-changing failures keep maintenance enabled and the sync marker', updater.includes('mutationStarted) return false') && updater.includes('sync marker stay in place')],
   ['a smoke process must exit cleanly and have no crash output before update success is recorded', updater.includes('classifySmokeProcessExit(') && updater.includes('readinessChecksPassed = true;')],
@@ -43,6 +48,9 @@ const checks = [
   ['timer polls every minute and delegates due-time decisions to the VPS poller', timer.includes('OnCalendar=*-*-* *:*:00 Europe/Kyiv') && timer.includes('Unit=duelplay-cs2-update-scheduler.service')],
   ['timer does not catch up missed runs after reboot', timer.includes('Persistent=false')],
   ['oneshot update has a bounded runtime', service.includes('Type=oneshot') && service.includes('TimeoutStartSec=90min')],
+  ['update service reconciles stale maintenance on exit', service.includes('ExecStopPost=') && service.includes('reconcile-cs2-maintenance.mjs --auto')],
+  ['maintenance reconcile timer is periodic and runs after boot', reconcileTimer.includes('OnCalendar=*:0/10 Europe/Kyiv') && reconcileTimer.includes('OnBootSec=3min')],
+  ['maintenance reconcile service is a bounded oneshot', reconcileService.includes('Type=oneshot') && reconcileService.includes('reconcile-cs2-maintenance.mjs --auto') && reconcileService.includes('TimeoutStartSec=5min')],
 ];
 
 let failed = 0;

@@ -1,0 +1,15 @@
+[Unit]
+Description=Reconcile stale DuelPlay CS2 maintenance state
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/duelplay-app
+EnvironmentFile=/home/ubuntu/duelplay-app/scripts/server-manager/.env
+EnvironmentFile=-/run/duelplay-cs2-update-scheduler/run.env
+ExecStart=/usr/local/bin/node /home/ubuntu/duelplay-app/scripts/server-manager/reconcile-cs2-maintenance.mjs --auto
+TimeoutStartSec=5min
+StandardOutput=journal
+StandardError=journal

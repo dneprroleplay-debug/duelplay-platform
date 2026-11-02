@@ -1,11 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createUpdateScheduleClient } from './update-schedule-client.mjs';
 import { pollCs2UpdateSchedule } from '../../lib/cs2-update-poller.mjs';
 
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const RUN_ENV_FILE = process.env.DUELPLAY_CS2_UPDATE_RUN_ENV_FILE || '/run/duelplay-cs2-update-scheduler/run.env';
+const RECONCILE_SCRIPT = `${dirname(fileURLToPath(import.meta.url))}/reconcile-cs2-maintenance.mjs`;
 
 function readEnvFile(filePath) {
   if (!existsSync(filePath)) throw new Error(`Missing updater environment file: ${filePath}`);
@@ -28,12 +30,25 @@ function childExit(command, args) {
   });
 }
 
+async function reconcileStaleMaintenance() {
+  // Recovery must never block the appointment itself. The reconciler holds the
+  // same flock as update-all and refuses to act while an updater is running.
+  try {
+    const result = await childExit(process.execPath, [RECONCILE_SCRIPT, '--auto']);
+    if (result.exitCode !== 0) console.error(`[DuelPlay CS2 scheduler] maintenance reconcile exit=${result.exitCode ?? 'null'} signal=${result.signal ?? 'none'}`);
+  } catch (error) {
+    console.error(`[DuelPlay CS2 scheduler] maintenance reconcile failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+}
+
 async function main() {
   const sharedEnv = readEnvFile(`${CONFIG_DIR}/.env`);
   const api = createUpdateScheduleClient({
     apiUrl: process.env.DUELPLAY_API_URL || sharedEnv.DUELPLAY_API_URL || '',
     secret: process.env.DUELPLAY_SERVER_MANAGER_SECRET || sharedEnv.DUELPLAY_SERVER_MANAGER_SECRET || '',
   });
+
+  await reconcileStaleMaintenance();
 
   const result = await pollCs2UpdateSchedule({
     readSchedule: () => api('/api/server-manager/update-schedule'),

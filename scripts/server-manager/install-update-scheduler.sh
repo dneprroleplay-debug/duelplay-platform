@@ -6,13 +6,15 @@ UNIT_DIR="/etc/systemd/system"
 TIMER_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-update.timer"
 UPDATE_SERVICE_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-update.service"
 SCHEDULER_SERVICE_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-update-scheduler.service"
+RECONCILE_SERVICE_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-maintenance-reconcile.service"
+RECONCILE_TIMER_FILE="$PROJECT_DIR/scripts/server-manager/duelplay-cs2-maintenance-reconcile.timer"
 ENV_FILE="$PROJECT_DIR/scripts/server-manager/.env"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root: sudo bash scripts/server-manager/install-update-scheduler.sh"
   exit 1
 fi
-for file in "$TIMER_FILE" "$UPDATE_SERVICE_FILE" "$SCHEDULER_SERVICE_FILE" "$ENV_FILE"; do
+for file in "$TIMER_FILE" "$UPDATE_SERVICE_FILE" "$SCHEDULER_SERVICE_FILE" "$RECONCILE_SERVICE_FILE" "$RECONCILE_TIMER_FILE" "$ENV_FILE"; do
   if [[ ! -f "$file" ]]; then
     echo "Missing required scheduler file: $file"
     exit 1
@@ -30,8 +32,13 @@ fi
 install -m 0644 "$TIMER_FILE" "$UNIT_DIR/duelplay-cs2-update.timer"
 install -m 0644 "$UPDATE_SERVICE_FILE" "$UNIT_DIR/duelplay-cs2-update.service"
 install -m 0644 "$SCHEDULER_SERVICE_FILE" "$UNIT_DIR/duelplay-cs2-update-scheduler.service"
+install -m 0644 "$RECONCILE_SERVICE_FILE" "$UNIT_DIR/duelplay-cs2-maintenance-reconcile.service"
+install -m 0644 "$RECONCILE_TIMER_FILE" "$UNIT_DIR/duelplay-cs2-maintenance-reconcile.timer"
 systemctl daemon-reload
 systemctl enable --now duelplay-cs2-update.timer
+systemctl enable --now duelplay-cs2-maintenance-reconcile.timer
 systemctl is-enabled duelplay-cs2-update.timer
 systemctl is-active duelplay-cs2-update.timer
-systemctl list-timers duelplay-cs2-update.timer --all --no-pager
+systemctl is-enabled duelplay-cs2-maintenance-reconcile.timer
+systemctl is-active duelplay-cs2-maintenance-reconcile.timer
+systemctl list-timers duelplay-cs2-update.timer duelplay-cs2-maintenance-reconcile.timer --all --no-pager

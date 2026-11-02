@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getClientIp } from "@/lib/request-meta";
 import { isServerManagerRequest } from "../auth";
 import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
+import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
 
 export async function GET(request: NextRequest) {
   if (!isServerManagerRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -62,10 +63,29 @@ export async function POST(request: NextRequest) {
   }
   const ip = getClientIp(request);
   const userAgent = request.headers.get("user-agent") || "duelplay-cs2-update";
-  const row = await prisma.$transaction(async tx => {
+  const transactionResult = await prisma.$transaction(async tx => {
     let flag: { id: string; enabled: boolean } | null = null;
+    // Serialize every update-control mutation with recovery, including status-only requests.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+    if (enabled === false || updateStatus) {
+      const unfinished = await getUnfinishedCs2RecoveryKeys(tx);
+      if (unfinished.length > 0) {
+        await tx.auditLog.create({
+          data: {
+            action: "BLOCK_CS2_UPDATE_CONTROL_MUTATION_DURING_RECOVERY",
+            targetType: "PLATFORM",
+            targetId: unfinished[0],
+            ipAddress: ip,
+            userAgent,
+            result: "BLOCKED",
+            reason: "Update control API mutation refused while a CS2 recovery journal was not COMPLETED.",
+            payload: { blockedRecoveryKeys: unfinished, source: "CS2_CONTROLLED_RECOVERY" },
+          },
+        });
+        return { blockedByRecovery: true as const, flag: null };
+      }
+    }
     if (enabled !== undefined) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
       flag = await tx.featureFlag.upsert({
         where: { key: "MAINTENANCE_MODE" },
         update: { enabled },
@@ -91,7 +111,10 @@ export async function POST(request: NextRequest) {
         create: { key: "CS2_UPDATE_STATUS", value: updateStatus as object, description: "Latest automated CS2 update status", updatedBy: null },
       });
     }
-    return flag;
+    return { blockedByRecovery: false as const, flag };
   });
-  return NextResponse.json({ ok: true, enabled: row?.enabled, message: MAINTENANCE_MESSAGE }, { headers: { "Cache-Control": "no-store" } });
+  if (transactionResult.blockedByRecovery) {
+    return NextResponse.json({ errorCode: "CS2_RECOVERY_IN_PROGRESS" }, { status: 409, headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.json({ ok: true, enabled: transactionResult.flag?.enabled, message: MAINTENANCE_MESSAGE }, { headers: { "Cache-Control": "no-store" } });
 }

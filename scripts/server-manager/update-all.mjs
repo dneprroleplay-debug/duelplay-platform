@@ -1,13 +1,29 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createSocket } from 'node:dgram';
 import { dirname, join } from 'node:path';
 import { loadInstanceRegistry } from './instance-registry.mjs';
 import { inspectComponentRoot, validateComponentManifest } from './component-manifest.mjs';
 import { CONTROL_FILES, DRIFT_EXCLUDES, SYNC_EXCLUDES, assertManagersIdle, classifySmokeProcessExit, parseBooleanFlag, parseSteamPublicBuildId, selectSyncMode, selectUpdateAction, syncInstances } from './sync-policy.mjs';
 import { createUpdateScheduleClient } from './update-schedule-client.mjs';
+import { enterFlockOrRelaunch } from '../../lib/cs2-update-recovery-lock.mjs';
+import { createUpdaterSyncMarkerController } from '../../lib/cs2-update-sync-marker.mjs';
 
+// Update and controlled recovery share one kernel lock for the full process
+// lifetime. This prevents update-all marker writes/cleanup from racing recovery.
+const CS2_CONTROL_LOCK_PATH = join(process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2', '.duelplay-cs2-controlled-recovery.lock');
+let cs2ControlLock;
+try {
+  cs2ControlLock = enterFlockOrRelaunch({ lockPath: CS2_CONTROL_LOCK_PATH, scriptPath: process.argv[1] });
+} catch (error) {
+  console.error(`CS2 updater/recovery lock refused: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+if (!cs2ControlLock.isChild) {
+  if (cs2ControlLock.error) console.error(cs2ControlLock.error);
+  process.exit(cs2ControlLock.exitCode);
+}
 const CONFIG_DIR = process.env.DUELPLAY_MANAGER_CONFIG_DIR || '/home/ubuntu/duelplay-app/scripts/server-manager';
 const SHARED_ENV = parseEnvFile(join(CONFIG_DIR, '.env'));
 const COMMON_DIR = process.env.CS2_STEAMCMD_DIR || '/home/ubuntu/cs2';
@@ -20,7 +36,10 @@ const APP_ID = String(process.env.CS2_APP_ID || '730');
 const DRAIN_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_DRAIN_TIMEOUT_MS || 60 * 60_000);
 const MANAGER_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_MANAGER_TIMEOUT_MS || 180_000);
 const SMOKE_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_SMOKE_TIMEOUT_MS || 180_000);
+const STEAMCMD_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_STEAMCMD_TIMEOUT_MS || 60 * 60_000);
+const RSYNC_TIMEOUT_MS = Number(process.env.DUELPLAY_UPDATE_RSYNC_TIMEOUT_MS || 60 * 60_000);
 const SYNC_MARKER = process.env.DUELPLAY_CS2_SYNC_MARKER || join(COMMON_DIR, '.duelplay-sync-in-progress');
+const syncMarkerController = createUpdaterSyncMarkerController(SYNC_MARKER);
 const STATE_FILE = process.env.DUELPLAY_CS2_UPDATE_STATE_FILE || join(COMMON_DIR, '.duelplay-cs2-update-state.json');
 const FORCE_DEEP_VERIFY = parseBooleanFlag(process.env.DUELPLAY_CS2_DEEP_VERIFY) || process.argv.includes('--force');
 const RUN_ID_ARG_INDEX = process.argv.indexOf('--run-id');
@@ -103,6 +122,23 @@ async function setUpdateStage(stage, patch = {}) {
   await reportUpdateRun(patch);
 }
 
+async function finalizeUpdateRun(status) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await updateRunApi()('/api/server-manager/update-runs/finalize', {
+        method: 'POST',
+        body: { runId: UPDATE_RUN_ID, status },
+      });
+    } catch (error) {
+      lastError = error;
+      log(`Finalization attempt ${attempt}/3 failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      if (attempt < 3) await sleep(attempt * 5_000);
+    }
+  }
+  throw lastError;
+}
+
 function recordInstanceCheck(result) {
   const index = checkedInstances.findIndex(item => item.serverName === result.serverName);
   if (index >= 0) checkedInstances[index] = { ...checkedInstances[index], ...result };
@@ -130,14 +166,47 @@ async function waitForMatchDrain() {
 function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     log(`Starting ${command} ${args.join(' ')}`);
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // A separate process group lets a timeout terminate the whole command tree
+    // (for example steamcmd.sh and its steamcmd child) instead of only the shell.
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env || process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    let settled = false;
+    let timeout;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    };
+    const killTree = signal => {
+      if (!child.pid) return;
+      try {
+        if (process.platform !== 'win32') process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch {}
+    };
     child.stdout.on('data', chunk => { const text = chunk.toString(); log(`[stdout] ${text.trimEnd()}`); });
     child.stderr.on('data', chunk => { const text = chunk.toString(); log(`[stderr] ${text.trimEnd()}`); });
-    child.on('error', error => reject(new Error(`${command} failed to start: ${error.message}`)));
+    child.on('error', error => finish(new Error(`${command} failed to start: ${error.message}`)));
     child.on('exit', (code, signal) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} failed (exit=${code ?? 'null'}, signal=${signal ?? 'none'})`));
+      if (code === 0) finish();
+      else finish(new Error(`${command} failed (exit=${code ?? 'null'}, signal=${signal ?? 'none'})`));
     });
+    if (Number.isFinite(options.timeoutMs) && options.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        log(`${command} exceeded ${options.timeoutMs}ms; terminating the process group.`);
+        killTree('SIGTERM');
+        const force = setTimeout(() => killTree('SIGKILL'), 15_000);
+        force.unref?.();
+        finish(new Error(`${command} timed out after ${options.timeoutMs}ms`));
+      }, options.timeoutMs);
+      timeout.unref?.();
+    }
   });
 }
 
@@ -386,16 +455,18 @@ function cs2ProcessesRunning() {
 }
 
 function beginSyncMarker() {
-  writeFileSync(SYNC_MARKER, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { mode: 0o600 });
-  log(`Sync marker created: ${SYNC_MARKER}. New match starts are blocked until the update finishes.`);
+  const result = syncMarkerController.begin();
+  if (result === 'CREATED') {
+    log(`Sync marker created: ${SYNC_MARKER}. New match starts are blocked until the update finishes.`);
+  } else {
+    log(`Sync marker is already owned by this updater: ${SYNC_MARKER}.`);
+  }
 }
 
 function clearSyncMarker(reason) {
   try {
-    if (existsSync(SYNC_MARKER)) {
-      unlinkSync(SYNC_MARKER);
-      log(`Sync marker removed (${reason}).`);
-    }
+    const result = syncMarkerController.clear();
+    if (result === 'REMOVED') log(`Sync marker removed (${reason}).`);
     return true;
   } catch (error) {
     log(`Could not remove sync marker (${reason}): ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -426,7 +497,7 @@ async function syncInstanceFromShared(server, deep) {
     ...(deep ? ['--checksum'] : []),
     ...SYNC_EXCLUDES,
     `${GAME_DIR}/`, `${server.root}/`
-  ], { cwd: COMMON_DIR });
+  ], { cwd: COMMON_DIR, timeoutMs: RSYNC_TIMEOUT_MS });
 }
 
 function verifyInstanceMatchesShared(server, sharedBuild) {
@@ -800,7 +871,25 @@ async function main() {
   const previousStatus = before.updateStatus?.status ?? null;
   previousMaintenance = before.maintenance === true;
   if (previousStatus === 'RUNNING' && before.updateStatus?.runId !== UPDATE_RUN_ID) {
-    throw new Error(`Previous updater status is still RUNNING (started ${before.updateStatus?.startedAt ?? 'unknown'}); refusing overlapping or uncertain maintenance.`);
+    const staleRunId = before.updateStatus?.runId;
+    log(`Previous updater status is still RUNNING (run ${staleRunId ?? 'unknown'}, started ${before.updateStatus?.startedAt ?? 'unknown'}); treating it as interrupted because this run holds the updater lock.`);
+    if (staleRunId) {
+      try {
+        await updateRunApi()('/api/server-manager/update-runs', {
+          method: 'PATCH',
+          body: {
+            runId: staleRunId,
+            status: 'FAILED',
+            stage: 'FAILED',
+            errorCode: 'INTERRUPTED_UPDATER_STATE',
+            errorMessage: 'The previous updater left its run in RUNNING; a new lock-owning run marked it interrupted.',
+            interventionRequired: false,
+          },
+        });
+      } catch (error) {
+        log(`Could not mark interrupted run ${staleRunId}: ${error instanceof Error ? error.message : 'unknown API error'}`);
+      }
+    }
   }
   await reportUpdateRun({ stage: currentStage, maintenanceWasEnabled: previousMaintenance, maintenanceEnabled: previousMaintenance, syncMarkerActive: false });
   log(`Previous maintenance state: ${previousMaintenance ? 'enabled' : 'disabled'}.`);
@@ -824,7 +913,7 @@ async function main() {
     '+login', 'anonymous',
     '+app_update', APP_ID, 'validate',
     '+quit',
-  ], { cwd: GAME_DIR });
+  ], { cwd: GAME_DIR, timeoutMs: STEAMCMD_TIMEOUT_MS });
   log('SteamCMD app_update completed once against the shared CS2 installation.');
   const sharedBuildAfter = readCs2Build(GAME_DIR);
   const buildIdAfter = readSharedBuildId();
@@ -890,7 +979,7 @@ async function main() {
   }
 
   if (!clearSyncMarker('all three instances passed readiness before maintenance release')) throw new Error('SYNC_MARKER_CLEANUP_FAILED');
-  const finalization = await updateRunApi()('/api/server-manager/update-runs/finalize', { method: 'POST', body: { runId: UPDATE_RUN_ID, status: finalStatus } });
+  const finalization = await finalizeUpdateRun(finalStatus);
   maintenanceTouched = false;
   log(finalStatus === 'UPDATED_WITH_DIAGNOSTICS'
     ? 'All three servers passed build, file, manager, port and plugin readiness; post-quit shutdown SIGSEGV was recorded as a diagnostic. Maintenance released after all checks.'
@@ -920,6 +1009,7 @@ try {
           maintenanceTouched = true;
         }
         if (!existsSync(SYNC_MARKER)) beginSyncMarker();
+        else syncMarkerController.assertOwned();
         log('Maintenance and the sync marker remain active after a post-mutation failure.');
       } catch (maintenanceError) {
         log(`Could not confirm safety gates after failure: ${maintenanceError instanceof Error ? maintenanceError.message : 'unknown API error'}`);

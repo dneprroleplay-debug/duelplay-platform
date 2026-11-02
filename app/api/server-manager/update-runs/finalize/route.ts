@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAuditContext } from "@/lib/request-meta";
 import { isFreshServerManagerRequest } from "../../auth";
+import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:cs2-update-run'), hashtext(${runId}))`;
+      if ((await getUnfinishedCs2RecoveryKeys(tx)).length > 0) throw new Error("CS2_RECOVERY_IN_PROGRESS");
       const run = await tx.cs2UpdateRun.findUnique({ where: { id: runId } });
       if (!run) throw new Error("UPDATE_RUN_NOT_FOUND");
       if (run.status !== "RUNNING") throw new Error("UPDATE_RUN_NOT_RUNNING");
@@ -119,6 +121,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (code === "UPDATE_RUN_NOT_FOUND") return NextResponse.json({ errorCode: code }, { status: 404 });
+    if (code === "CS2_RECOVERY_IN_PROGRESS") return NextResponse.json({ errorCode: code }, { status: 409 });
     if (code === "UPDATE_RUN_NOT_RUNNING" || code.startsWith("UPDATE_")) return NextResponse.json({ errorCode: code }, { status: 409 });
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") return NextResponse.json({ errorCode: "UPDATE_FINALIZATION_CONFLICT" }, { status: 409 });
     console.error("[CS2_UPDATE_FINALIZE]", error);

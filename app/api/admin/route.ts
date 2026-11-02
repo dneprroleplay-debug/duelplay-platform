@@ -18,6 +18,7 @@ import { enforceRateLimit, enforceIpRateLimit } from "@/lib/rate-limit";
 import { assertFinancialStatusUpdateSucceeded, canTransitionDepositStatus, canTransitionWithdrawalStatus, financialStatusPermission, hasPermission, permissionForAdminAction, resolveAdminAccess, requirePermission } from "@/lib/admin-rbac";
 import { getClientIp } from "@/lib/request-meta";
 import { withDemoPolicyTransaction } from "@/lib/demo-policy";
+import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
 
 const OWNER_STEAM_ID = process.env.DUELPLAY_OWNER_STEAM_ID?.trim();
 function protectedOwner(u:{steamId:string|null;nickname:string;role:string}){
@@ -293,8 +294,24 @@ export async function PATCH(request:NextRequest){
     if(action==="featureFlag"){
       const validation=validateFeatureFlagPayload(body);
       if(!validation.ok)return NextResponse.json({error:"Некорректный feature flag",errorCode:validation.error},{status:400});
-      const row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
-      await auditRequest(request, me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row.id,{key:validation.key,enabled:validation.enabled});
+      let row: Awaited<ReturnType<typeof prisma.featureFlag.upsert>> | null = null;
+      if(validation.key==="MAINTENANCE_MODE"&&validation.enabled===false){
+        const result=await prisma.$transaction(async tx=>{
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+          const blockedRecoveryKeys=await getUnfinishedCs2RecoveryKeys(tx);
+          if(blockedRecoveryKeys.length)return {row:null,blockedRecoveryKeys};
+          const updated=await tx.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
+          return {row:updated,blockedRecoveryKeys:[] as string[]};
+        });
+        if(result.blockedRecoveryKeys.length){
+          await auditRequest(request,me.id,"BLOCK_DISABLE_MAINTENANCE_DURING_CS2_RECOVERY","PLATFORM",result.blockedRecoveryKeys[0],{result:"BLOCKED",blockedRecoveryKeys:result.blockedRecoveryKeys},"BLOCKED","Maintenance disable refused while a CS2 recovery journal was not COMPLETED.");
+          return NextResponse.json({errorCode:"CS2_RECOVERY_IN_PROGRESS"},{status:409});
+        }
+        row=result.row;
+      }else{
+        row=await prisma.featureFlag.upsert({where:{key:validation.key},update:{enabled:validation.enabled,updatedBy:me.id},create:{key:validation.key,enabled:validation.enabled,updatedBy:me.id}});
+      }
+      await auditRequest(request, me.id,"CHANGE_FEATURE_FLAG","FEATURE_FLAG",row!.id,{key:validation.key,enabled:validation.enabled});
       return NextResponse.json({ok:true,row});
     }
 

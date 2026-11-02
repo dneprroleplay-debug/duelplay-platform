@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically recover DuelPlay CS2 maintenance left on by a failed updater
+
+[Timer]
+OnBootSec=3min
+OnCalendar=*:0/10 Europe/Kyiv
+AccuracySec=30s
+Persistent=false
+Unit=duelplay-cs2-maintenance-reconcile.service
+
+[Install]
+WantedBy=timers.target

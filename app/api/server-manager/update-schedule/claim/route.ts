@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isFreshServerManagerRequest } from "../../auth";
 import { getDueCs2UpdateOccurrence } from "@/lib/cs2-update-schedule.mjs";
 import { CS2_UPDATE_SCHEDULE_LOCK, readCs2UpdateSchedule } from "@/lib/cs2-update-store";
+import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
 
   try {
     const result = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
+      if ((await getUnfinishedCs2RecoveryKeys(tx)).length > 0) {
+        return { claimed: false, reason: "CS2_RECOVERY_IN_PROGRESS" as const };
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${CS2_UPDATE_SCHEDULE_LOCK}))`;
       const { schedule, configured, invalid } = await readCs2UpdateSchedule(tx);
       if (!schedule || !configured || invalid) throw new Error("SCHEDULE_INVALID");

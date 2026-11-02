@@ -6,6 +6,7 @@ import { getClientIp } from "@/lib/request-meta";
 import { auditRequest } from "@/lib/admin";
 import { requirePermission, resolveAdminAccess } from "@/lib/admin-rbac";
 import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
+import { getUnfinishedCs2RecoveryKeys } from "@/lib/cs2-update-recovery-guard";
 
 export async function GET() {
   const row = await prisma.featureFlag.findUnique({ where: { key: "MAINTENANCE_MODE" } });
@@ -37,14 +38,24 @@ export async function PATCH(request: NextRequest) {
   }
   const enabled = (body as Record<string, unknown>).enabled as boolean;
 
-  const row = await prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('duelplay:maintenance-match-ops'))`;
-    return tx.featureFlag.upsert({
+    if (!enabled) {
+      const blockedRecoveryKeys = await getUnfinishedCs2RecoveryKeys(tx);
+      if (blockedRecoveryKeys.length > 0) return { row: null, blockedRecoveryKeys };
+    }
+    const row = await tx.featureFlag.upsert({
       where: { key: "MAINTENANCE_MODE" },
       update: { enabled, updatedBy: me.user.id },
       create: { key: "MAINTENANCE_MODE", enabled, updatedBy: me.user.id },
     });
+    return { row, blockedRecoveryKeys: [] as string[] };
   });
+  if (result.blockedRecoveryKeys.length > 0) {
+    await auditRequest(request, me.user.id, "BLOCK_DISABLE_MAINTENANCE_DURING_CS2_RECOVERY", "PLATFORM", result.blockedRecoveryKeys[0], { result: "BLOCKED", blockedRecoveryKeys: result.blockedRecoveryKeys }, "BLOCKED", "Maintenance disable refused while a CS2 recovery journal was not COMPLETED.");
+    return NextResponse.json({ errorCode: "CS2_RECOVERY_IN_PROGRESS" }, { status: 409, headers: { "Cache-Control": "no-store" } });
+  }
+  const row = result.row!;
   await auditRequest(request, me.user.id, enabled ? "ENABLE_MAINTENANCE" : "DISABLE_MAINTENANCE", "PLATFORM", row.id, { enabled, result: "SUCCESS" });
   return NextResponse.json(row, { headers: { "Cache-Control": "no-store" } });
 }
